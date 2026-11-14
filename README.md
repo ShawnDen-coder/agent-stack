@@ -29,4 +29,4 @@ pnpm cli validate --repo .
 
 ## 当前边界
 
-`lock --dry-run` 报告版本元数据；提供 `--target` 时可预览 Pi、pnpm 和 herdr 的 macOS arm64/x64 与 Windows x64 资产元数据及预期摘要，uv 的目标资产尚未覆盖。pnpm native 映射目前只接受 12.15.0 和 12.18.0；范围选中其他版本时明确阻塞。该报告不生成锁或执行计划；它只读取发行方元数据，不下载发行物，也不完成字节摘要验证、签名验证、传递依赖闭包或运行验收。安装、配置应用、完整锁、`setup` 和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。
+`lock --dry-run` 报告版本元数据；提供 `--target` 时可预览 Pi、pnpm 和 herdr 的 macOS arm64/x64 与 Windows x64 资产元数据及预期摘要，uv 的目标资产尚未覆盖。pnpm native 预览核对已识别的 pnpm 12 发行契约；未知系列或依赖形态不符时阻塞。该报告不生成锁或执行计划；它只读取发行方元数据，不下载发行物，也不完成字节摘要验证、签名验证、传递依赖闭包或运行验收。安装、配置应用、完整锁、`setup` 和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。

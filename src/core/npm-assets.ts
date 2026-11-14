@@ -40,9 +40,12 @@ export function checkNpmTarget(candidate: Candidate, target: string) {
     throw new Error("Cannot determine libc for this target");
 }
 export function pnpmNative(candidate: Candidate, target: string) {
-  if (!["12.15.0", "12.18.0"].includes(candidate.version))
+  if (
+    candidate.name !== "pnpm" ||
+    !semver.satisfies(candidate.version, ">=12.15.0 <13.0.0")
+  )
     throw new Error(
-      `pnpm native mapping is not verified for ${candidate.version}`,
+      `Unsupported pnpm native distribution series: ${candidate.version}`,
     );
   const platform = targets[target];
   if (!platform)
@@ -63,6 +66,20 @@ export function npmAsset(
   role: "top-level" | "native",
 ) {
   checkNpmTarget(candidate, target);
+  if (role === "native") {
+    const platform = targets[target];
+    const fields = targetFieldsSchema.parse(candidate);
+    if (
+      !platform ||
+      fields.os?.length !== 1 ||
+      fields.os[0] !== platform.os ||
+      fields.cpu?.length !== 1 ||
+      fields.cpu[0] !== platform.cpu
+    )
+      throw new Error(
+        "Native package os/cpu metadata does not match the expected target",
+      );
+  }
   return {
     component,
     target,
