@@ -5,12 +5,16 @@ import { profileOption, shared } from "../adapters/options.js";
 import {
   chooseProfile,
   failure,
-  finish,
   progress,
+  resolution,
   start,
 } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
 import { selectCandidate } from "../core/npm-candidate.js";
+import {
+  type ResolutionItem,
+  resolutionReportSchema,
+} from "../core/resolution-report.js";
 import { validateRepository } from "../core/validate.js";
 
 export function createLockCommand(): Command {
@@ -53,20 +57,12 @@ export function createLockCommand(): Command {
         const controller = new AbortController();
         const interrupt = () => controller.abort();
         process.once("SIGINT", interrupt);
+        start("Agent Stack · npm candidate report", Boolean(options.json));
         const stop = progress(
           "Resolving npm candidates",
           Boolean(options.json),
         );
-        let components: Array<{
-          component: string;
-          package?: string;
-          version?: string;
-          tarball?: string;
-          integrity?: string;
-          requirement?: string;
-          metadata?: string;
-          error?: string;
-        }>;
+        let components: ResolutionItem[];
         try {
           components = await Promise.all(
             profile.components.map(async (selection) => {
@@ -125,27 +121,16 @@ export function createLockCommand(): Command {
           failure("Cancelled.", Boolean(options.json));
           return;
         }
-        const report = {
+        const report = resolutionReportSchema.parse({
           kind: "resolution-report",
           profile: profile.id,
           node: process.versions.node,
           components,
           scope:
             "npm top-level candidates only; no lock, target assets, dependency closure, installation or runtime verification",
-        };
-        if (options.json) console.log(JSON.stringify(report, null, 2));
-        else {
-          start("Agent Stack · npm candidate report", false);
-          console.log(`Profile: ${profile.id}\nNode: ${process.versions.node}`);
-          for (const item of components)
-            console.log(
-              item.error
-                ? `[BLOCKED] ${item.component}: ${item.error}`
-                : `[CANDIDATE] ${item.component}: ${item.package}@${item.version}\n  Required: ${item.requirement}\n  Metadata: ${item.metadata}\n  Tarball: ${item.tarball}\n  Expected integrity: ${item.integrity}`,
-            );
-          finish(report.scope, false);
-        }
-        if (components.some((item) => item.error)) process.exitCode = 1;
+        });
+        resolution(report, Boolean(options.json));
+        if (components.some((item) => "error" in item)) process.exitCode = 1;
       } catch (error) {
         if (error instanceof Error && error.name === "CommanderError")
           throw error;

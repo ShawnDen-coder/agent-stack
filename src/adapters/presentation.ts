@@ -11,6 +11,7 @@ import stringWidth from "fast-string-width";
 import { wrapAnsi } from "fast-wrap-ansi";
 import { createColors } from "picocolors";
 import type { assess } from "../core/doctor.js";
+import type { ResolutionReport } from "../core/resolution-report.js";
 import type { Profile, ValidationReport } from "../core/schema.js";
 
 const interactive = () =>
@@ -228,4 +229,41 @@ export function failure(message: string, json: boolean) {
     console.error(
       `\n[ERROR] ${clean(message)}\n  Check the repository and arguments, then retry.`,
     );
+}
+
+export function resolution(report: ResolutionReport, json: boolean) {
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  line(`Profile: ${clean(report.profile)}`);
+  line(`Node: ${clean(report.node)}`);
+  let blocked = 0;
+  for (const item of report.components) {
+    line();
+    if ("error" in item) {
+      blocked++;
+      line(`${colors.red("[BLOCKED]")} ${clean(item.component)}`);
+      line(clean(item.error), "  ");
+    } else {
+      line(
+        `${colors.green("[CANDIDATE]")} ${clean(item.component)}: ${clean(item.package)}@${clean(item.version)}`,
+      );
+      line(`Required: ${clean(item.requirement)}`, "  ");
+      for (const [label, value] of [
+        ["Metadata", item.metadata],
+        ["Tarball", item.tarball],
+        ["Expected integrity", item.integrity],
+      ] as const) {
+        line(`${label}:`, "  ");
+        line(clean(value), "    ", true);
+      }
+    }
+  }
+  line();
+  line(
+    `Candidates: ${report.components.length - blocked}  Blocked: ${blocked}`,
+  );
+  if (blocked) line("Next: Review blocked sources or metadata and retry.");
+  finish(clean(report.scope), false);
 }

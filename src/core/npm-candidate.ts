@@ -1,11 +1,13 @@
 import semver from "semver";
 import { z } from "zod";
 
-const manifestSchema = z.object({
+const selectionSchema = z.object({
   name: z.string(),
   version: z.string(),
   deprecated: z.string().optional(),
   engines: z.object({ node: z.string().optional() }).optional(),
+});
+const manifestSchema = selectionSchema.extend({
   dist: z.object({ tarball: z.string(), integrity: z.string() }),
 });
 const packumentSchema = z.object({
@@ -26,27 +28,37 @@ export function selectCandidate(
   if (metadata.name !== name)
     throw new Error(`Package name mismatch: expected ${name}`);
   const versions = Object.entries(metadata.versions).map(([key, value]) => {
-    const manifest = manifestSchema.parse(value);
+    const manifest = selectionSchema.parse(value);
     if (
       !semver.valid(key) ||
       manifest.version !== key ||
       manifest.name !== name
     )
       throw new Error(`Contradictory package metadata for ${key}`);
-    return manifest;
+    return { manifest, value };
   });
-  const selected = versions
-    .filter((v) => !v.deprecated && semver.satisfies(v.version, range))
-    .sort((a, b) => semver.rcompare(a.version, b.version))[0];
-  if (!selected) throw new Error(`No non-deprecated version matches ${range}`);
-  if (
-    selected.engines?.node &&
-    (!semver.validRange(selected.engines.node) ||
-      !semver.satisfies(node, selected.engines.node))
-  )
+  const matching = versions.filter(
+    ({ manifest }) =>
+      !manifest.deprecated && semver.satisfies(manifest.version, range),
+  );
+  if (!matching.length)
+    throw new Error(`No non-deprecated version matches ${range}`);
+  for (const { manifest } of matching) {
+    if (manifest.engines?.node && !semver.validRange(manifest.engines.node))
+      throw new Error(`Invalid Node engines range: ${manifest.engines.node}`);
+  }
+  const compatible = matching.filter(
+    ({ manifest }) =>
+      !manifest.engines?.node || semver.satisfies(node, manifest.engines.node),
+  );
+  const best = compatible.sort((a, b) =>
+    semver.rcompare(a.manifest.version, b.manifest.version),
+  )[0];
+  if (!best)
     throw new Error(
-      `Node ${node} does not satisfy engines ${selected.engines.node}`,
+      `Node ${node} does not satisfy engines for any matching version`,
     );
+  const selected = manifestSchema.parse(best.value);
   const url = new URL(selected.dist.tarball);
   if (
     url.protocol !== "https:" ||
