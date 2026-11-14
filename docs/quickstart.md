@@ -73,4 +73,4 @@ Windows 原生与 WSL 应使用各自环境中的 Node、pnpm 和 checkout，不
 
 继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。`setup`、`run coding`、完整锁生成和配置应用尚未实现。
 
-指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 herdr 发行物 URL 和 manifest 给出的预期 SHA-256；选项可重复。不指定目标时仅报告版本。默认 coding 的 Pi、pnpm、uv 目标资产未覆盖，因而目标预览退出 1；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。
+指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 Pi、pnpm 顶层与 pnpm native 包的 npm tarball 及预期 SHA-512，以及 herdr 发行物 URL 和 manifest 给出的预期 SHA-256；选项可重复。不指定目标时仅报告版本。pnpm native 映射当前仅核对了 12.15.0 和 12.18.0，其他版本阻塞。默认 coding 的 uv 目标资产未覆盖，因而目标预览退出 1；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。

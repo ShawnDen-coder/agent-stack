@@ -17,7 +17,8 @@ import {
 } from "../adapters/releases.js";
 import { readRepository } from "../adapters/repository.js";
 import { herdrAsset, validTarget } from "../core/herdr-assets.js";
-import { selectCandidate } from "../core/npm-candidate.js";
+import { npmAsset, pnpmNative } from "../core/npm-assets.js";
+import { type Candidate, selectCandidate } from "../core/npm-candidate.js";
 import { selectHerdr, selectUv } from "../core/release-candidate.js";
 import {
   type AssetItem,
@@ -86,6 +87,7 @@ export function createLockCommand(): Command {
         );
         let components: ResolutionItem[];
         let herdrSnapshot: unknown;
+        const npmSnapshots = new Map<string, Candidate>();
         try {
           components = await Promise.all(
             profile.components.map(async (selection) => {
@@ -172,6 +174,7 @@ export function createLockCommand(): Command {
                   selection.version,
                   process.versions.node,
                 );
+                npmSnapshots.set(component.id, candidate);
                 return {
                   component: component.id,
                   package: candidate.name,
@@ -200,6 +203,8 @@ export function createLockCommand(): Command {
         }
         const targets = [...options.target].sort();
         const assets: AssetItem[] = [];
+        process.once("SIGINT", interrupt);
+        const nativeCache = new Map<string, Promise<Candidate>>();
         for (const target of targets) {
           const platform = target.split("-")[0];
           for (const selection of profile.components) {
@@ -215,6 +220,68 @@ export function createLockCommand(): Command {
                 target,
                 error: "Target platform not supported by profile or component",
               });
+              continue;
+            }
+            if (
+              selection.component === "pi" ||
+              selection.component === "pnpm"
+            ) {
+              try {
+                const top = npmSnapshots.get(selection.component);
+                if (!top) throw new Error("npm version metadata unavailable");
+                const expected =
+                  selection.component === "pnpm"
+                    ? "pnpm"
+                    : "@earendil-works/pi-coding-agent";
+                if (top.name !== expected)
+                  throw new Error(
+                    "Unsupported npm source for target asset preview",
+                  );
+                const topAsset = npmAsset(
+                  selection.component,
+                  target,
+                  top,
+                  "top-level",
+                );
+                assets.push(topAsset);
+                if (selection.component === "pnpm") {
+                  const dependency = pnpmNative(top, target);
+                  let pending = nativeCache.get(dependency.name);
+                  if (!pending) {
+                    pending = readPackument(
+                      dependency.name,
+                      controller.signal,
+                    ).then((data) =>
+                      selectCandidate(
+                        data,
+                        dependency.name,
+                        dependency.version,
+                        process.versions.node,
+                      ),
+                    );
+                    nativeCache.set(dependency.name, pending);
+                  }
+                  const native = await pending;
+                  if (
+                    native.name !== dependency.name ||
+                    native.version !== dependency.version
+                  )
+                    throw new Error("Native package identity mismatch");
+                  const nativeAsset = npmAsset(
+                    selection.component,
+                    target,
+                    native,
+                    "native",
+                  );
+                  assets.push(nativeAsset);
+                }
+              } catch (error) {
+                assets.push({
+                  component: selection.component,
+                  target,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
               continue;
             }
             if (selection.component !== "herdr") {
@@ -248,6 +315,12 @@ export function createLockCommand(): Command {
             }
           }
         }
+        process.removeListener("SIGINT", interrupt);
+        if (controller.signal.aborted) {
+          process.exitCode = 130;
+          failure("Cancelled.", Boolean(options.json));
+          return;
+        }
         const report = resolutionReportSchema.parse({
           kind: "resolution-report",
           profile: profile.id,
@@ -255,7 +328,7 @@ export function createLockCommand(): Command {
           components,
           ...(targets.length ? { targets, assets } : {}),
           scope: targets.length
-            ? "Herdr asset metadata only; expected digest is not downloaded-byte verification or signature; other assets, dependency closure, installation, runtime compatibility and complete lock are not checked"
+            ? "npm and herdr asset metadata only; expected digests are not downloaded-byte verification or signatures; uv assets, dependency closure, lifecycle scripts, installation, runtime compatibility and complete lock are not checked"
             : "version metadata only; no lock, target assets, digests for releases, dependency closure, installation or runtime verification",
         });
         resolution(report, Boolean(options.json));

@@ -9,6 +9,10 @@ const selectionSchema = z.object({
 });
 const manifestSchema = selectionSchema.extend({
   dist: z.object({ tarball: z.string(), integrity: z.string() }),
+  os: z.unknown().optional(),
+  cpu: z.unknown().optional(),
+  libc: z.unknown().optional(),
+  optionalDependencies: z.unknown().optional(),
 });
 const packumentSchema = z.object({
   name: z.string(),

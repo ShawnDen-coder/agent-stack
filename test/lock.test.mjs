@@ -875,7 +875,8 @@ test("coding target preview blocks uncovered assets", async (t) => {
   ]);
   assert.equal(r.status, 1, r.stdout);
   const assets = JSON.parse(r.stdout).assets;
-  assert.equal(assets.filter((x) => x.error).length, 3);
+  assert.equal(assets.filter((x) => x.error).length, 2);
+  assert.ok(assets.some((x) => x.component === "pi" && x.role === "top-level"));
   assert.equal(assets.find((x) => x.component === "herdr").sha256, assetHash);
 });
 for (const columns of [40, 80])
@@ -965,4 +966,288 @@ test("herdr target request aborts on PTY interrupt", {
   const output = JSON.parse(r.stdout);
   assert.equal(output.status, 130, output.stderr);
   assert.equal(await readFile(aborted, "utf8"), "yes");
+});
+
+function npmAssetPreload(overrides = {}) {
+  const data = { ...herdrAssetManifest() };
+  return `const opts=${JSON.stringify(overrides)};const hashes=${JSON.stringify(integrity)};globalThis.fetch=async u=>{u=String(u);if(u.startsWith('https://api.github.com/'))return new Response(JSON.stringify([{id:1,tag_name:'0.13.8',html_url:'https://github.com/astral-sh/uv/releases/tag/0.13.8',draft:false,prerelease:false}]));if(u==='https://herdr.dev/latest.json')return new Response(${JSON.stringify(JSON.stringify(data))});const name=decodeURIComponent(u.split('/').pop()),version=name.startsWith('@pnpm/exe.')||name==='pnpm'?'12.15.0':'1.5.2';const deps={'@pnpm/exe.darwin-arm64':'12.15.0','@pnpm/exe.darwin-x64':'12.15.0','@pnpm/exe.win32-x64':'12.15.0'};let entry={name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:hashes}};if(name==='pnpm')entry.optionalDependencies={...deps,...(opts.dependencies||{})};if(name.startsWith('@pnpm/exe.')){const parts=name.split('.').pop().split('-');entry.os=[parts[0]];entry.cpu=[parts[1]];Object.assign(entry,opts.native||{});}if(name==='@earendil-works/pi-coding-agent')Object.assign(entry,opts.pi||{});return new Response(JSON.stringify({name,versions:{[version]:entry}}));};`;
+}
+async function codingNpmFixture(t, overrides = {}) {
+  const { dir, preload } = await setup(t, null, npmAssetPreload(overrides));
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(dir, "stack/profiles/coding.yaml"),
+  );
+  return { dir, preload };
+}
+test("npm and herdr preview supported targets with uv blocked", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t);
+  await writeFile(join(dir, "stack/stack.lock.json"), "preserve\n");
+  const before = await snapshot(dir);
+  const r = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+    "--target",
+    "win32-x64",
+    "--target",
+    "darwin-arm64",
+    "--target",
+    "darwin-x64",
+  ]);
+  assert.equal(r.status, 1, r.stdout);
+  const report = JSON.parse(r.stdout);
+  assert.deepEqual(report.targets, ["darwin-arm64", "darwin-x64", "win32-x64"]);
+  for (const target of report.targets) {
+    const a = report.assets.filter((x) => x.target === target);
+    assert.equal(
+      a.find((x) => x.component === "pi").identity,
+      "@earendil-works/pi-coding-agent@1.5.2",
+    );
+    assert.equal(
+      a.find((x) => x.component === "pnpm" && x.role === "top-level").identity,
+      "pnpm@12.15.0",
+    );
+    const native = a.find((x) => x.component === "pnpm" && x.role === "native");
+    assert.equal(native.identity, `@pnpm/exe.${target}@12.15.0`);
+    assert.equal(native.integrity, integrity);
+    assert.match(native.url, /^https:\/\/registry\.npmjs\.org\//);
+    assert.ok(a.find((x) => x.component === "herdr").sha256);
+    assert.match(a.find((x) => x.component === "uv").error, /not covered/);
+  }
+  assert.deepEqual(await snapshot(dir), before);
+});
+for (const [label, overrides, pattern] of [
+  [
+    "missing dependency",
+    { dependencies: { "@pnpm/exe.darwin-arm64": "" } },
+    /native dependency/,
+  ],
+  [
+    "range dependency",
+    { dependencies: { "@pnpm/exe.darwin-arm64": "^12.15.0" } },
+    /native dependency/,
+  ],
+  ["native platform", { native: { cpu: ["x64"] } }, /cpu/],
+  [
+    "native bad digest",
+    {
+      native: {
+        dist: {
+          tarball: "https://registry.npmjs.org/pkg.tgz",
+          integrity: "sha512-invalid",
+        },
+      },
+    },
+    /SHA512/,
+  ],
+  [
+    "native bad URL",
+    { native: { dist: { tarball: "https://evil.test/pkg.tgz", integrity } } },
+    /tarball URL/,
+  ],
+  ["pi excluded OS", { pi: { os: ["!darwin"] } }, /os/],
+  ["pi excluded CPU", { pi: { cpu: ["x64"] } }, /cpu/],
+  ["pi unknown libc", { pi: { libc: ["musl"] } }, /libc/],
+])
+  test(`npm target rejects ${label}`, async (t) => {
+    const { dir, preload } = await codingNpmFixture(t, overrides);
+    const before = await snapshot(dir);
+    const r = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+      "--target",
+      "darwin-arm64",
+    ]);
+    assert.equal(r.status, 1, r.stdout);
+    const report = JSON.parse(r.stdout);
+    assert.match(report.assets.map((x) => x.error || "").join("\n"), pattern);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+for (const columns of [40, 80])
+  for (const color of ["color", "no-color"])
+    test(`mixed npm and herdr assets fit ${columns} columns ${color}`, {
+      skip: process.platform === "win32",
+    }, async (t) => {
+      const { dir, preload } = await codingNpmFixture(t);
+      const { parse } = await import("yaml");
+      const profile = parse(
+        await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
+      );
+      profile.id = "fixture";
+      await writeFile(
+        join(dir, "stack/profiles/fixture.json"),
+        JSON.stringify(profile),
+      );
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(join(dir, "tmp"));
+      const r = spawnSync(
+        "python3",
+        [
+          ptyDriver,
+          process.execPath,
+          cli,
+          dir,
+          dir,
+          "report",
+          String(columns),
+          color,
+          preload,
+          "darwin-arm64",
+        ],
+        { encoding: "utf8", timeout: 15000 },
+      );
+      assert.equal(r.status, 0, r.stderr);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.status, 1, out.stderr);
+      const { stripVTControlCharacters } = await import("node:util");
+      const width = (await import("fast-string-width")).default;
+      const text = stripVTControlCharacters(out.stdout);
+      for (const line of text.split(/\r?\n/))
+        assert.ok(width(line) <= columns, line);
+      const compact = text.replace(/\s/g, "");
+      assert.ok(compact.includes(integrity));
+      assert.ok(compact.includes(assetHash));
+      assert.ok(compact.includes("https://registry.npmjs.org/pkg.tgz"));
+      assert.match(text, /\[BLOCKED\] uv/);
+    });
+for (const [label, override, pattern] of [
+  ["native wrong name", { name: "other" }, /Contradictory/],
+  ["native wrong version", { version: "12.14.0" }, /Contradictory/],
+  [
+    "native Node incompatible",
+    { engines: { node: ">=999" } },
+    /does not satisfy engines/,
+  ],
+  [
+    "native missing integrity",
+    { dist: { tarball: "https://registry.npmjs.org/pkg.tgz" } },
+    /integrity/,
+  ],
+])
+  test(`pnpm target blocks ${label}`, async (t) => {
+    const { dir, preload } = await codingNpmFixture(t, { native: override });
+    const before = await snapshot(dir);
+    const r = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+      "--target",
+      "darwin-arm64",
+    ]);
+    assert.equal(r.status, 1);
+    assert.match(JSON.stringify(JSON.parse(r.stdout).assets), pattern);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+test("pnpm native metadata fetch aborts on Ctrl-C", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { dir, preload } = await codingNpmFixture(t);
+  const marker = join(dir, "probe.pid"),
+    aborted = join(dir, "aborted");
+  let body = await readFile(preload, "utf8");
+  body =
+    `import {writeFileSync} from 'node:fs';` +
+    body.replace(
+      "globalThis.fetch=async u=>{u=String(u);",
+      `globalThis.fetch=async (u,{signal})=>{u=String(u);if(decodeURIComponent(u).includes('@pnpm/exe.'))return new Promise((_,reject)=>{writeFileSync(${JSON.stringify(marker)},'start');const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);writeFileSync(${JSON.stringify(aborted)},'yes');reject(signal.reason)})});`,
+    );
+  await writeFile(preload, body);
+  const { parse } = await import("yaml");
+  const profile = parse(
+    await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
+  );
+  profile.id = "fixture";
+  await writeFile(
+    join(dir, "stack/profiles/fixture.json"),
+    JSON.stringify(profile),
+  );
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(dir, "tmp"));
+  const r = spawnSync(
+    "python3",
+    [
+      ptyDriver,
+      process.execPath,
+      cli,
+      dir,
+      dir,
+      "interrupt",
+      "80",
+      "no-color",
+      preload,
+      "darwin-arm64",
+    ],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const output = JSON.parse(r.stdout);
+  assert.equal(output.status, 130, output.stderr);
+  assert.equal(await readFile(aborted, "utf8"), "yes");
+});
+for (const mode of ["network failure", "timeout"])
+  test(`pnpm native reports ${mode}`, async (t) => {
+    const { dir, preload } = await codingNpmFixture(t);
+    let body = await readFile(preload, "utf8");
+    const fail =
+      mode === "timeout"
+        ? "return new Promise((_,reject)=>{const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason)})})"
+        : "throw new Error('native offline')";
+    body = body.replace(
+      "globalThis.fetch=async u=>{u=String(u);",
+      `globalThis.fetch=async (u,{signal})=>{u=String(u);if(decodeURIComponent(u).includes('@pnpm/exe.')){${fail}}`,
+    );
+    await writeFile(preload, body);
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+      "--target",
+      "darwin-arm64",
+    ]);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(
+      JSON.stringify(JSON.parse(result.stdout).assets),
+      mode === "timeout" ? /timed out/ : /native offline/,
+    );
+    assert.deepEqual(await snapshot(dir), before);
+  });
+test("asset-only metadata does not change version-only reports", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t, {
+    pi: { os: "invalid" },
+    dependencies: { "@pnpm/exe.darwin-arm64": 42 },
+  });
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(result.status, 0, result.stdout);
+  assert.equal(JSON.parse(result.stdout).components.length, 4);
+});
+test("unverified pnpm versions do not infer native layout", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t);
+  let body = await readFile(preload, "utf8");
+  body = body.replaceAll("12.15.0", "12.16.0");
+  await writeFile(preload, body);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    JSON.stringify(JSON.parse(result.stdout).assets),
+    /native mapping is not verified/,
+  );
 });
