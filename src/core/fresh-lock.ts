@@ -3,19 +3,19 @@ import type { ResolutionReport } from "./resolution-report.js";
 import type { Profile } from "./schema.js";
 
 const source = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("npm"),
     registry: z.literal("https://registry.npmjs.org"),
     package: z.string(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("github-release"),
     owner: z.literal("astral-sh"),
     repo: z.literal("uv"),
     releaseId: z.number().int().positive(),
     tag: z.string(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("channel-manifest"),
     manifest: z.literal("https://herdr.dev/latest.json"),
     channel: z.literal("stable"),
@@ -23,19 +23,19 @@ const source = z.discriminatedUnion("type", [
   }),
 ]);
 const artifact = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("npm"),
     packageName: z.string(),
     packageVersion: z.string(),
     role: z.enum(["top-level", "native"]),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("uv"),
     releaseId: z.number().int().positive(),
     assetId: z.number().int().positive(),
     assetName: z.string(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("herdr"),
     assetKey: z.string(),
     assetName: z.string(),
@@ -45,7 +45,7 @@ export const freshLockSchema = z.strictObject({
   schemaVersion: z.literal(1),
   profile: z.string(),
   integrations: z.array(z.string()),
-  definitionDigests: z.object({
+  definitionDigests: z.strictObject({
     algorithm: z.literal("sha256-canonical-json-v1"),
     profile: z.string(),
     components: z.record(z.string(), z.string()),
@@ -54,7 +54,7 @@ export const freshLockSchema = z.strictObject({
   node: z.string(),
   targets: z
     .array(
-      z.object({
+      z.strictObject({
         id: z.string(),
         os: z.enum(["darwin", "win32"]),
         arch: z.enum(["arm64", "x64"]),
@@ -63,16 +63,16 @@ export const freshLockSchema = z.strictObject({
     )
     .min(1),
   components: z.array(
-    z.object({ component: z.string(), version: z.string(), source }),
+    z.strictObject({ component: z.string(), version: z.string(), source }),
   ),
   assets: z.array(
-    z.object({
+    z.strictObject({
       component: z.string(),
       target: z.string(),
       artifact,
       url: z.url(),
       format: z.enum(["npm-tarball", "binary", "zip", "tar.gz"]),
-      digest: z.object({
+      digest: z.strictObject({
         algorithm: z.enum(["sha256", "sha512-sri"]),
         value: z.string(),
       }),

@@ -148,3 +148,5 @@ Windows 原生、WSL 的 Linux 用户态和普通 Linux runner 是不同目标/�
 当前只读 `resolution-report` 输出结构化来源身份与 `definitionDigests` 声明快照。摘要算法标识 `sha256-canonical-json-v1`：先使用 repository adapter 解析并经 Zod 校验后的语义值，递归按 Unicode 字符串的 UTF-16 代码单元顺序排列对象 key，以 JSON 字符串转义、无空白序列化，保持数组原顺序，再以 UTF-8 编码计算 SHA-256 小写十六进制。分别摘要所选 profile、所选 components 和 integrations；不纳入 locations、设备路径、未选声明、配置或 skills。该报告不是共享锁或执行计划，部分失败时仍可显示声明快照。
 
 uv Releases 查询保留 `per_page=100`：每页最多 12 MiB、一次查询总计最多 64 MiB、最多 10 页，每页 5 秒超时；超限失败，不截断或只取首个匹配。此预算依据一次官方第一页约 8.06 MB 的实测，不能保证未来所有响应均可容纳。分页仅接受官方 owner/name 路径和 [uv 官方仓库 metadata](https://api.github.com/repos/astral-sh/uv) 所确认的仓库 ID `699532645`，并核对下一页及精确查询参数；数字路径映射回官方 owner/name 请求。herdr manifest 保留独立 4 MiB 上限。
+
+`validate --lock [file]` 已支持离线校验共享锁结构、所选声明摘要和目标资产身份关系；裸选项读取默认锁，显式相对文件相对调用目录。它不联网复核远端撤回、签名、下载字节或运行，也不更新锁。

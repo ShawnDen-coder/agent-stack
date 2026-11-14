@@ -17,7 +17,7 @@ pnpm cli --help
 pnpm cli validate --repo .
 ```
 
-`validate` 成功时显示声明计数；它不证明工具已安装或可以运行。可继续使用 `pnpm cli doctor --repo . --profile coding` 只读检查环境；缺失工具或有未核对项时退出 1 是可解释的检查结果。
+`validate` 成功时显示声明计数；已有共享锁可用 `pnpm cli validate --repo . --lock` 离线检查锁结构与声明一致性（`--lock ./candidate.json` 指定其他锁）。锁校验不验证发行方、下载字节或安装。它不证明工具已安装或可以运行。可继续使用 `pnpm cli doctor --repo . --profile coding` 只读检查环境；缺失工具或有未核对项时退出 1 是可解释的检查结果。
 
 [完整 Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/research-agent-stack/docs/quickstart.md) 包含 pnpm 安装、Windows PowerShell、JSON、退出码和可选的在线版本候选报告。
 

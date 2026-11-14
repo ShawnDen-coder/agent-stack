@@ -82,3 +82,12 @@ pnpm cli lock --repo . --profile coding --target darwin-arm64
 ```
 
 也可重复指定 `--target darwin-x64` 或 `--target win32-x64`。默认新建 `stack/stack.lock.json`；`--out ./candidate.json` 新建另一份共享候选锁，相对路径以当前目录解析，且不能与 `--dry-run` 同用。默认锁或目标文件（含链接）已存在即拒绝，不覆盖。失败请检查来源、平台及摘要；在线限流会阻止创建。锁记录预期元数据，并不证明下载字节、依赖闭包、配置或运行兼容。Linux ABI、锁更新和离线模式尚未实现。
+
+已有共享锁可离线校验：
+
+```sh
+pnpm cli validate --repo . --lock
+pnpm cli validate --repo . --lock "./candidate lock.json" --json
+```
+
+裸 `--lock` 读取 `<repo>/stack/stack.lock.json`；显式相对路径以当前调用目录解析。检查只覆盖本地结构、声明与资产身份关系，不能证明远端未撤回、签名或下载字节正确，也不验证安装或运行。

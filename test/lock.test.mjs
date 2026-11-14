@@ -2361,3 +2361,401 @@ test("oversized uv page blocks fresh lock without writing", async (t) => {
   assert.match(result.stdout, /size limit/);
   assert.deepEqual(await snapshot(dir), before);
 });
+
+async function freshForValidation(t) {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--target",
+    "darwin-x64",
+    "--target",
+    "win32-x64",
+    "--json",
+  ]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const path = join(dir, "stack/stack.lock.json");
+  const lock = JSON.parse(await readFile(path, "utf8"));
+  const offline = join(dir, "offline.mjs");
+  await writeFile(
+    offline,
+    "globalThis.fetch=()=>{throw Error('network forbidden')}",
+  );
+  return { dir, path, lock, offline };
+}
+function validateOffline(f, args = []) {
+  return spawnSync(
+    process.execPath,
+    [
+      "--import",
+      f.offline,
+      cli,
+      "validate",
+      "--repo",
+      f.dir,
+      ...args,
+      "--json",
+    ],
+    { encoding: "utf8", env: { PATH: "", NO_COLOR: "1" }, timeout: 12000 },
+  );
+}
+test("validate reads fresh locks offline and keeps original output without --lock", async (t) => {
+  const f = await freshForValidation(t);
+  const before = await snapshot(f.dir);
+  for (const args of [["--lock"], ["--lock", f.path]]) {
+    const r = validateOffline(f, args);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.valid, true);
+    assert.deepEqual(report.checked.lock, {
+      profile: "coding",
+      targets: 3,
+      assets: 15,
+    });
+  }
+  assert.equal("lock" in JSON.parse(validateOffline(f).stdout).checked, false);
+  for (const value of ["", "  "])
+    assert.equal(validateOffline(f, ["--lock", value]).status, 2);
+  assert.deepEqual(await snapshot(f.dir), before);
+});
+for (const [label, mutate] of [
+  [
+    "schema version",
+    (x) => {
+      x.schemaVersion = 9;
+    },
+  ],
+  [
+    "node",
+    (x) => {
+      x.node = "current";
+    },
+  ],
+  [
+    "version",
+    (x) => {
+      x.components.find((c) => c.component === "pi").version = "999.0.0";
+    },
+  ],
+  [
+    "digest syntax",
+    (x) => {
+      x.assets[0].digest.value = "bad";
+    },
+  ],
+  [
+    "source",
+    (x) => {
+      x.components.find((c) => c.component === "pi").source.package = "other";
+    },
+  ],
+  [
+    "target mismatch",
+    (x) => {
+      x.targets[0].arch = "x64";
+    },
+  ],
+  [
+    "duplicate target",
+    (x) => {
+      x.targets.push(x.targets[0]);
+    },
+  ],
+  [
+    "uv release id",
+    (x) => {
+      x.assets.find((a) => a.component === "uv").artifact.releaseId = 99;
+    },
+  ],
+  [
+    "uv asset name",
+    (x) => {
+      x.assets.find((a) => a.component === "uv").artifact.assetName = "other";
+    },
+  ],
+  [
+    "role",
+    (x) => {
+      x.assets.find((a) => a.component === "pnpm").artifact.role = "bad";
+    },
+  ],
+  [
+    "duplicate asset",
+    (x) => {
+      x.assets.push(x.assets[0]);
+    },
+  ],
+  [
+    "missing asset",
+    (x) => {
+      x.assets.pop();
+    },
+  ],
+  [
+    "extra asset",
+    (x) => {
+      x.assets.push({ ...x.assets[0], target: "unknown" });
+    },
+  ],
+  [
+    "asset url credential",
+    (x) => {
+      x.assets[0].url = "https://user:pass@github.com/file";
+    },
+  ],
+  [
+    "definition digest",
+    (x) => {
+      x.definitionDigests.profile = "0".repeat(64);
+    },
+  ],
+  [
+    "integration set",
+    (x) => {
+      x.integrations = [];
+    },
+  ],
+  [
+    "conflicting npm evidence",
+    (x) => {
+      x.assets.find(
+        (a) => a.component === "pi" && a.target === "darwin-x64",
+      ).digest.value = `sha512-${Buffer.alloc(64, 2).toString("base64")}`;
+    },
+  ],
+])
+  test(`validate rejects tampered lock ${label}`, async (t) => {
+    const f = await freshForValidation(t);
+    mutate(f.lock);
+    await writeFile(f.path, JSON.stringify(f.lock));
+    const before = await snapshot(f.dir);
+    const r = validateOffline(f, ["--lock"]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.valid, false);
+    const reason = report.issues.find((x) => x.file === "lock")?.message ?? "";
+    const reasons = {
+      "schema version": /schema/i,
+      node: /Node/,
+      version: /version/i,
+      "digest syntax": /SHA-256/,
+      source: /source/i,
+      "target mismatch": /target identity/i,
+      "duplicate target": /Duplicate lock target/,
+      "uv release id": /uv release identity/,
+      "uv asset name": /uv asset/,
+      role: /schema/i,
+      "duplicate asset": /Duplicate asset/,
+      "missing asset": /Missing (pnpm native )?asset/,
+      "extra asset": /unknown component or target/,
+      "asset url credential": /Untrusted/,
+      "definition digest": /digests/,
+      "integration set": /integration set/,
+      "conflicting npm evidence": /Conflicting npm asset evidence/,
+    };
+    assert.match(reason, reasons[label]);
+    assert.doesNotMatch(r.stdout, /user:pass/);
+    assert.deepEqual(await snapshot(f.dir), before);
+  });
+
+test("validate lock handles missing, malformed and oversized files without exposing content", async (t) => {
+  const f = await freshForValidation(t);
+  await rm(f.path);
+  assert.equal(validateOffline(f, ["--lock"]).status, 1);
+  for (const data of [
+    '{"secret":"secret-marker"',
+    "x".repeat(1024 * 1024 + 1),
+  ]) {
+    await writeFile(f.path, data);
+    const r = validateOffline(f, ["--lock"]);
+    assert.equal(r.status, 1);
+    assert.doesNotMatch(r.stdout, /secret-marker/);
+  }
+});
+test("validate lock follows semantic declarations across formats and repository paths", async (t) => {
+  const f = await freshForValidation(t);
+  const { parse } = await import("yaml");
+  const profilePath = join(f.dir, "stack/profiles/coding.yaml");
+  const original = await readFile(profilePath, "utf8");
+  const fixturePath = join(f.dir, "stack/components/fixture.json");
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
+  fixture.description = "unselected changed";
+  await writeFile(fixturePath, JSON.stringify(fixture));
+  await rm(profilePath);
+  await writeFile(
+    join(f.dir, "stack/profiles/coding.json"),
+    JSON.stringify(parse(original), null, 2),
+  );
+  assert.equal(validateOffline(f, ["--lock"]).status, 0);
+  const moved = await mkdtemp(join(tmpdir(), "moved 配置 & "));
+  t.after(() => rm(moved, { recursive: true, force: true }));
+  await cp(join(f.dir, "stack"), join(moved, "stack"), { recursive: true });
+  assert.equal(validateOffline({ ...f, dir: moved }, ["--lock"]).status, 0);
+  const parsed = JSON.parse(
+    await readFile(join(moved, "stack/profiles/coding.json"), "utf8"),
+  );
+  parsed.description = "semantic change";
+  await writeFile(
+    join(moved, "stack/profiles/coding.json"),
+    JSON.stringify(parsed),
+  );
+  const changed = validateOffline({ ...f, dir: moved }, ["--lock"]);
+  assert.equal(changed.status, 1);
+  assert.match(changed.stdout, /digests do not match/);
+});
+
+for (const [columns, color] of [
+  [40, "no-color"],
+  [40, "color"],
+  [80, "no-color"],
+  [80, "color"],
+])
+  test(`validate lock human report fits ${columns} columns ${color}`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const f = await freshForValidation(t);
+    const driver = `import os,sys,pty,fcntl,termios,struct,subprocess,json,errno\nmaster,slave=pty.openpty()\nfcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,int(sys.argv[5]),0,0))\np=subprocess.Popen([sys.argv[1],'--import',sys.argv[4],sys.argv[2],'validate','--repo',sys.argv[3],'--lock'],stdin=subprocess.DEVNULL,stdout=slave,stderr=subprocess.PIPE,env=({'PATH':'','NO_COLOR':'1','TERM':'xterm'} if sys.argv[6]=='no-color' else {'PATH':'','FORCE_COLOR':'3','TERM':'xterm'}))\nos.close(slave)\ndata=b''\nwhile True:\n try:\n  chunk=os.read(master,65536)\n  if not chunk: break\n  data+=chunk\n except OSError as e:\n  if e.errno==errno.EIO: break\n  raise\nos.close(master)\nprint(json.dumps({'status':p.wait(),'stdout':data.decode(),'stderr':p.stderr.read().decode()}))`;
+    const result = spawnSync(
+      "python3",
+      [
+        "-c",
+        driver,
+        process.execPath,
+        cli,
+        f.dir,
+        f.offline,
+        String(columns),
+        color,
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.status, 0, output.stderr);
+    const { stripVTControlCharacters } = await import("node:util");
+    const width = (await import("fast-string-width")).default;
+    const text = stripVTControlCharacters(output.stdout);
+    for (const line of text.split(/\r?\n/))
+      assert.ok(width(line) <= columns, line);
+    assert.match(text, /Lock:/);
+    assert.match(text, /Definitions:/);
+    assert.equal(
+      output.stdout.includes(String.fromCharCode(27)),
+      color === "color",
+    );
+  });
+
+test("validate lock uses the locked Node assumption and root shared options", async (t) => {
+  const f = await freshForValidation(t);
+  f.lock.node = "20.0.0";
+  await writeFile(f.path, JSON.stringify(f.lock));
+  const r = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      f.offline,
+      cli,
+      "--repo",
+      f.dir,
+      "--json",
+      "validate",
+      "--lock",
+    ],
+    { encoding: "utf8", env: { PATH: "", NO_COLOR: "1" }, timeout: 12000 },
+  );
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(JSON.parse(r.stdout).valid, true);
+});
+for (const [label, mutate, reason] of [
+  [
+    "digest algorithm",
+    (x) => {
+      x.definitionDigests.algorithm = "other";
+    },
+    /schema/,
+  ],
+  [
+    "missing profile",
+    (x) => {
+      x.profile = "nonexistent";
+    },
+    /profile is missing/,
+  ],
+  [
+    "npm integrity",
+    (x) => {
+      x.assets.find((a) => a.component === "pi").digest.value = "sha512-nope";
+    },
+    /SHA512/,
+  ],
+  [
+    "uv repeated asset id",
+    (x) => {
+      const a = x.assets.filter((i) => i.component === "uv");
+      a[1].artifact.assetId = a[0].artifact.assetId;
+    },
+    /Duplicate uv asset identity/,
+  ],
+  [
+    "pnpm native version",
+    (x) => {
+      x.assets.find(
+        (a) => a.component === "pnpm" && a.artifact.role === "native",
+      ).artifact.packageVersion = "1.0.0";
+    },
+    /package identity/,
+  ],
+])
+  test(`validate rejects ${label}`, async (t) => {
+    const f = await freshForValidation(t);
+    mutate(f.lock);
+    await writeFile(f.path, JSON.stringify(f.lock));
+    const r = validateOffline(f, ["--lock"]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(JSON.parse(r.stdout).issues[0].message, reason);
+  });
+
+test("validate accepts a profile-authorized npm prerelease selected by fresh lock", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const profile = join(dir, "stack/profiles/coding.yaml");
+  await writeFile(
+    profile,
+    (await readFile(profile, "utf8")).replace(
+      ">=1.5.2 <2",
+      ">=1.6.0-beta.1 <2",
+    ),
+  );
+  await writeFile(
+    preload,
+    (await readFile(preload, "utf8")).replace(":'1.5.2';", ":'1.6.0-beta.1';"),
+  );
+  const created = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(created.status, 0, created.stdout + created.stderr);
+  const offline = join(dir, "offline.mjs");
+  await writeFile(
+    offline,
+    "globalThis.fetch=()=>{throw Error('network forbidden')}",
+  );
+  const result = validateOffline({ dir, offline }, ["--lock"]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test("validate lock rejects a FIFO without blocking", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await freshForValidation(t);
+  const fifo = join(f.dir, "lock.fifo");
+  const made = spawnSync("mkfifo", [fifo], { encoding: "utf8", timeout: 3000 });
+  assert.equal(made.status, 0, made.stderr);
+  const r = validateOffline(f, ["--lock", fifo]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(JSON.parse(r.stdout).issues[0].message, /regular file/);
+});

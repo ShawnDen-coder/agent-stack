@@ -26,13 +26,13 @@ pnpm cli doctor --repo . --profile coding --json
 
 | 当前接口                                                        | 实际行为与成功含义                                                                       |
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `validate [--repo <dir>] [--json]`                              | 校验部件、profile、集成的格式、引用、平台声明和能力要求。退出 0 仅说明声明一致。         |
+| `validate [--repo <dir>] [--lock [file]] [--json]`              | 校验部件、profile、集成的格式、引用、平台声明和能力要求。退出 0 仅说明声明一致。         |
 | `doctor [--profile <id>] [--repo <dir>] [--json]`               | 观察当前 Node、npm、Git，以及所选 Pi、pnpm、uv、herdr 的有限版本证据。未检查项单独列出。 |
 | `lock --profile <id> --target <target> [--out <file>] [--json]` | 首次新建共享锁，目标可重复；默认锁或输出已存在则拒绝。                                   |
 | `lock --profile <id> --dry-run [--json]`                        | 报告版本候选；可用重复的 `--target` 预览部分 Pi、pnpm、uv 和 herdr 资产，不写锁。        |
 | `--help`、`help [command]`、`--version`                         | 显示当前已注册命令的帮助或 CLI 自身版本；不执行配置操作。                                |
 
-当前 `--repo` 默认是调用时的当前目录；`--repo` 和 `--json` 可写在根命令或子命令位置。`doctor` 和 `lock --dry-run` 在交互 TTY 可选择 profile；JSON、CI 或非交互环境必须显式提供 `--profile`。声明读取器支持 YAML、YML 和过渡期 JSON，同 ID 冲突时报错。首次创建必须指定目标，`--out` 与 `--dry-run` 互斥；锁的 Node 假设为运行时确切版本。当前未实现锁更新、离线模式、设备默认绑定、环境变量选项、部件筛选、资源筛选、锁文件读取或后文的新命令。
+当前 `--repo` 默认是调用时的当前目录；`--repo` 和 `--json` 可写在根命令或子命令位置。`doctor` 和 `lock --dry-run` 在交互 TTY 可选择 profile；JSON、CI 或非交互环境必须显式提供 `--profile`。声明读取器支持 YAML、YML 和过渡期 JSON，同 ID 冲突时报错。`validate --lock` 离线校验默认共享锁，显式文件相对调用目录；不检查远端、下载字节或安装。首次创建必须指定目标，`--out` 与 `--dry-run` 互斥；锁的 Node 假设为运行时确切版本。当前未实现锁更新、离线模式、设备默认绑定、环境变量选项、部件筛选、资源筛选、其他锁读取功能或后文的新命令。
 
 当前 `doctor` 的 Pi/pnpm 证据来自可核对的 package metadata，不证明程序可启动；herdr 仅查询当前平台的原生入口。`stable` 渠道仍未解析，Otty/Rex 与集成仍未检查。退出 0 只针对报告中已检查的范围，不能解释为整套环境 ready。当前业务检查失败退出 1，用法错误退出 2，取消退出 130。成功 JSON 及业务错误沿用已有形状；参数解析错误为 `{"schemaVersion":1,"error":{"kind":"usage","message":"..."}}`，帮助/版本的 JSON 包装为 `{"schemaVersion":1,"output":"..."}`。后文完整统一输出契约仍待实现。
 
