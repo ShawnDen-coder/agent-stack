@@ -112,8 +112,16 @@ export function validation(
   const { components, integrations, profiles } = report.checked;
   line();
   line(
-    `${report.valid ? colors.green("[OK]") : colors.red("[ERROR]")} Definitions: ${components} components, ${integrations} integrations, ${profiles} profiles`,
+    `${report.issues.some((issue) => issue.file !== "lock") ? colors.red("[ERROR]") : colors.green("[OK]")} Definitions: ${components} components, ${integrations} integrations, ${profiles} profiles`,
   );
+  if (report.checked.lock) {
+    const lock = report.checked.lock;
+    line(
+      `[OK] Lock: ${clean(lock.profile)} · ${lock.targets} targets · ${lock.assets} assets`,
+    );
+  } else if (report.issues.some((issue) => issue.file === "lock")) {
+    line("[ERROR] Lock validation failed");
+  }
   if (report.issues.length) {
     line();
     line("Issues:");
@@ -121,10 +129,17 @@ export function validation(
       line(`[ERROR] ${clean(issue.file)}`, "  ");
       line(clean(issue.message), "    ");
     }
-    finish("Fix the reported definitions and run validate again.", false);
+    finish(
+      report.issues.some((issue) => issue.file === "lock")
+        ? "Fix the reported issues and run validate again."
+        : "Fix the reported definitions and run validate again.",
+      false,
+    );
   } else
     finish(
-      "Tool installation, versions, and runtime compatibility have not been checked.",
+      report.checked.lock
+        ? "Lock consistency checked locally; remote publication, downloaded bytes, installation, and runtime compatibility have not been checked."
+        : "Tool installation, versions, and runtime compatibility have not been checked.",
       false,
     );
 }

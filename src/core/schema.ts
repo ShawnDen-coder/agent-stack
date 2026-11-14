@@ -71,6 +71,13 @@ export interface Repository {
   locations: Record<string, string>;
 }
 
+export const lockValidationSummarySchema = z.strictObject({
+  profile: id,
+  targets: z.number().int().positive(),
+  assets: z.number().int().nonnegative(),
+});
+export type LockValidationSummary = z.infer<typeof lockValidationSummarySchema>;
+
 export interface Issue {
   file: string;
   message: string;
@@ -78,6 +85,11 @@ export interface Issue {
 
 export interface ValidationReport {
   valid: boolean;
-  checked: { components: number; integrations: number; profiles: number };
+  checked: {
+    components: number;
+    integrations: number;
+    profiles: number;
+    lock?: LockValidationSummary;
+  };
   issues: Issue[];
 }

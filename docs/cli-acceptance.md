@@ -55,3 +55,5 @@ npm 候选选择先筛选范围、预发布、废弃状态及 Node engines，再
 首次创建期间的实际 SIGINT/清理回归仅在 POSIX 运行；Windows 原生 Ctrl-C 尚未验证。Windows 上仍运行创建、并发与拒绝覆盖的通用测试。[Node.js child_process 文档](https://raw.githubusercontent.com/nodejs/node/v24.x/doc/api/child_process.md)说明 Windows 的 `subprocess.kill()` 信号行为与 POSIX 不同。
 
 uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以及每页 12 MiB、总计 64 MiB、10 页和超时限制，由真实 CLI 受控网络 fixture 验证；实际 GitHub API 仍可能限流或返回 403。
+
+`validate --lock [file]` 从真实 CLI 验证共享锁与声明一致性，覆盖离线、篡改、格式等价、路径迁移与 40/80 列输出；不验证远端真实性、下载或安装。

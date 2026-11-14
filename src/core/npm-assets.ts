@@ -9,7 +9,10 @@ const targetFieldsSchema = z.object({
 });
 const dependenciesSchema = z.record(z.string(), z.string());
 
-const targets: Record<string, { os: string; cpu: string; native: string }> = {
+export const npmTargets: Record<
+  string,
+  { os: string; cpu: string; native: string }
+> = {
   "darwin-arm64": {
     os: "darwin",
     cpu: "arm64",
@@ -31,7 +34,7 @@ function allowed(
     throw new Error(`Target ${field} ${expected} is not supported`);
 }
 export function checkNpmTarget(candidate: Candidate, target: string) {
-  const platform = targets[target];
+  const platform = npmTargets[target];
   if (!platform) throw new Error(`npm asset target ${target} is not supported`);
   const fields = targetFieldsSchema.parse(candidate);
   allowed(fields.os, platform.os, "os");
@@ -47,7 +50,7 @@ export function pnpmNative(candidate: Candidate, target: string) {
     throw new Error(
       `Unsupported pnpm native distribution series: ${candidate.version}`,
     );
-  const platform = targets[target];
+  const platform = npmTargets[target];
   if (!platform)
     throw new Error(`pnpm native target ${target} is not supported`);
   const spec = dependenciesSchema.parse(candidate.optionalDependencies ?? {})[
@@ -67,7 +70,7 @@ export function npmAsset(
 ) {
   checkNpmTarget(candidate, target);
   if (role === "native") {
-    const platform = targets[target];
+    const platform = npmTargets[target];
     const fields = targetFieldsSchema.parse(candidate);
     if (
       !platform ||
