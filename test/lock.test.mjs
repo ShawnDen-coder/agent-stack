@@ -1894,7 +1894,9 @@ test("fresh lock rejects dangling symlinks and only one concurrent writer publis
   assert.ok(!(await readdir(dir)).some((name) => name.endsWith(".tmp")));
 });
 
-test("fresh creation aborts recheck and leaves no published or temporary file", async (t) => {
+test("fresh creation aborts recheck and leaves no published or temporary file", {
+  skip: process.platform === "win32",
+}, async (t) => {
   const { dir, preload } = await uvAssetsFixture(t);
   const marker = join(dir, "rechecking");
   let body = await readFile(preload, "utf8");
@@ -2048,4 +2050,156 @@ test("fresh creation leaves no lock when output directory is missing", async (t)
   await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
     code: "ENOENT",
   });
+});
+
+function recheckOverride(code) {
+  return `;{const original=globalThis.fetch;const counts=new Map();globalThis.fetch=async(u,o)=>{const url=String(u);const n=(counts.get(url)||0)+1;counts.set(url,n);const response=await original(u,o);if(n<2)return response;const data=await response.json();${code};return new Response(JSON.stringify(data));};}`;
+}
+
+test("fresh --out rejects empty and whitespace paths without writing", async (t) => {
+  for (const value of ["", "   "])
+    for (const dry of [false, true]) {
+      const { dir, preload } = await uvAssetsFixture(t);
+      const candidate = join(dir, "candidate.json");
+      await writeFile(candidate, "sentinel\n");
+      const before = await snapshot(dir);
+      const result = run(dir, preload, [
+        "--profile",
+        "coding",
+        "--target",
+        "darwin-arm64",
+        ...(dry ? ["--dry-run"] : []),
+        "--out",
+        value,
+        "--json",
+      ]);
+      assert.equal(result.status, 2, result.stdout + result.stderr);
+      assert.equal(JSON.parse(result.stdout).error.kind, "usage");
+      assert.deepEqual(await snapshot(dir), before);
+      assert.equal(await readFile(candidate, "utf8"), "sentinel\n");
+      await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
+        code: "ENOENT",
+      });
+    }
+});
+
+test("fresh recheck rejects reuse of selected uv release ID under another tag", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  await writeFile(
+    preload,
+    (await readFile(preload, "utf8")) +
+      recheckOverride(
+        `if(url.startsWith('https://api.github.com/'))data.push({id:1,tag_name:'0.13.9',html_url:'https://github.com/astral-sh/uv/releases/tag/0.13.9',draft:false,prerelease:false})`,
+      ),
+  );
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.deepEqual(await snapshot(dir), before);
+  await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
+    code: "ENOENT",
+  });
+});
+
+for (const [label, code, expected] of [
+  [
+    "npm tarball",
+    `if(decodeURIComponent(url).includes('@earendil-works/pi-coding-agent'))data.versions['1.5.2'].dist.tarball='https://registry.npmjs.org/changed.tgz'`,
+    /npm asset changed/,
+  ],
+  [
+    "npm engines",
+    `if(decodeURIComponent(url).includes('@earendil-works/pi-coding-agent'))data.versions['1.5.2'].engines={node:'>=24.0.0'}`,
+    /npm metadata changed/,
+  ],
+  [
+    "pnpm native mapping",
+    `if(url==='https://registry.npmjs.org/pnpm')data.versions['12.15.0'].optionalDependencies['@pnpm/exe.darwin-arm64']='12.15.1'`,
+    /native|mapping/i,
+  ],
+  [
+    "pnpm native integrity",
+    `if(decodeURIComponent(url).includes('@pnpm/exe.darwin-arm64'))data.versions['12.15.0'].dist.integrity='sha512-'+Buffer.alloc(64,2).toString('base64')`,
+    /native asset changed/,
+  ],
+  [
+    "uv release id",
+    `if(url.startsWith('https://api.github.com/'))data[0].id=2`,
+    /uv release identity changed/,
+  ],
+  [
+    "uv asset digest",
+    `if(url.startsWith('https://api.github.com/'))data[0].assets[0].digest='sha256:'+'b'.repeat(64)`,
+    /uv asset changed/,
+  ],
+  [
+    "herdr stable version",
+    `if(url==='https://herdr.dev/latest.json')data.version='0.9.6'`,
+    /herdr stable version changed/,
+  ],
+  [
+    "herdr asset hash",
+    `if(url==='https://herdr.dev/latest.json')data.sha256['macos-aarch64']='b'.repeat(64)`,
+    /herdr asset changed/,
+  ],
+  [
+    "release HTTP limit",
+    `if(url.startsWith('https://api.github.com/'))return new Response('{}',{status:429})`,
+    /429/,
+  ],
+])
+  test(`fresh recheck rejects changed ${label}`, async (t) => {
+    const { dir, preload } = await uvAssetsFixture(t);
+    await writeFile(
+      preload,
+      (await readFile(preload, "utf8")) + recheckOverride(code),
+    );
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--target",
+      "darwin-arm64",
+      "--json",
+    ]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(JSON.parse(result.stdout).error, expected);
+    assert.deepEqual(await snapshot(dir), before);
+    assert.ok(
+      !(await readdir(join(dir, "stack"))).some((name) =>
+        name.endsWith(".tmp"),
+      ),
+    );
+  });
+
+test("fresh recheck ignores unrelated new releases, history and timestamps", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  await writeFile(
+    preload,
+    (await readFile(preload, "utf8")) +
+      recheckOverride(
+        `if(url.startsWith('https://api.github.com/')){data[0].updated_at='changed';data.push({id:42,tag_name:'0.99.0',html_url:'https://github.com/astral-sh/uv/releases/tag/0.99.0',draft:false,prerelease:false})}else if(url.startsWith('https://registry.npmjs.org/')){data.time={modified:'changed'};data.versions['0.1.0']={}}else if(url==='https://herdr.dev/latest.json')data.timestamp='changed'`,
+      ),
+  );
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const lock = JSON.parse(
+    await readFile(join(dir, "stack/stack.lock.json"), "utf8"),
+  );
+  assert.equal(
+    lock.components.find((item) => item.component === "uv").version,
+    "0.13.8",
+  );
 });
