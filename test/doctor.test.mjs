@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
@@ -45,14 +46,14 @@ async function nativeHerdr(bin, output) {
   await rm(source);
 }
 async function setHerdrRequirement(root, requirement) {
-  const file = join(root, "profiles/coding.json");
-  const profile = JSON.parse(await readFile(file, "utf8"));
+  const file = join(root, "profiles/coding.yaml");
+  const profile = parseYaml(await readFile(file, "utf8"));
   profile.components = profile.components.map((item) =>
     item.component === "herdr"
       ? { component: "herdr", version: requirement }
       : item,
   );
-  await writeFile(file, JSON.stringify(profile));
+  await writeFile(file, stringifyYaml(profile));
 }
 async function fakePackage(bin, name, version) {
   const dir = join(bin, `package-${name}`);
@@ -190,10 +191,10 @@ test(
   unix,
   async (t) => {
     const { root, bin } = await fixture(t);
-    const path = join(root, "profiles/coding.json");
-    const profile = JSON.parse(await readFile(path, "utf8"));
+    const path = join(root, "profiles/coding.yaml");
+    const profile = parseYaml(await readFile(path, "utf8"));
     profile.platforms = [process.platform === "darwin" ? "linux" : "darwin"];
-    await writeFile(path, JSON.stringify(profile));
+    await writeFile(path, stringifyYaml(profile));
     await fake(bin, "uv", `echo executed > '${join(root, "unexpected")}'`);
     const report = JSON.parse(run(root, bin).stdout);
     assert.equal(check(report, "uv").status, "platform_not_applicable");
@@ -370,10 +371,10 @@ test(
   unix,
   async (t) => {
     const { root, bin } = await fixture(t);
-    const path = join(root, "profiles/coding.json");
-    const profile = JSON.parse(await readFile(path, "utf8"));
+    const path = join(root, "profiles/coding.yaml");
+    const profile = parseYaml(await readFile(path, "utf8"));
     profile.platforms = [process.platform === "darwin" ? "linux" : "darwin"];
-    await writeFile(path, JSON.stringify(profile));
+    await writeFile(path, stringifyYaml(profile));
     await nativeHerdr(bin, "herdr 0.9.4");
     const herdr = check(JSON.parse(run(root, bin).stdout), "herdr");
     assert.equal(herdr.status, "platform_not_applicable");

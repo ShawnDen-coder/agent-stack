@@ -1,0 +1,13 @@
+schemaVersion: 1
+id: uv
+description: Python project and command-line tool manager
+kind: cli
+platforms:
+  - darwin
+  - win32
+  - linux
+provides:
+  - python-tools
+source:
+  type: release
+  url: https://docs.astral.sh/uv/getting-started/installation/

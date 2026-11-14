@@ -41,7 +41,10 @@ async function isNativeExecutable(path: string): Promise<boolean> {
   }
 }
 
-export async function observe(name: string): Promise<Observation> {
+export async function observe(
+  name: string,
+  signal?: AbortSignal,
+): Promise<Observation> {
   const extensions =
     process.platform === "win32"
       ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
@@ -101,8 +104,12 @@ export async function observe(name: string): Promise<Observation> {
       failure: "unverified_entrypoint",
       evidence: null,
     };
+  if (signal?.aborted)
+    return { path, version: null, failure: "cancelled", evidence: null };
   const home = await mkdtemp(join(tmpdir(), "agent-stack-doctor-"));
   try {
+    if (signal?.aborted)
+      return { path, version: null, failure: "cancelled", evidence: null };
     const result = await new Promise<{
       stdout: string;
       failure: string | null;
@@ -137,6 +144,7 @@ export async function observe(name: string): Promise<Observation> {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
         if (terminate) {
           child.kill("SIGKILL");
           child.stdout.destroy();
@@ -148,7 +156,10 @@ export async function observe(name: string): Promise<Observation> {
           failure,
         });
       };
+      const abort = () => finish("cancelled", true);
       const timer = setTimeout(() => finish("timeout", true), 3000);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
       child.stdout.on("data", (chunk: Buffer) => {
         stdoutSize += chunk.length;
         if (stdoutSize > 16384) finish("output_limit", true);

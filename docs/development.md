@@ -10,7 +10,7 @@
 | Language                   | TypeScript 7，strict           | 对命令、数据与 adapter 边界做静态检查                       |
 | Build                      | 官方 `tsc`，NodeNext           | 当前直接编译即可，保留原生 ESM 与目录关系                   |
 | CLI                        | Commander 15                   | 处理子命令、参数、帮助、错误与退出码                        |
-| Runtime validation         | Zod 4                          | 校验 Git 中的 JSON，类型从 schema 推导                      |
+| Runtime validation         | Zod 4                          | 校验 Git 中的 YAML/JSON，类型从 schema 推导                 |
 | Repository package manager | pnpm 12.15.0                   | 开发依赖使用确切版本和提交的锁文件                          |
 | Tests                      | Node.js `node:test` + `assert` | 从编译后的真实 CLI 验证行为，当前无需额外 runner            |
 | Format / lint              | Biome 2                        | 统一 TypeScript、JavaScript 与 JSON 检查                    |
@@ -18,7 +18,7 @@
 
 所有 npm 依赖使用确切版本，传递依赖由 `pnpm-lock.yaml` 锁定。开发 pnpm 版本由 `packageManager` 固定；这与 profile 中将来安装到用户环境的 pnpm 要求分别维护。
 
-人编写的 components/profiles/integrations 优先采用 YAML；当前 repository adapter 仍只读取 JSON。下一格式迁移切片先增加 YAML 1.2 解析和同 ID 跨格式冲突检测，再转换现有文件，保持 Zod 数据模型与所有能力要求不变。原生配置和生态锁保持原格式，机器生成锁与计划使用 JSON；具体约定见 [CLI 行为稿](cli-behavior.md)。这项约定不表示当前 CLI 已支持 YAML。
+人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；机器生成锁与计划尚未实现，拟使用 JSON。
 
 Node 24 与 26 当前均为 LTS，见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 
@@ -49,7 +49,7 @@ pnpm check
 
 ## 添加内容
 
-1. 修改部件/组合/集成：维护对应 JSON，文件名与 `id` 一致，运行 `pnpm check`。
+1. 修改部件/组合/集成：维护对应 YAML，文件名与 `id` 一致，运行 `pnpm check`。
 2. 修改 schema：先确认实际消费者与兼容方式，从 schema 推导类型，不维护第二份手写 interface。
 3. 添加 adapter：外部 I/O 放入 `src/adapters/`，通过 command 组装；用临时目录或工具原生测试环境验证行为。
 4. 添加 CLI 命令：只注册真实可用的能力。当前帮助中不会显示尚未实现的安装/升级命令。
@@ -77,3 +77,5 @@ CI 覆盖六组 OS/Node 组合，但只有运行后的结果才算证据。它�
 入口依据：[npm cmd-shim v8](https://github.com/npm/cmd-shim/blob/v8.0.0/lib/index.js) 与 [当前 cmd-shim](https://github.com/npm/cmd-shim/blob/main/lib/index.js) 的完整模板；[Node 自带 npm.cmd](https://github.com/nodejs/node/blob/main/deps/npm/bin/npm.cmd) 使用动态 prefix；[Corepack](https://github.com/nodejs/corepack) 可能解析并下载工具；[Pi manifest](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/package.json) 声明其 bin；[pnpm 发行 manifest](https://github.com/pnpm/pnpm/blob/main/pnpm/npm/pnpm/package.json) 与安装脚本说明入口可替换。本地另核对 `@pnpm/exe@12.15.0` 官方 tarball：manifest 的 `bin.pnpm` 为 `pnpm`，发行入口可在安装时被替换。元数据只证明声明，不证明入口可运行或安装渠道。
 
 herdr 仅在 profile 选择时检查；仅对当前平台的原生可执行文件运行固定 `--version`，文件头检查不能证明文件来源或完整性。脚本和未知包装器不执行，版本查询不证明工作区或集成运行。`stable` 是未解析渠道，不由版本反推。依据：[官方安装文档](https://herdr.dev/tui/docs/install/)列出各平台二进制与 Windows `herdr.exe`；[main.rs](https://github.com/herdrdev/herdr/blob/master/src/main.rs) 的 `--version` 分支在配置加载及服务启动之前输出 `herdr <version>` 并返回；[build_info.rs](https://github.com/herdrdev/herdr/blob/master/src/build_info.rs) 描述版本与预发布后缀。该判断针对所查源码，无法证明任意旧版或被替换的二进制行为。
+
+macOS/Linux 的交互验收还需要 `python3` 标准库的 `pty`；Windows 跳过 PTY 用例。测试从编译后的 CLI 发送真实按键，覆盖 80/40 列、选择、取消与运行中中断；终端演示和覆盖范围见 [验收矩阵](cli-acceptance.md)。

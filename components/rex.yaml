@@ -1,0 +1,13 @@
+schemaVersion: 1
+id: rex
+description: Experimental Rex macOS application with a local server; excludes
+  remote server packages
+kind: workspace
+platforms:
+  - darwin
+provides:
+  - workspace
+  - desktop-terminal
+source:
+  type: application
+  url: https://www.superlogical.com/rex/docs/installation

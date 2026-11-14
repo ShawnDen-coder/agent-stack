@@ -1,46 +1,78 @@
 import { resolve } from "node:path";
 import { Command } from "commander";
+import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
+import {
+  chooseProfile,
+  doctor,
+  failure,
+  progress,
+  start,
+} from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
 import { observe } from "../adapters/toolchain.js";
 import { assess } from "../core/doctor.js";
 import { validateRepository } from "../core/validate.js";
 
 export function createDoctorCommand(): Command {
-  return new Command("doctor")
-    .description(
+  return shared(
+    new Command("doctor").description(
       "Check the selected profile's toolchain without installing tools",
-    )
-    .requiredOption("--profile <id>", "Profile ID to check")
-    .option("--repo <directory>", "Configuration repository directory", ".")
-    .option("--json", "Print a machine-readable report")
-    .action(
-      async (options: { profile: string; repo: string; json?: boolean }) => {
+    ),
+  )
+    .addOption(profileOption())
+    .action(async (_options: unknown, command: Command) => {
+      const options = command.optsWithGlobals() as {
+        profile?: string;
+        repo?: string;
+        json?: boolean;
+      };
+      const repo = resolve(options.repo ?? ".");
+      try {
+        if (!options.profile && options.json)
+          command.error("error: --profile is required in JSON mode");
+        const repository = await readRepository(repo);
+        const validation = validateRepository(repository);
+        if (!validation.valid)
+          throw new Error(
+            "Repository definitions are invalid; run validate for details",
+          );
+        const profileId =
+          options.profile ?? (await chooseProfile(repository.profiles));
+        if (!profileId) {
+          if (process.exitCode === 130) return;
+          command.error("error: --profile is required in non-interactive mode");
+        }
+        const profile = repository.profiles.find(
+          (item) => item.id === profileId,
+        );
+        if (!profile) throw new Error(`Unknown profile: ${options.profile}`);
+        const engine = await cliNodeRequirement();
+        const node = assess(
+          {
+            path: process.execPath,
+            version: process.versions.node,
+            failure: null,
+            evidence: "running_process",
+          },
+          engine,
+        );
+        const selected = profile.components.filter((item) =>
+          ["pnpm", "uv", "pi", "herdr"].includes(item.component),
+        );
+        start("Agent Stack · Doctor", Boolean(options.json));
+        const stop = progress("Inspecting toolchain", Boolean(options.json));
+        const controller = new AbortController();
+        const interrupt = () => controller.abort();
+        process.once("SIGINT", interrupt);
+        let checks: Array<
+          ReturnType<typeof assess> & {
+            name: string;
+            channel: "stable" | "beta" | null;
+          }
+        > = [];
         try {
-          const repository = await readRepository(resolve(options.repo));
-          const validation = validateRepository(repository);
-          if (!validation.valid)
-            throw new Error(
-              "Repository definitions are invalid; run validate for details",
-            );
-          const profile = repository.profiles.find(
-            (item) => item.id === options.profile,
-          );
-          if (!profile) throw new Error(`Unknown profile: ${options.profile}`);
-          const engine = await cliNodeRequirement();
-          const node = assess(
-            {
-              path: process.execPath,
-              version: process.versions.node,
-              failure: null,
-              evidence: "running_process",
-            },
-            engine,
-          );
-          const selected = profile.components.filter((item) =>
-            ["pnpm", "uv", "pi", "herdr"].includes(item.component),
-          );
-          const checks = await Promise.all(
+          checks = await Promise.all(
             ["npm", "git", ...selected.map((item) => item.component)].map(
               async (name) => {
                 const selection = selected.find(
@@ -58,7 +90,7 @@ export function createDoctorCommand(): Command {
                   (!component ||
                     component.platforms.includes(process.platform as never));
                 const observation = platformSupported
-                  ? await observe(name)
+                  ? await observe(name, controller.signal)
                   : {
                       path: null,
                       version: null,
@@ -76,51 +108,47 @@ export function createDoctorCommand(): Command {
               },
             ),
           );
-          const report = {
-            profile: profile.id,
-            platform: process.platform,
-            checks: [
-              {
-                name: "node",
-                ...node,
-                channel: null,
-              },
-              ...checks,
-            ],
-            unchecked: {
-              components: profile.components.filter(
-                (item) =>
-                  !["pnpm", "uv", "pi", "herdr"].includes(item.component),
-              ),
-              integrations: profile.integrations,
-            },
-            scope: "toolchain only; environment readiness is not assessed",
-          };
-          if (options.json) console.log(JSON.stringify(report, null, 2));
-          else {
-            console.log(`Profile: ${report.profile} (${report.platform})`);
-            for (const item of report.checks)
-              console.log(
-                `${item.name}: ${item.status}; version=${item.version ?? "unknown"}; requirement=${item.requirement ?? item.channel ?? "none"}; path=${item.path ?? "unknown"}; source=${item.source}; evidence=${item.evidence}${item.channel ? "; channel not assessed" : ""}`,
-              );
-            console.log(
-              `Unchecked components: ${report.unchecked.components.map((item) => item.component).join(", ") || "none"}; integrations: ${report.unchecked.integrations.join(", ") || "none"}`,
-            );
-            console.log(report.scope);
-          }
-          if (
-            report.checks.some(
-              (item) => item.status !== "ok" || item.channel !== null,
-            )
-          )
-            process.exitCode = 1;
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          if (options.json) console.log(JSON.stringify({ error: message }));
-          else console.error(message);
-          process.exitCode = 1;
+        } finally {
+          process.removeListener("SIGINT", interrupt);
+          stop(controller.signal.aborted);
         }
-      },
-    );
+        if (controller.signal.aborted) {
+          process.exitCode = 130;
+          failure("Cancelled.", Boolean(options.json));
+          return;
+        }
+        const report = {
+          profile: profile.id,
+          platform: process.platform,
+          checks: [
+            {
+              name: "node",
+              ...node,
+              channel: null,
+            },
+            ...checks,
+          ],
+          unchecked: {
+            components: profile.components.filter(
+              (item) => !["pnpm", "uv", "pi", "herdr"].includes(item.component),
+            ),
+            integrations: profile.integrations,
+          },
+          scope: "toolchain only; environment readiness is not assessed",
+        };
+        doctor(report, repo, Boolean(options.json));
+        if (
+          report.checks.some(
+            (item) => item.status !== "ok" || item.channel !== null,
+          )
+        )
+          process.exitCode = 1;
+      } catch (error) {
+        if (error instanceof Error && error.name === "CommanderError")
+          throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        failure(message, Boolean(options.json));
+        process.exitCode = 1;
+      }
+    });
 }

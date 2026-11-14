@@ -17,12 +17,7 @@ pnpm cli --help
 pnpm cli validate --repo .
 ```
 
-校验成功时输出：
-
-```text
-Definitions valid: 6 components, 2 integrations, 2 profiles.
-Tool installation, versions, and runtime compatibility have not been checked.
-```
+校验成功时显示仓库、声明计数和验证范围；输出明确说明工具安装、版本和运行兼容性尚未检查。
 
 从其他目录检查这份 checkout，或获取 JSON 结果：
 
@@ -32,12 +27,16 @@ node /path/to/agent-stack/dist/cli.js validate --repo /path/to/agent-stack --jso
 
 校验成功退出码为 `0`；定义、引用或声明的能力不满足要求时为 `1`。该命令不安装工具、不联网，也不修改本机配置。
 
+仓库中的声明采用 YAML 1.2，读取器也接受 `.yml` 和过渡期 JSON；同名跨格式声明会报错。它们不是工具原生配置。
+
 ## 只读工具链检测
 
 ```sh
 pnpm cli doctor --repo . --profile coding
 pnpm cli doctor --repo . --profile coding --json
 ```
+
+交互式 TTY 中可省略 `--profile` 并选择组合；JSON、CI 和非交互环境必须显式指定。Ctrl-C 取消返回 130；用法错误返回 2，检查失败返回 1。
 
 `doctor` 检查当前 Node 的 engines 要求，检查 npm、Git 及所选 profile 中 uv、herdr 的版本，并比较 profile 中的版本范围。pnpm 和 Pi 不启动：仅当 PATH 入口可与对应 npm package metadata 核对时读取其声明版本，不能证明程序可运行；其他入口报告 `unverified_entrypoint`。npm、Git 没有版本要求时只报告观察结果。herdr 只查询当前平台的原生可执行入口；脚本和未知包装器报告未核对。其版本不代表工作区正在运行，也不证明 Pi/herdr 集成可用。渠道选择器不作兼容判断；渠道未解析、未知版本或未满足要求时退出码为 1。输出列出首个 PATH 入口及观察证据，安装来源标为 unknown。
 
@@ -63,3 +62,5 @@ pnpm cli doctor --repo . --profile coding --json
 ```sh
 pnpm check
 ```
+
+[CLI 验收矩阵](docs/cli-acceptance.md) 列出当前真实行为、PTY 演示和未实现的 setup/run/锁定能力。
