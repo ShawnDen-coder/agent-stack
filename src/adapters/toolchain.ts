@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdtemp, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, open, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -10,6 +10,36 @@ import {
   isCorepackEntry,
   packageVersion,
 } from "./package-metadata.js";
+
+async function isNativeExecutable(path: string): Promise<boolean> {
+  try {
+    const file = await open(path, "r");
+    try {
+      const header = Buffer.alloc(4);
+      if ((await file.read(header, 0, 4, 0)).bytesRead !== 4) return false;
+      if (process.platform === "linux")
+        return header.equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+      if (process.platform === "win32")
+        return header[0] === 0x4d && header[1] === 0x5a;
+      if (process.platform === "darwin")
+        return [
+          "feedface",
+          "cefaedfe",
+          "feedfacf",
+          "cffaedfe",
+          "cafebabe",
+          "bebafeca",
+          "cafebabf",
+          "bfbafeca",
+        ].includes(header.toString("hex"));
+      return false;
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return false;
+  }
+}
 
 export async function observe(name: string): Promise<Observation> {
   const extensions =
@@ -57,6 +87,13 @@ export async function observe(name: string): Promise<Observation> {
       evidence: version ? "package_metadata" : null,
     };
   }
+  if (name === "herdr" && !(await isNativeExecutable(path)))
+    return {
+      path,
+      version: null,
+      failure: "unverified_entrypoint",
+      evidence: null,
+    };
   if (name === "npm" && (await isCorepackEntry(path)))
     return {
       path,
@@ -134,7 +171,9 @@ export async function observe(name: string): Promise<Observation> {
     const match = result.stdout
       .trim()
       .match(
-        /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
+        name === "herdr"
+          ? /^herdr (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
+          : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
       );
     return {
       path,
