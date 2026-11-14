@@ -86,7 +86,7 @@ GitHub adapter 从官方仓库的 [release API](https://docs.github.com/en/rest/
 
 按实际 release 资产列表和经来源证明的映射匹配目标，要求唯一、状态可用、精确 URL 与 asset ID；同名多项、缺项或未知新命名均失败。不能凭目标字符串合成 URL。对 zip 锁整个 zip 的预期 digest，后续 apply 还必须安全解压并保留所需文件；不单独假称 zip 内程序已校验或可运行。[GitHub asset API](https://docs.github.com/en/rest/releases/assets) 示例提供 `digest`；仅在实际响应提供受支持 SHA-256 时使用，记录其为 GitHub 资产 digest，不称为发行方独立签名。若采用发行方发布的 checksum 文件，必须从同一 release 的资产列表识别并读取该文件，严格匹配资产名；当两者均有值但冲突时失败，不优先忽略冲突。
 
-本轮直接查询 GitHub Releases API 返回 HTTP 403，**未确认**当前默认 `coding` 约束下 uv 的具体候选、每个 herdr/uv 历史资产是否存在或其 digest 可用性。后续 adapter 必须对真实响应、分页、限流与缺 digest 建立 fixture 与实测证据；这些不确定性是推荐分片并保持整体失败的重要原因。
+GitHub Releases API 可能返回 HTTP 403 或限流；离线 fixture 与一次在线成功均不能保证后续可用性。所选资产必须来自被核对的实际 release，历史版本须分别核查。
 
 ## 目标矩阵：设计范围，非运行验证
 
@@ -135,7 +135,7 @@ Windows 原生、WSL 的 Linux 用户态和普通 Linux runner 是不同目标/�
 
 ## 当前版本候选来源实现
 
-`lock --dry-run` 对 uv 使用 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#list-releases) 分页，仅选择正式 release 的确切 semver tag；例如官方 [0.13.8 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 使用不带 `v` 的 tag。herdr stable 从 [官方 manifest](https://herdr.dev/latest.json) 的 `version` 字段读取；[官方更新源码](https://raw.githubusercontent.com/herdrdev/herdr/master/src/update.rs) 将该 URL 指定为 stable manifest。未指定 `--target` 时只报告来源版本和身份，不解析发行资产或其 digest；无论是否指定目标，当前均不生成完整锁。
+`lock --dry-run` 对 uv 使用 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#list-releases) 分页，仅选择正式 release 的确切 semver tag；例如官方 [0.13.8 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 使用不带 `v` 的 tag。herdr stable 从 [官方 manifest](https://herdr.dev/latest.json) 的 `version` 字段读取；[官方更新源码](https://raw.githubusercontent.com/herdrdev/herdr/master/src/update.rs) 将该 URL 指定为 stable manifest。未指定 `--target` 时只报告来源版本和身份，不解析发行资产或其 digest；该 dry-run 不生成锁；不带 dry-run 的显式支持目标可首次创建共享锁。
 
 当前 `--target` 可从同一次 [herdr stable manifest](https://herdr.dev/latest.json) 快照预览 macOS arm64/x64 和 Windows x64 的 URL 与预期 SHA-256；Windows 为 zip 整体。对应入口与格式见[官方安装文档](https://herdr.dev/tui/docs/install/)。Linux ABI 和最低系统条件尚未在本切片得到足够证据，故不作兼容判断；uv 目标资产现可预览下述三个目标；Linux 目标仍阻塞。预期摘要不等于已下载验证或签名，报告不是锁。
 
@@ -146,3 +146,5 @@ Windows 原生、WSL 的 Linux 用户态和普通 Linux runner 是不同目标/�
 当前 uv 目标预览使用同一次选中 GitHub release 记录中的 assets；[uv 0.13.8 官方 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 列出 macOS arm64/x64 tar.gz 与 Windows x64 zip。只接受状态为 uploaded 的唯一目标资产、匹配 release tag 的 GitHub URL 和 asset 记录提供的 `sha256:` digest；缺失或不匹配时失败，不下载归档或以其他版本兜底。GitHub API 可返回 403/限流；预期摘要不代表已验证字节或签名。
 
 当前只读 `resolution-report` 输出结构化来源身份与 `definitionDigests` 声明快照。摘要算法标识 `sha256-canonical-json-v1`：先使用 repository adapter 解析并经 Zod 校验后的语义值，递归按 Unicode 字符串的 UTF-16 代码单元顺序排列对象 key，以 JSON 字符串转义、无空白序列化，保持数组原顺序，再以 UTF-8 编码计算 SHA-256 小写十六进制。分别摘要所选 profile、所选 components 和 integrations；不纳入 locations、设备路径、未选声明、配置或 skills。该报告不是共享锁或执行计划，部分失败时仍可显示声明快照。
+
+uv Releases 查询保留 `per_page=100`：每页最多 12 MiB、一次查询总计最多 64 MiB、最多 10 页，每页 5 秒超时；超限失败，不截断或只取首个匹配。此预算依据一次官方第一页约 8.06 MB 的实测，不能保证未来所有响应均可容纳。分页仅接受官方 owner/name 路径和 [uv 官方仓库 metadata](https://api.github.com/repos/astral-sh/uv) 所确认的仓库 ID `699532645`，并核对下一页及精确查询参数；数字路径映射回官方 owner/name 请求。herdr manifest 保留独立 4 MiB 上限。
