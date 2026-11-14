@@ -38,6 +38,8 @@ if pid == 0:
     args = [node, "--import", preload, cli, "lock", "--dry-run", "--repo", repo]
     if mode in ("interrupt", "report"):
         args += ["--profile", "fixture"]
+    if len(sys.argv) > 9:
+        args += ["--target", sys.argv[9]]
     os.execve(node, args, env)
 os.close(out_write)
 if err_write is not None:

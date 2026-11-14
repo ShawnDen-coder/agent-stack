@@ -28,7 +28,7 @@ pnpm cli doctor --repo . --profile coding --json
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `validate [--repo <dir>] [--json]`                | 校验部件、profile、集成的格式、引用、平台声明和能力要求。退出 0 仅说明声明一致。         |
 | `doctor [--profile <id>] [--repo <dir>] [--json]` | 观察当前 Node、npm、Git，以及所选 Pi、pnpm、uv、herdr 的有限版本证据。未检查项单独列出。 |
-| `lock --profile <id> --dry-run [--json]`          | 报告 npm 顶层包与 uv/herdr 发布版本候选；不写锁。                                        |
+| `lock --profile <id> --dry-run [--json]`          | 报告版本候选；可用重复的 `--target` 预览部分 herdr 资产，不写锁。                        |
 | `--help`、`help [command]`、`--version`           | 显示当前已注册命令的帮助或 CLI 自身版本；不执行配置操作。                                |
 
 当前 `--repo` 默认是调用时的当前目录；`--repo` 和 `--json` 可写在根命令或子命令位置。`doctor` 和 `lock --dry-run` 在交互 TTY 可选择 profile；JSON、CI 或非交互环境必须显式提供 `--profile`。声明读取器支持 YAML、YML 和过渡期 JSON，同 ID 冲突时报错。当前未实现设备默认绑定、环境变量选项、部件筛选、资源筛选、锁文件读取或后文的新命令。

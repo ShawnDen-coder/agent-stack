@@ -16,9 +16,11 @@ import {
   uvUrl,
 } from "../adapters/releases.js";
 import { readRepository } from "../adapters/repository.js";
+import { herdrAsset, validTarget } from "../core/herdr-assets.js";
 import { selectCandidate } from "../core/npm-candidate.js";
 import { selectHerdr, selectUv } from "../core/release-candidate.js";
 import {
+  type AssetItem,
   type ResolutionItem,
   resolutionReportSchema,
 } from "../core/resolution-report.js";
@@ -32,13 +34,26 @@ export function createLockCommand(): Command {
   )
     .addOption(profileOption())
     .option("--dry-run", "Report candidates without writing")
+    .option(
+      "--target <target>",
+      "Preview assets for an execution target (repeatable)",
+      (value: string, previous: string[]) => [...previous, value],
+      [],
+    )
     .action(async (_options: unknown, command: Command) => {
       const options = command.optsWithGlobals() as {
         repo?: string;
         profile?: string;
         json?: boolean;
         dryRun?: boolean;
+        target: string[];
       };
+      for (const target of options.target) {
+        if (!validTarget(target))
+          command.error(`error: invalid target syntax: ${target}`);
+      }
+      if (new Set(options.target).size !== options.target.length)
+        command.error("error: duplicate --target");
       if (!options.dryRun)
         command.error(
           "error: --dry-run is required; lock writing is not implemented",
@@ -70,6 +85,7 @@ export function createLockCommand(): Command {
           Boolean(options.json),
         );
         let components: ResolutionItem[];
+        let herdrSnapshot: unknown;
         try {
           components = await Promise.all(
             profile.components.map(async (selection) => {
@@ -112,8 +128,9 @@ export function createLockCommand(): Command {
                       throw new Error(
                         `Unsupported herdr channel: ${selection.channel}`,
                       );
+                    herdrSnapshot = await herdrManifest(controller.signal);
                     const version = selectHerdr(
-                      await herdrManifest(controller.signal),
+                      herdrSnapshot,
                       selection.channel,
                     );
                     return {
@@ -181,16 +198,72 @@ export function createLockCommand(): Command {
           failure("Cancelled.", Boolean(options.json));
           return;
         }
+        const targets = [...options.target].sort();
+        const assets: AssetItem[] = [];
+        for (const target of targets) {
+          const platform = target.split("-")[0];
+          for (const selection of profile.components) {
+            const component = repository.components.find(
+              (item) => item.id === selection.component,
+            );
+            if (
+              !profile.platforms.includes(platform as never) ||
+              !component?.platforms.includes(platform as never)
+            ) {
+              assets.push({
+                component: selection.component,
+                target,
+                error: "Target platform not supported by profile or component",
+              });
+              continue;
+            }
+            if (selection.component !== "herdr") {
+              assets.push({
+                component: selection.component,
+                target,
+                error: "Target asset not covered by this preview",
+              });
+              continue;
+            }
+            const herdr = components.find((item) => item.component === "herdr");
+            if (!herdr || "error" in herdr) {
+              assets.push({
+                component: selection.component,
+                target,
+                error: "Herdr version metadata unavailable",
+              });
+              continue;
+            }
+            try {
+              assets.push({
+                component: selection.component,
+                ...herdrAsset(herdrSnapshot, herdr.version, target),
+              });
+            } catch (error) {
+              assets.push({
+                component: selection.component,
+                target,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        }
         const report = resolutionReportSchema.parse({
           kind: "resolution-report",
           profile: profile.id,
           node: process.versions.node,
           components,
-          scope:
-            "version metadata only; no lock, target assets, digests for releases, dependency closure, installation or runtime verification",
+          ...(targets.length ? { targets, assets } : {}),
+          scope: targets.length
+            ? "Herdr asset metadata only; expected digest is not downloaded-byte verification or signature; other assets, dependency closure, installation, runtime compatibility and complete lock are not checked"
+            : "version metadata only; no lock, target assets, digests for releases, dependency closure, installation or runtime verification",
         });
         resolution(report, Boolean(options.json));
-        if (components.some((item) => "error" in item)) process.exitCode = 1;
+        if (
+          components.some((item) => "error" in item) ||
+          assets.some((item) => "error" in item)
+        )
+          process.exitCode = 1;
       } catch (error) {
         if (error instanceof Error && error.name === "CommanderError")
           throw error;

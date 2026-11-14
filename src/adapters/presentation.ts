@@ -269,6 +269,35 @@ export function resolution(report: ResolutionReport, json: boolean) {
       }
     }
   }
+  if (report.targets?.length) {
+    line();
+    line("Target asset preview");
+    for (const item of report.assets ?? []) {
+      line();
+      line(
+        `${"error" in item ? colors.red("[BLOCKED]") : colors.green("[ASSET]")} ${clean(item.component)} · ${clean(item.target)}`,
+      );
+      if ("error" in item) line(clean(item.error), "  ");
+      else {
+        line(`Identity: ${clean(item.identity)} (${clean(item.format)})`, "  ");
+        for (const [label, value] of [
+          ["URL", item.url],
+          ["Expected SHA-256", item.sha256],
+          ["Digest source", item.digestSource],
+        ] as const) {
+          line(`${label}:`, "  ");
+          line(clean(value), "    ", true);
+        }
+      }
+    }
+    const assetBlocked = (report.assets ?? []).filter(
+      (item) => "error" in item,
+    ).length;
+    line();
+    line(
+      `Assets checked: ${(report.assets ?? []).length - assetBlocked}  Blocked: ${assetBlocked}`,
+    );
+  }
   line();
   line(
     `Candidates: ${report.components.length - blocked}  Blocked: ${blocked}`,
