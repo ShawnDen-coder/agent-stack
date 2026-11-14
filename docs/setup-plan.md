@@ -60,3 +60,7 @@
 真实平台验收分别记录 macOS、Windows 原生和 Linux/WSL；模拟 `path.win32` 不等于 Windows 实机通过。每片 `pnpm check`、适用时实际 pack/解包并交根会话审查。当前锁**没有**传递依赖闭包、各版本安装脚本/入口可运行性、配置/skills 内容摘要、集成扩展身份、最低 OS 条件或本机归属；资源片用本机计划冻结 Git 内容，版本专属 adapter 补安装与路径证据。若需要可跨设备复现 npm 闭包或独立固定扩展，再单独设计生态原生锁/共享锁扩展和迁移，不能把现有字段解释成已有这些保证。
 
 当前只读预览在 macOS x64 使用 `/usr/bin/arch -x86_64` 启动同架构的固定 sysctl 查询；这确保子进程与 Node 一样需要或不需要 Rosetta。仅接受 `0` 或精确的 ENOENT 输出；其他错误阻塞。macOS arm64 进程为原生。Windows x64 使用固定 PowerShell 内置 `Add-Type` 调用 [`IsWow64Process2`](https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process2)，检查 Node 进程与系统原生架构；调用不可用或返回仿真均阻塞。查询使用临时目录、受限环境、固定参数和有界超时/输出，并在结束时清理。Apple 的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 是进程属性；不能使用未控制架构的子进程推断 Node 状态。Windows 原生实机、Rosetta 和 ARM64 仿真仍须实机验证。
+
+当前进度：只读计划已显示选中目标的 uv 资产身份、URL 和预期 SHA-256；uv-only 不再报告不适用的 npm engines 或 Pi 资源阻塞。下载、字节校验、部署、归属、确认、绑定及恢复均尚未实现。
+
+发行布局核验：以锁中 uv 0.13.8 为例，临时下载的 Intel macOS tar.gz 包含 `uv` 与 `uvx`，Windows x64 zip 还包含 `uvw.exe`；两份 SHA-256 与锁一致。该观察不证明其他版本的布局或安装兼容性；发行格式参见[该版本官方配置](https://github.com/astral-sh/uv/blob/0.13.8/dist-workspace.toml)。

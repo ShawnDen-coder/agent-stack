@@ -415,6 +415,18 @@ export function setup(
       "    ",
     );
     if (item.observation.path) line(clean(item.observation.path), "    ", true);
+    if (item.lockedAsset) {
+      line(
+        `Locked asset: ${clean(item.lockedAsset.name)} (${clean(item.lockedAsset.format)})`,
+        "    ",
+      );
+      line("URL:", "    ");
+      line(clean(item.lockedAsset.url), "      ", true);
+      line("Expected SHA-256:", "    ");
+      line(clean(item.lockedAsset.sha256), "      ", true);
+      line("Digest source:", "    ");
+      line(clean(item.lockedAsset.digestSource), "      ", true);
+    }
     line(clean(item.action), "    ");
   }
   line();
