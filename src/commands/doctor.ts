@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
+import { cliNodeRequirement } from "../adapters/package-metadata.js";
 import { readRepository } from "../adapters/repository.js";
 import { observe } from "../adapters/toolchain.js";
 import { assess } from "../core/doctor.js";
@@ -27,19 +27,15 @@ export function createDoctorCommand(): Command {
             (item) => item.id === options.profile,
           );
           if (!profile) throw new Error(`Unknown profile: ${options.profile}`);
-          const engine = JSON.parse(
-            await readFile(
-              new URL("../../package.json", import.meta.url),
-              "utf8",
-            ),
-          ) as { engines: { node: string } };
+          const engine = await cliNodeRequirement();
           const node = assess(
             {
               path: process.execPath,
               version: process.versions.node,
               failure: null,
+              evidence: "running_process",
             },
-            engine.engines.node,
+            engine,
           );
           const selected = profile.components.filter((item) =>
             ["pnpm", "uv", "pi"].includes(item.component),
@@ -67,14 +63,11 @@ export function createDoctorCommand(): Command {
                       path: null,
                       version: null,
                       failure: "platform_not_applicable",
+                      evidence: null,
                     };
                 return {
                   name,
                   ...assess(observation, requirement),
-                  evidence:
-                    name === "pnpm" || name === "pi"
-                      ? "package_metadata"
-                      : "version_command",
                   channel:
                     selection && "channel" in selection
                       ? selection.channel
@@ -90,7 +83,6 @@ export function createDoctorCommand(): Command {
               {
                 name: "node",
                 ...node,
-                evidence: "running_process",
                 channel: null,
               },
               ...checks,

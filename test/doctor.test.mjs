@@ -103,6 +103,8 @@ test(
     assert.equal(check(report, "pnpm").version, "12.15.0");
     assert.equal(check(report, "pnpm").path, join(bin, "pnpm"));
     assert.equal(check(report, "pnpm").source, "unknown");
+    assert.equal(check(report, "pnpm").evidence, "package_metadata");
+    assert.equal(check(report, "uv").evidence, "version_command");
     assert.deepEqual(report.unchecked.integrations, ["pi-herdr"]);
     assert.equal(report.unchecked.components[0].component, "herdr");
     assert.equal(await readFile(join(root, "package.json"), "utf8"), before);
@@ -153,6 +155,7 @@ test("unknown pnpm and Pi entrypoints are not executed", unix, async (t) => {
   const report = JSON.parse(run(root, bin).stdout);
   assert.equal(check(report, "pnpm").status, "unverified_entrypoint");
   assert.equal(check(report, "pi").status, "unverified_entrypoint");
+  assert.equal(check(report, "pi").evidence, null);
   assert.equal((await readdir(root)).includes("unexpected"), false);
 });
 
@@ -258,3 +261,24 @@ test(
     assert.equal(uv.status, "ok");
   },
 );
+
+test("doctor does not run a POSIX Corepack npm symlink", unix, async (t) => {
+  const { root, bin } = await fixture(t);
+  const pkg = join(root, "corepack");
+  await mkdir(join(pkg, "dist"), { recursive: true });
+  await writeFile(
+    join(pkg, "package.json"),
+    JSON.stringify({ name: "corepack" }),
+  );
+  const target = join(pkg, "dist", "npm.js");
+  await writeFile(
+    target,
+    `#!/bin/sh\necho executed > '${join(root, "unexpected")}'\n`,
+  );
+  await chmod(target, 0o755);
+  await symlink(target, join(bin, "npm"));
+  const report = JSON.parse(run(root, bin).stdout);
+  assert.equal(check(report, "npm").status, "unverified_entrypoint");
+  assert.equal(check(report, "npm").evidence, null);
+  assert.equal((await readdir(root)).includes("unexpected"), false);
+});

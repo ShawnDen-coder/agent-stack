@@ -39,9 +39,9 @@ pnpm cli doctor --repo . --profile coding
 pnpm cli doctor --repo . --profile coding --json
 ```
 
-`doctor` 检查当前 Node 的 engines 要求，查询 npm、Git 及所选 profile 中 uv 的版本，并比较 profile 中的版本范围。pnpm 和 Pi 不启动：仅当 PATH 入口可与对应 npm package metadata 核对时读取其声明版本，不能证明程序可运行；其他入口报告 `unverified_entrypoint`。npm、Git 没有版本要求时只报告观察结果。渠道选择器不作兼容判断；未知版本或未满足要求时退出码为 1。输出列出首个 PATH 入口及证据来源，安装来源标为 unknown。
+`doctor` 检查当前 Node 的 engines 要求，检查 npm、Git 及所选 profile 中 uv 的版本，并比较 profile 中的版本范围。pnpm 和 Pi 不启动：仅当 PATH 入口可与对应 npm package metadata 核对时读取其声明版本，不能证明程序可运行；其他入口报告 `unverified_entrypoint`。npm、Git 没有版本要求时只报告观察结果。渠道选择器不作兼容判断；未知版本或未满足要求时退出码为 1。输出列出首个 PATH 入口及观察证据，安装来源标为 unknown。
 
-查询在临时目录运行，限制时间和输出；Windows 的 `.cmd`/`.bat` 入口暂不执行。herdr、Otty、Rex 和集成未检查，检测通过不代表整套环境 ready。不会安装工具、应用配置或调用模型。
+查询在临时目录运行，限制时间和输出；Windows 的标准 `cmd-shim`（npm、pnpm、Pi）可在完整模板、目标和包元数据一致时静态识别；不会执行 `.cmd`/`.bat`。Node 自带的动态 prefix `npm.cmd`、Corepack 和未知包装器暂不核对。herdr、Otty、Rex 和集成未检查，检测通过不代表整套环境 ready。不会安装工具、应用配置或调用模型。
 
 ## 组合示例
 
