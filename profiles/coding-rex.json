@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "coding-rex",
+  "description": "Experimental macOS alternative using Rex; agent status is not assumed equivalent to herdr",
+  "platforms": ["darwin"],
+  "components": [
+    { "component": "pi", "version": ">=1.5.2 <2" },
+    { "component": "pnpm", "version": ">=12.15.0 <13" },
+    { "component": "uv", "version": ">=0.13.8 <0.14" },
+    { "component": "rex", "channel": "beta" }
+  ],
+  "integrations": ["pi-rex"],
+  "requires": [
+    "agent-runtime",
+    "workspace",
+    "node-packages",
+    "python-tools",
+    "terminal-control"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "herdr",
+  "description": "Terminal workspace and persistent agent sessions",
+  "kind": "workspace",
+  "platforms": ["darwin", "win32", "linux"],
+  "provides": ["workspace"],
+  "source": {
+    "type": "release",
+    "url": "https://github.com/herdrdev/herdr/releases"
+  }
+}
