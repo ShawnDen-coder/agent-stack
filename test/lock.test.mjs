@@ -3072,9 +3072,9 @@ test("setup evaluates native and emulated Windows Node process evidence", async 
     const preload = join(f.dir, `win-${expected}-${answer.length}.mjs`);
     await writeFile(
       preload,
-      `import os from 'node:os'; import cp from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+      `import os from 'node:os'; import cp from 'node:child_process'; import {EventEmitter} from 'node:events'; import {syncBuiltinESMExports} from 'node:module';
 Object.defineProperty(process,'platform',{value:'win32'}); Object.defineProperty(process,'arch',{value:'x64'}); os.machine=()=> 'x86_64';
-cp.execFile=(file,args,opts,cb)=>{queueMicrotask(()=>cb(null,${JSON.stringify(answer)},''));}; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
+cp.execFile=(file,args,opts,cb)=>{const child=new EventEmitter();queueMicrotask(()=>{cb(null,${JSON.stringify(answer)},'');child.emit('close',0)});return child;}; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
     );
     const r = spawnSync(
       process.execPath,
@@ -3202,9 +3202,9 @@ test("setup distinguishes Intel, Rosetta and unknown sysctl results", async (t) 
     const preload = join(f.dir, `mac-${native}-${stderr.length}.mjs`);
     await writeFile(
       preload,
-      `import cp from 'node:child_process'; import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';
+      `import cp from 'node:child_process'; import os from 'node:os'; import {EventEmitter} from 'node:events'; import {syncBuiltinESMExports} from 'node:module';
 Object.defineProperty(process,'platform',{value:'darwin'}); Object.defineProperty(process,'arch',{value:'x64'}); os.machine=()=> 'x86_64';
-cp.execFile=(file,args,opts,cb)=>{if(file !== '/usr/bin/arch' || args.join(' ') !== '-x86_64 /usr/sbin/sysctl -n sysctl.proc_translated') throw Error('wrong architecture'); const error=${code} ? Object.assign(new Error('failed'),{code:${code}}) : null; queueMicrotask(()=>cb(error,${JSON.stringify(stdout)},${JSON.stringify(stderr)}));}; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
+cp.execFile=(file,args,opts,cb)=>{if(file !== '/usr/bin/arch' || args.join(' ') !== '-x86_64 /usr/sbin/sysctl -n sysctl.proc_translated') throw Error('wrong architecture'); const error=${code} ? Object.assign(new Error('failed'),{code:${code}}) : null; const child=new EventEmitter();queueMicrotask(()=>{cb(error,${JSON.stringify(stdout)},${JSON.stringify(stderr)});child.emit('close',${code})});return child;}; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
     );
     const r = spawnSync(
       process.execPath,
@@ -3315,3 +3315,101 @@ test("setup observes the real native Windows x64 CI process", {
   assert.equal(plan.host.evidence, "IsWow64Process2");
   assert.equal(plan.host.native, true);
 });
+
+for (const mode of ["timeout", "output_limit", "abort"]) {
+  test(`setup host probe ${mode} kills and reaps an uncooperative child`, {
+    skip: mode === "abort" && process.platform === "win32",
+    timeout: 15000,
+  }, async (t) => {
+    const f = await freshForValidation(t);
+    const { mkdir } = await import("node:fs/promises");
+    const tmp = join(f.dir, "probe-tmp");
+    await mkdir(tmp);
+    const pidPath = join(f.dir, "host-probe.pid");
+    const ready = join(f.dir, "host-probe-ready");
+    const childCode = `process.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(ready)},'ready');${mode === "output_limit" ? "process.stdout.write('x'.repeat(20000));" : ""}setInterval(()=>{},1000);`;
+    const preload = join(f.dir, `host-${mode}.mjs`);
+    await writeFile(
+      preload,
+      `import cp from 'node:child_process';import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:'x64'});
+const original=cp.execFile;cp.execFile=(_file,_args,opts,callback)=>{const child=original(process.execPath,['-e',${JSON.stringify(childCode)}],opts,callback);fs.writeFileSync(${JSON.stringify(pidPath)},String(child.pid));return child;};syncBuiltinESMExports();globalThis.fetch=()=>{throw Error('network forbidden')};`,
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        preload,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "coding",
+        "--dry-run",
+        "--json",
+      ],
+      {
+        env: {
+          PATH: "",
+          TMPDIR: tmp,
+          TMP: tmp,
+          TEMP: tmp,
+          ...(process.env.SystemRoot
+            ? { SystemRoot: process.env.SystemRoot }
+            : {}),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.resume();
+    const done = new Promise((resolve) =>
+      child.once("close", (code, signal) => resolve({ code, signal })),
+    );
+    let pid;
+    let reaped = false;
+    let guard;
+    try {
+      for (let i = 0; i < 200; i++) {
+        try {
+          pid = Number(await readFile(pidPath, "utf8"));
+          await readFile(ready);
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+      assert.ok(pid, "host probe started");
+      if (mode === "abort") child.kill("SIGINT");
+      const result = await Promise.race([
+        done,
+        new Promise((resolve) => {
+          guard = setTimeout(() => resolve(null), 6500);
+        }),
+      ]);
+      assert.ok(result, "CLI must finish without outside termination");
+      assert.equal(result.code, mode === "abort" ? 130 : 1, stdout);
+      assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+      reaped = true;
+      assert.deepEqual(await readdir(tmp), []);
+      assert.match(
+        JSON.parse(stdout).error,
+        mode === "abort" ? /Cancelled/ : /probe-unknown/,
+      );
+    } finally {
+      clearTimeout(guard);
+      if (pid && !reaped) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await done;
+      }
+    }
+  });
+}
