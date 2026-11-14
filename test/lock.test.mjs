@@ -1112,6 +1112,8 @@ for (const columns of [40, 80])
       assert.ok(compact.includes(integrity));
       assert.ok(compact.includes(assetHash));
       assert.ok(compact.includes("https://registry.npmjs.org/pkg.tgz"));
+      assert.ok(compact.includes("ExpectedSHA-512SRI:"));
+      assert.ok(compact.includes("ExpectedSHA-256:"));
       assert.match(text, /\[BLOCKED\] uv/);
     });
 for (const [label, override, pattern] of [
