@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmod,
   cp,
@@ -187,5 +187,74 @@ test(
     assert.equal(check(report, "git").path, join(bin, "git"));
     assert.equal(check(report, "git").version, "2.40.0");
     assert.equal(check(report, "uv").status, "output_limit");
+  },
+);
+
+for (const [label, body, expected] of [
+  ["timeout", "setInterval(() => {}, 1000)", "timeout"],
+  [
+    "output limit",
+    "setInterval(() => process.stdout.write('x'.repeat(65536)), 1)",
+    "output_limit",
+  ],
+])
+  test(
+    `doctor enforces ${label} when a version process ignores SIGTERM`,
+    unix,
+    async (t) => {
+      const { root, bin } = await fixture(t);
+      const executable = join(bin, "uv");
+      await writeFile(
+        executable,
+        `#!${process.execPath}\nprocess.on("SIGTERM", () => {}); ${body};\n`,
+      );
+      await chmod(executable, 0o755);
+      const child = spawn(
+        process.execPath,
+        [cli, "doctor", "--repo", root, "--profile", "coding", "--json"],
+        {
+          cwd: root,
+          env: { ...process.env, PATH: bin },
+          detached: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let output = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
+      let watchdogFired = false;
+      const watchdog = setTimeout(() => {
+        watchdogFired = true;
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {}
+      }, 7000);
+      const code = await new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", resolve);
+      }).finally(() => clearTimeout(watchdog));
+      assert.equal(watchdogFired, false, "doctor exceeded the outer deadline");
+      assert.equal(code, 1);
+      assert.equal(check(JSON.parse(output), "uv").status, expected);
+    },
+  );
+
+test(
+  "doctor skips directories in PATH and follows executable symlinks",
+  unix,
+  async (t) => {
+    const { root, bin } = await fixture(t);
+    const second = join(root, "second");
+    await mkdir(second);
+    await mkdir(join(bin, "uv"));
+    await fake(second, "uv-real", "echo 'uv 0.13.8'");
+    await symlink(join(second, "uv-real"), join(second, "uv"));
+    const result = run(root, `${bin}:${second}`);
+    const uv = check(JSON.parse(result.stdout), "uv");
+    assert.equal(uv.path, join(second, "uv"));
+    assert.equal(uv.version, "0.13.8");
+    assert.equal(uv.status, "ok");
   },
 );
