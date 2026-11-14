@@ -243,3 +243,201 @@ test("lock rejects unavailable write options and requires profile in JSON", asyn
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stdout).error, /Unknown profile/);
 });
+
+test("ignores missing integrity in excluded historical versions", async (t) => {
+  const old = manifest("0.1.0", {
+    dist: { tarball: "https://registry.npmjs.org/old.tgz", shasum: "old" },
+  });
+  const { dir, preload } = await setup(t, pack([old, manifest("1.8.0")]));
+  const result = run(dir, preload);
+  assert.equal(result.status, 0, result.stdout);
+  assert.equal(JSON.parse(result.stdout).components[0].version, "1.8.0");
+});
+test("chooses highest Node-compatible candidate", async (t) => {
+  const { dir, preload } = await setup(
+    t,
+    pack([
+      manifest("1.7.0"),
+      manifest("1.8.0", { engines: { node: ">=999" } }),
+    ]),
+  );
+  const result = run(dir, preload);
+  assert.equal(result.status, 0, result.stdout);
+  assert.equal(JSON.parse(result.stdout).components[0].version, "1.7.0");
+});
+test("human errors strip untrusted terminal control sequences", async (t) => {
+  const body = `globalThis.fetch=async()=>{throw new Error(${JSON.stringify("failure\u001b]0;OWNED\u0007\u001b[31mred\u001b[0m\nnext")})}`;
+  const { dir, preload } = await setup(t, null, body);
+  const result = run(dir, preload, ["--profile", "fixture", "--dry-run"]);
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stdout, new RegExp(String.fromCharCode(27)));
+  assert.match(result.stdout, /failure/);
+});
+
+const ptyDriver = join(repo, "test/lock_pty_driver.py");
+for (const [columns, color, blocked] of [
+  [40, "color", false],
+  [80, "color", false],
+  [40, "no-color", false],
+  [80, "no-color", false],
+  [40, "no-color", true],
+  [80, "color", true],
+]) {
+  test(`lock PTY report ${columns} ${color} ${blocked ? "blocked" : "candidate"}`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const body = blocked
+      ? `globalThis.fetch=async()=>{throw new Error(${JSON.stringify("network\u001b]0;OWNED\u0007\u001b[31mred\u001b[0m\nnext")})}`
+      : null;
+    const { dir, preload } = await setup(t, pack([manifest("1.8.0")]), body);
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, "tmp"));
+    const result = spawnSync(
+      "python3",
+      [
+        ptyDriver,
+        process.execPath,
+        cli,
+        dir,
+        dir,
+        "report",
+        String(columns),
+        color,
+        preload,
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.status, blocked ? 1 : 0, output.stderr);
+    const { stripVTControlCharacters } = await import("node:util");
+    const width = (await import("fast-string-width")).default;
+    const plain = stripVTControlCharacters(output.stdout);
+    for (const line of plain.split(/\r?\n/))
+      assert.ok(width(line) <= columns, JSON.stringify(line));
+    assert.doesNotMatch(output.stdout, /OWNED/);
+    if (blocked) {
+      assert.match(plain, /\[BLOCKED\]/);
+      assert.match(plain, /networkred next/);
+    } else {
+      const compact = plain.replace(/\s/g, "");
+      assert.ok(compact.includes(integrity));
+      assert.ok(
+        compact.includes(
+          "https://registry.npmjs.org/fixture-package/-/fixture-package-1.8.0.tgz",
+        ),
+      );
+    }
+  });
+}
+for (const mode of [
+  "select",
+  "cancel",
+  "interrupt",
+  "redirect-out",
+  "redirect-err",
+  "ci",
+  "dumb",
+]) {
+  test(`lock PTY ${mode}`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const body =
+      mode === "interrupt"
+        ? `import {writeFileSync} from 'node:fs'; globalThis.fetch=async (_u,{signal})=>new Promise((_,reject)=>{writeFileSync(${JSON.stringify(join("PLACEHOLDER", "probe.pid"))},'start');const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);writeFileSync(${JSON.stringify(join("PLACEHOLDER", "aborted"))},'yes');reject(signal.reason)});});`
+        : null;
+    const { dir, preload } = await setup(t, pack([manifest("1.8.0")]), body);
+    if (mode === "interrupt") {
+      let text = await readFile(preload, "utf8");
+      text = text.replaceAll("PLACEHOLDER", dir);
+      await writeFile(preload, text);
+    }
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, "tmp"));
+    const result = spawnSync(
+      "python3",
+      [
+        ptyDriver,
+        process.execPath,
+        cli,
+        dir,
+        dir,
+        mode,
+        "80",
+        "no-color",
+        preload,
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const out = JSON.parse(result.stdout);
+    assert.equal(
+      out.status,
+      mode === "cancel" || mode === "interrupt"
+        ? 130
+        : mode === "select"
+          ? 0
+          : 2,
+      out.stderr,
+    );
+    if (mode === "select" || mode === "cancel" || mode === "interrupt")
+      assert.equal(out.sent, true);
+    else assert.doesNotMatch(out.stderr, /Choose a profile/);
+    if (mode === "interrupt")
+      assert.equal(await readFile(join(dir, "aborted"), "utf8"), "yes");
+  });
+}
+
+test("selected version without digest fails instead of falling back", async (t) => {
+  const { dir, preload } = await setup(
+    t,
+    pack([
+      manifest("1.7.0"),
+      manifest("1.8.0", {
+        dist: { tarball: "https://registry.npmjs.org/pkg.tgz" },
+      }),
+    ]),
+  );
+  const before = await snapshot(dir);
+  const result = run(dir, preload);
+  assert.equal(result.status, 1);
+  assert.match(JSON.parse(result.stdout).components[0].error, /integrity/);
+  assert.deepEqual(await snapshot(dir), before);
+});
+test("JSON preserves untrusted data as escaped text without UI", async (t) => {
+  const message = "network\u001b]0;OWNED\u0007\u001b[31mred\u001b[0m\nnext";
+  const { dir, preload } = await setup(
+    t,
+    null,
+    `globalThis.fetch=async()=>{throw new Error(${JSON.stringify(message)})}`,
+  );
+  const result = run(dir, preload);
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).components[0].error, message);
+  assert.doesNotMatch(result.stdout, new RegExp(String.fromCharCode(27)));
+});
+test("lock accepts root shared options and requires profile when stdin is not a TTY", async (t) => {
+  const { dir, preload } = await setup(t, pack([manifest("1.8.0")]));
+  const rootOptions = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      preload,
+      cli,
+      "--repo",
+      dir,
+      "--json",
+      "lock",
+      "--profile",
+      "fixture",
+      "--dry-run",
+    ],
+    { encoding: "utf8", timeout: 10000 },
+  );
+  assert.equal(rootOptions.status, 0, rootOptions.stdout);
+  assert.equal(JSON.parse(rootOptions.stdout).components[0].version, "1.8.0");
+  const missing = run(dir, preload, ["--dry-run"]);
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /--profile/);
+  assert.doesNotMatch(missing.stderr, /Choose a profile/);
+});
