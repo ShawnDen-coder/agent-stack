@@ -124,3 +124,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 - [Rex 安装](https://www.superlogical.com/rex/docs/installation)、[Otty 安装](https://docs.otty.sh/getting-started/installation)：客户端、服务端与平台范围需要分别核对。
 
 `--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线和安装尚未实现。
+
+### 来源规则与锁校验
+
+此前离线锁校验通过构造临时 registry packument、release 和 manifest，再调用候选选择器验证资产。现在来源解析先核对真实响应及身份，再与离线锁校验共同调用对应来源的纯资产规则；锁校验直接使用锁内字段，不虚构远端记录。报告与持久锁仍是不同产物；本地规则匹配不能证明远端发布或下载字节。

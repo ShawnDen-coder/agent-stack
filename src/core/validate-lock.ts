@@ -1,11 +1,11 @@
 import semver from "semver";
 import { definitionDigests } from "./definition-digests.js";
 import { freshLockSchema } from "./fresh-lock.js";
-import { herdrAsset } from "./herdr-assets.js";
+import { checkHerdrDistribution } from "./herdr-assets.js";
 import { npmTargets } from "./npm-assets.js";
-import { selectCandidate } from "./npm-candidate.js";
+import { checkNpmDistribution } from "./npm-candidate.js";
 import { lockValidationSummarySchema, type Repository } from "./schema.js";
-import { uvAsset } from "./uv-assets.js";
+import { checkUvDistribution } from "./uv-assets.js";
 
 function insist(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
@@ -196,21 +196,7 @@ export function validateLock(data: unknown, repository: Repository) {
         "Conflicting npm asset evidence",
       );
       npmIdentities.set(identity, evidence);
-      selectCandidate(
-        {
-          name,
-          versions: {
-            [item.version]: {
-              name,
-              version: item.version,
-              dist: { tarball: asset.url, integrity: asset.digest.value },
-            },
-          },
-        },
-        name,
-        item.version,
-        lock.node,
-      );
+      checkNpmDistribution(asset.url, asset.digest.value);
     } else if (a.type === "uv") {
       insist(
         item.component === "uv" &&
@@ -224,24 +210,12 @@ export function validateLock(data: unknown, repository: Repository) {
         asset.digest.algorithm === "sha256",
         "Invalid uv digest algorithm",
       );
-      const result = uvAsset(
-        {
-          id: a.releaseId,
-          tag_name: item.source.tag,
-          html_url: `https://github.com/astral-sh/uv/releases/tag/${item.source.tag}`,
-          draft: false,
-          prerelease: false,
-          assets: [
-            {
-              id: a.assetId,
-              name: a.assetName,
-              state: "uploaded",
-              browser_download_url: asset.url,
-              digest: `sha256:${asset.digest.value}`,
-            },
-          ],
-        },
+      const result = checkUvDistribution(
         asset.target,
+        item.source.tag,
+        a.assetName,
+        asset.url,
+        `sha256:${asset.digest.value}`,
       );
       insist(
         result.format === asset.format &&
@@ -258,13 +232,11 @@ export function validateLock(data: unknown, repository: Repository) {
         asset.digest.algorithm === "sha256",
         "Invalid herdr digest algorithm",
       );
-      const result = herdrAsset(
-        {
-          assets: { [a.assetKey]: asset.url },
-          sha256: { [a.assetKey]: asset.digest.value },
-        },
+      const result = checkHerdrDistribution(
         item.version,
         asset.target,
+        asset.url,
+        asset.digest.value,
       );
       insist(
         result.assetKey === a.assetKey &&

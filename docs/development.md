@@ -83,3 +83,5 @@ CI 覆盖六组 OS/Node 组合，但只有运行后的结果才算证据。它�
 herdr 仅在 profile 选择时检查；仅对当前平台的原生可执行文件运行固定 `--version`，文件头检查不能证明文件来源或完整性。脚本和未知包装器不执行，版本查询不证明工作区或集成运行。`stable` 是未解析渠道，不由版本反推。依据：[官方安装文档](https://herdr.dev/tui/docs/install/)列出各平台二进制与 Windows `herdr.exe`；[main.rs](https://github.com/herdrdev/herdr/blob/master/src/main.rs) 的 `--version` 分支在配置加载及服务启动之前输出 `herdr <version>` 并返回；[build_info.rs](https://github.com/herdrdev/herdr/blob/master/src/build_info.rs) 描述版本与预发布后缀。该判断针对所查源码，无法证明任意旧版或被替换的二进制行为。
 
 macOS/Linux 的交互验收还需要 `python3` 标准库的 `pty`；Windows 跳过 PTY 用例。测试从编译后的 CLI 发送真实按键，覆盖 80/40 列、选择、取消与运行中中断；终端演示和覆盖范围见 [验收矩阵](cli-acceptance.md)。
+
+来源解析与 `validate --lock` 共用 `core` 中各来源的 URL、资产身份与摘要规则；只有来源解析负责选择真实版本和核对远端响应。修改规则时同时检查受控来源与离线锁的真实 CLI 回归，不构造假的来源响应作为锁校验路径。

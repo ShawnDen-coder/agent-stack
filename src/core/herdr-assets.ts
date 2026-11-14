@@ -14,14 +14,30 @@ const mappings: Record<string, string> = {
   "win32-x64": "windows-x86_64",
 };
 export function herdrAsset(data: unknown, version: string, target: string) {
+  const key = herdrKey(target);
+  const manifest = manifestSchema.parse(data);
+  return checkHerdrDistribution(
+    version,
+    target,
+    manifest.assets[key],
+    manifest.sha256[key],
+  );
+}
+function herdrKey(target: string) {
   const key = mappings[target];
   if (!key)
     throw new Error(
       `Target ${target} is not supported by herdr asset preview (Linux ABI evidence is not established)`,
     );
-  const manifest = manifestSchema.parse(data);
-  const rawUrl = manifest.assets[key];
-  const digest = manifest.sha256[key];
+  return key;
+}
+export function checkHerdrDistribution(
+  version: string,
+  target: string,
+  rawUrl: unknown,
+  digest: unknown,
+) {
+  const key = herdrKey(target);
   if (typeof rawUrl !== "string")
     throw new Error(`Missing asset URL for ${key}`);
   if (typeof digest !== "string" || !/^[a-fA-F0-9]{64}$/.test(digest))
