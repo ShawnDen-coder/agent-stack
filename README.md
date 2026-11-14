@@ -51,7 +51,7 @@ pnpm cli doctor --repo . --profile coding --json
 
 这两份 profile 的平台和能力是静态声明，不代表对应平台已运行验证或完成实际安装。Rex 组合没有宣称提供与 herdr 相同的 Agent 状态能力；替换部件后遗漏原组合要求的能力，校验会失败。
 
-共享配置以这份 Git checkout 为准，CLI 的 npm 包仅包含工具代码。认证、会话、缓存和设备覆盖留在本机。`pnpm-lock.yaml` 锁定 CLI 自身依赖；外部部件的 `stack.lock.json` 尚未实现或生成。当前包设置为 `private`，尚未发布到 npm。
+共享配置以这份 Git checkout 为准，CLI 的 npm 包仅包含工具代码。认证、会话、缓存和设备覆盖留在本机。`pnpm-lock.yaml` 锁定 CLI 自身依赖；外部部件的 `stack/stack.lock.json` 尚未实现或生成。当前包设置为 `private`，尚未发布到 npm。
 
 ## 继续开发
 

@@ -2,7 +2,7 @@
 
 - 本仓库采用 TypeScript + Node.js 单包 npm CLI，开发使用 packageManager 指定的 pnpm。
 - 先阅读 `docs/architecture.md` 和 `docs/development.md`，保持配置源、部件、profile、集成与设备状态的边界。
-- `components/`、`profiles/`、`integrations/` 是声明；`configs/` 保存原生配置。元数据不要伪装成工具原生配置。
+- `stack/components/`、`stack/profiles/`、`stack/integrations/` 是声明；`stack/configs/` 保存原生配置。元数据不要伪装成工具原生配置。
 - `src/core/` 不读文件、不联网、不启动进程；外部 I/O 放入 adapters，commands 负责组装。
 - 类型从 Zod schema 推导。新增字段和模块应有真实消费者。
 - 只在 CLI 帮助和 README 中展示已实现命令。静态校验通过不能描述为工具安装或运行验证通过。

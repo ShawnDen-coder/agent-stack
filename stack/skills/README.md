@@ -1,6 +1,6 @@
 # 可复用工作流
 
-按标准的 `skills/<name>/SKILL.md` 组织说明、脚本、references 与 assets。当前尚未编写或安装三个核心工作流，先保留职责：
+按标准的 `stack/skills/<name>/SKILL.md` 组织说明、脚本、references 与 assets。当前尚未编写或安装三个核心工作流，先保留职责：
 
 - `shape`：读取项目，收敛需求、范围和验收条件。
 - `implement`：完成小范围改动，修 bug 先建立复现。

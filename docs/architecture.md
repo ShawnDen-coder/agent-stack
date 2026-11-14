@@ -6,12 +6,13 @@ Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CL
 
 ```text
 agent-stack/
-├── components/             # 工具来源、平台和能力声明
-├── profiles/               # 选择部件、版本要求、集成和验收能力
-├── integrations/           # 部件之间的协作声明
-├── configs/                # 各工具的原生共享配置
-├── agents/                 # Agent 的职责与工作约定
-├── skills/                 # 可复用的标准 SKILL.md 及支持文件
+├── stack/                  # Git 管理的共享配置与声明
+│   ├── components/         # 工具来源、平台和能力声明
+│   ├── profiles/           # 组合声明
+│   ├── integrations/       # 部件之间的协作声明
+│   ├── configs/            # 各工具的原生共享配置
+│   ├── agents/             # Agent 的职责与工作约定
+│   └── skills/             # 标准 SKILL.md 及支持文件
 ├── src/
 │   ├── cli.ts              # 命令入口和参数解析
 │   ├── commands/           # 组装一次用户操作，决定输出和退出码
@@ -26,21 +27,21 @@ agent-stack/
 
 目录对应实际内容和职责，新增能力时再增加模块。当前不拆 workspace 包；以后出现第二个独立发布或部署的应用，再确定需要共享的包边界。
 
-`configs/`、`agents/`、`skills/` 已建立各自的编写约定，尚未放入自动应用的原生配置或可执行工作流。它们不属于当前 `validate` 命令的校验范围。
+`stack/configs/`、`stack/agents/`、`stack/skills/` 已建立各自的编写约定，尚未放入自动应用的原生配置或可执行工作流。它们不属于当前 `validate` 命令的校验范围。
 
 ## 声明书写格式
 
-自有的人编写声明采用 YAML 1.2：`components/<id>.yaml`、`profiles/<id>.yaml`、`integrations/<id>.yaml`，接受 `.yml`，过渡期兼容 JSON。仓库现有声明已迁移，数据模型与能力要求不变。
+自有的人编写声明采用 YAML 1.2：`stack/components/<id>.yaml`、`stack/profiles/<id>.yaml`、`stack/integrations/<id>.yaml`，接受 `.yml`，过渡期兼容 JSON。仓库现有声明已迁移，数据模型与能力要求不变。
 
 YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。未来锁文件的声明摘要拟基于校验后的规范数据；该摘要功能尚未实现。读取或锁定不自动重写作者文件。
 
-工具原生配置保持 JSON/TOML/YAML 等原格式；skills 保持标准 Markdown 与 YAML front matter。机器生成的 `stack.lock.json`、执行计划和 CLI JSON 输出继续使用 JSON。人编写的声明与机器产物分别维护。完整示例和命令分工见 [CLI 行为审查稿](cli-behavior.md)。
+工具原生配置保持 JSON/TOML/YAML 等原格式；skills 保持标准 Markdown 与 YAML front matter。机器生成的 `stack/stack.lock.json`、执行计划和 CLI JSON 输出继续使用 JSON。人编写的声明与机器产物分别维护。完整示例和命令分工见 [CLI 行为审查稿](cli-behavior.md)。
 
 ## 四种声明
 
 ### 部件
 
-`components/<id>.yaml` 描述一个外部工具的身份、来源、适用平台与能力。Pi、pnpm、uv、herdr、Otty、Rex 各自维护，不作为 CLI 的运行依赖打包。升级某个工具不要求先发布新的 Agent Stack。
+`stack/components/<id>.yaml` 描述一个外部工具的身份、来源、适用平台与能力。Pi、pnpm、uv、herdr、Otty、Rex 各自维护，不作为 CLI 的运行依赖打包。升级某个工具不要求先发布新的 Agent Stack。
 
 当前 `kind` 覆盖 runtime、CLI、workspace、terminal。MCP 和第三方 skills 的来源与锁定契约，等对应能力实现时增加；不使用看似通用但尚无消费者的协议。
 
@@ -50,7 +51,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 ### 组合
 
-`profiles/<id>.yaml` 选择部件及版本要求、启用哪些集成、需要哪些能力，并明确这份组合覆盖的平台。
+`stack/profiles/<id>.yaml` 选择部件及版本要求、启用哪些集成、需要哪些能力，并明确这份组合覆盖的平台。
 
 - `version` 是期望的版本要求；`channel` 是期望渠道，二者互斥。
 - `validate` 仅校验选择器结构；`doctor` 对已观察到的版本使用 semver 比较范围，不查询渠道，也不证明部件之间兼容。
@@ -62,7 +63,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 ### 集成
 
-`integrations/<id>.yaml` 独立记录参与部件、平台和额外能力。静态校验确保所引用部件存在、profile 已选齐参与部件、平台声明一致。
+`stack/integrations/<id>.yaml` 独立记录参与部件、平台和额外能力。静态校验确保所引用部件存在、profile 已选齐参与部件、平台声明一致。
 
 例如 Pi/herdr 的状态报告与 Pi/Rex 的控制 skill 是不同集成。通用工作流表达目标、验收和证据，工具专属 skill 保存原生命令；选择组合时再加载对应指引。
 
@@ -70,13 +71,13 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 ### 锁文件
 
-`stack.lock.json` 将由后续 resolver 生成；当前不提交一个空锁或手写假版本。它与 `pnpm-lock.yaml` 作用不同：
+`stack/stack.lock.json` 将由后续 resolver 生成；当前不提交一个空锁或手写假版本。它与 `pnpm-lock.yaml` 作用不同：
 
-| 文件                          | 锁定对象                                              |
-| ----------------------------- | ----------------------------------------------------- |
-| `pnpm-lock.yaml`              | Agent Stack 自身的 npm 依赖，包括编译、校验和格式工具 |
-| `stack.lock.json`（后续生成） | 所选 profile 中外部部件的确切版本、来源及各平台发行物 |
-| 业务项目自己的锁文件          | 业务依赖；由 pnpm、uv 等原生工具管理                  |
+| 文件                                | 锁定对象                                              |
+| ----------------------------------- | ----------------------------------------------------- |
+| `pnpm-lock.yaml`                    | Agent Stack 自身的 npm 依赖，包括编译、校验和格式工具 |
+| `stack/stack.lock.json`（后续生成） | 所选 profile 中外部部件的确切版本、来源及各平台发行物 |
+| 业务项目自己的锁文件                | 业务依赖；由 pnpm、uv 等原生工具管理                  |
 
 锁文件的实施约束：
 
@@ -119,3 +120,5 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 - [herdr 集成](https://herdr.dev/tui/docs/integrations/)：Pi 状态报告的声明来源。
 - [Rex Agent 支持](https://www.superlogical.com/rex/docs/automate/agent-skill)：Pi skill 与 hook 的支持范围不同。
 - [Rex 安装](https://www.superlogical.com/rex/docs/installation)、[Otty 安装](https://docs.otty.sh/getting-started/installation)：客户端、服务端与平台范围需要分别核对。
+
+`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`，目前尚未生成。

@@ -74,18 +74,18 @@ agent-stack <command>
 
 ## 3. 配置书写：自有声明优先 YAML
 
-YAML 优先是已确定的书写方向；读取器迁移是后续独立实现切片，不能将下列示例直接替换成当前 CLI 尚不识别的文件。
+YAML 是已实现的声明格式；读取器也兼容 `.yml` 与过渡期 JSON。
 
-| 内容                                    | 目标格式                           | 说明                                                              |
-| --------------------------------------- | ---------------------------------- | ----------------------------------------------------------------- |
-| components、profiles、integrations      | 首选 `.yaml`                       | 人编写的共享声明，可加注释；兼容 `.yml` 和过渡期 JSON。           |
-| Agent 元数据                            | YAML；可作为 Markdown front matter | 具体加载契约在 run 实现时确定，职责和长指令使用 Markdown。        |
-| skills                                  | 标准 `SKILL.md`                    | front matter 使用 YAML，工作流正文使用 Markdown。                 |
-| configs 中的工具配置                    | 工具原生格式                       | Pi JSON、herdr TOML 等保持原格式；原生支持 YAML 的工具使用 YAML。 |
-| `stack.lock.json`、执行计划与 JSON 输出 | JSON                               | 机器生成，便于严格校验和稳定序列化。                              |
-| package.json、pnpm-lock.yaml、业务锁    | 各自原生格式                       | 分别由 npm/pnpm/业务生态维护。                                    |
+| 内容                                          | 目标格式                           | 说明                                                              |
+| --------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------- |
+| components、profiles、integrations            | 首选 `.yaml`                       | 人编写的共享声明，可加注释；兼容 `.yml` 和过渡期 JSON。           |
+| Agent 元数据                                  | YAML；可作为 Markdown front matter | 具体加载契约在 run 实现时确定，职责和长指令使用 Markdown。        |
+| skills                                        | 标准 `SKILL.md`                    | front matter 使用 YAML，工作流正文使用 Markdown。                 |
+| configs 中的工具配置                          | 工具原生格式                       | Pi JSON、herdr TOML 等保持原格式；原生支持 YAML 的工具使用 YAML。 |
+| `stack/stack.lock.json`、执行计划与 JSON 输出 | JSON                               | 机器生成，便于严格校验和稳定序列化。                              |
+| package.json、pnpm-lock.yaml、业务锁          | 各自原生格式                       | 分别由 npm/pnpm/业务生态维护。                                    |
 
-目标 `profiles/coding.yaml` 的完整示例，字段含义与现有 JSON profile 保持一致：
+目标 `stack/profiles/coding.yaml` 的完整示例，字段含义与现有 JSON profile 保持一致：
 
 ```yaml
 schemaVersion: 1
@@ -140,7 +140,7 @@ requires:
 
 `setup --repo ... --profile ...` 在应用成功后登记这组日常默认值，以及此次使用的锁位置。其他命令的 `--profile` 都是临时覆盖，不改默认值；应用记录独立记录实际 profile 与资源归属。换一份 checkout 时不会沿用旧仓库的 profile 默认值。
 
-默认锁按 `--lock <file>` → 所选 checkout/profile 已登记的锁位置 → checkout 下的 `stack.lock.json` 选择。推荐一份锁对应一份 profile；多份组合使用不同锁文件，profile 不匹配时不得套用。设备登记只保存引用，不复制一份私有版本的共享锁。
+默认锁按 `--lock <file>` → 所选 checkout/profile 已登记的锁位置 → checkout 下的 `stack/stack.lock.json` 选择。推荐一份锁对应一份 profile；多份组合使用不同锁文件，profile 不匹配时不得套用。设备登记只保存引用，不复制一份私有版本的共享锁。
 
 ### Agent 与工作目录
 
@@ -432,7 +432,7 @@ agent-stack setup --profile coding-rex --lock ~/agent-stack/coding-rex.lock.json
 
 ### 沉淀开发流程
 
-真实任务中直接使用 Pi/herdr/pnpm/uv 等原生入口；将有效方法写入 `skills/<name>/SKILL.md`，将共享默认值写入 configs，将 Agent 职责写入 agents。用已经接入的验证器检查，再通过 Git 审查与同步。项目自身的规则、测试入口和依赖锁留在业务仓库。
+真实任务中直接使用 Pi/herdr/pnpm/uv 等原生入口；将有效方法写入 `stack/skills/<name>/SKILL.md`，将共享默认值写入 configs，将 Agent 职责写入 agents。用已经接入的验证器检查，再通过 Git 审查与同步。项目自身的规则、测试入口和依赖锁留在业务仓库。
 
 CLI 负责分发和确定性检查；如何 shape/implement/verify 由 skills 表达。首版不增加与原生运行时重复的 `skill run` 或自然语言任务解释器。
 
