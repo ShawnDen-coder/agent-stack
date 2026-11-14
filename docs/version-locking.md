@@ -1,6 +1,6 @@
 # 版本解析与锁定：阶段 E 审查方案
 
-当前 `lock --dry-run` 已实现版本候选解析报告；完整锁生成、目标发行物和安装尚未实现。本文的锁契约、写入、更新和执行计划仍为设计提案，不能将其中的完整示例当作现有接口。已实现行为见 [CLI 行为稿第 1 节](cli-behavior.md#1-当前确实能用的接口)，操作入口见 [Quickstart](quickstart.md)。`validate` 检查声明一致性，`doctor` 观察本机路径与版本；候选报告、静态校验和版本观察都不证明工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
+当前 `lock --dry-run` 已实现版本候选与部分目标发行物元数据预览；首次锁生成和安装尚未实现。本文的锁契约、写入、更新和执行计划仍为设计提案，不能将其中的完整示例当作现有接口。已实现行为见 [CLI 行为稿第 1 节](cli-behavior.md#1-当前确实能用的接口)，操作入口见 [Quickstart](quickstart.md)。`validate` 检查声明一致性，`doctor` 观察本机路径与版本；候选报告、静态校验和版本观察都不证明工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
 
 按用户明确的书写偏好，自有声明优先 YAML；当前读取器支持 YAML 与过渡期 JSON。共享候选锁、正式 `stack/stack.lock.json` 与本机执行计划继续使用 JSON。公共入口按日常 setup/doctor/run/update 与进阶命令分组，具体命令行为仍待用户审查。
 
@@ -138,3 +138,5 @@ Windows 原生、WSL 的 Linux 用户态和普通 Linux runner 是不同目标/�
 2026-11-15 对官方 registry 的只读 12.21.0 元数据抽查中，macOS arm64/x64 与 Windows x64 的 optionalDependencies 均指向同版本 native 包；macOS arm64 native manifest 声明对应 os/cpu。该契约依据已核对版本的源码与实际元数据形成，未来同系列若改变包形态，以上检查将阻塞；它不证明未读取的安装脚本行为或运行兼容性。
 
 当前 uv 目标预览使用同一次选中 GitHub release 记录中的 assets；[uv 0.13.8 官方 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 列出 macOS arm64/x64 tar.gz 与 Windows x64 zip。只接受状态为 uploaded 的唯一目标资产、匹配 release tag 的 GitHub URL 和 asset 记录提供的 `sha256:` digest；缺失或不匹配时失败，不下载归档或以其他版本兜底。GitHub API 可返回 403/限流；预期摘要不代表已验证字节或签名。
+
+当前只读 `resolution-report` 输出结构化来源身份与 `definitionDigests` 声明快照。摘要算法标识 `sha256-canonical-json-v1`：先使用 repository adapter 解析并经 Zod 校验后的语义值，递归按 Unicode 字符串的 UTF-16 代码单元顺序排列对象 key，以 JSON 字符串转义、无空白序列化，保持数组原顺序，再以 UTF-8 编码计算 SHA-256 小写十六进制。分别摘要所选 profile、所选 components 和 integrations；不纳入 locations、设备路径、未选声明、配置或 skills。该报告不是共享锁或执行计划，部分失败时仍可显示声明快照。

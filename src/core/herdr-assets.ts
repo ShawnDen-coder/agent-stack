@@ -48,6 +48,8 @@ export function herdrAsset(data: unknown, version: string, target: string) {
   return {
     target,
     identity: expectedName,
+    assetKey: key,
+    assetName: expectedName,
     url: rawUrl,
     sha256: digest.toLowerCase(),
     digestSource: "https://herdr.dev/latest.json",

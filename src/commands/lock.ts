@@ -16,6 +16,7 @@ import {
   uvUrl,
 } from "../adapters/releases.js";
 import { readRepository } from "../adapters/repository.js";
+import { definitionDigests } from "../core/definition-digests.js";
 import { herdrAsset, validTarget } from "../core/herdr-assets.js";
 import { npmAsset, pnpmNative } from "../core/npm-assets.js";
 import { type Candidate, selectCandidate } from "../core/npm-candidate.js";
@@ -125,6 +126,13 @@ export function createLockCommand(): Command {
                       metadata: uvUrl,
                       identity: `release ${candidate.id} ${candidate.tag_name}`,
                       evidence: "release" as const,
+                      source: {
+                        type: "github-release" as const,
+                        owner: "astral-sh" as const,
+                        repo: "uv" as const,
+                        releaseId: candidate.id,
+                        tag: candidate.tag_name,
+                      },
                     };
                   }
                   if (
@@ -149,6 +157,12 @@ export function createLockCommand(): Command {
                       metadata: herdrUrl,
                       identity: `stable manifest version ${version}`,
                       evidence: "channel" as const,
+                      source: {
+                        type: "channel-manifest" as const,
+                        manifest: herdrUrl,
+                        channel: "stable" as const,
+                        version,
+                      },
                     };
                   }
                   throw new Error("Unsupported release source or selector");
@@ -185,6 +199,11 @@ export function createLockCommand(): Command {
                 return {
                   component: component.id,
                   package: candidate.name,
+                  source: {
+                    type: "npm" as const,
+                    registry: "https://registry.npmjs.org" as const,
+                    package: candidate.name,
+                  },
                   version: candidate.version,
                   requirement: selection.version,
                   metadata: `https://registry.npmjs.org/${encodeURIComponent(component.source.package)}`,
@@ -348,6 +367,7 @@ export function createLockCommand(): Command {
         const report = resolutionReportSchema.parse({
           kind: "resolution-report",
           profile: profile.id,
+          definitionDigests: definitionDigests(repository, profile),
           node: process.versions.node,
           components,
           ...(targets.length ? { targets, assets } : {}),

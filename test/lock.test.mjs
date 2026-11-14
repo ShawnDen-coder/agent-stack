@@ -1612,3 +1612,133 @@ test("uv release query aborts on target preview Ctrl-C", {
   assert.equal(output.status, 130, output.stderr);
   assert.equal(await readFile(aborted, "utf8"), "yes");
 });
+
+test("coding reports structured source and asset identities for all targets", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  await writeFile(join(dir, "stack/stack.lock.json"), "sentinel\n");
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+    "--target",
+    "darwin-arm64",
+    "--target",
+    "darwin-x64",
+    "--target",
+    "win32-x64",
+  ]);
+  assert.equal(result.status, 0, result.stdout);
+  const report = JSON.parse(result.stdout);
+  const component = (id) => report.components.find((x) => x.component === id);
+  assert.deepEqual(component("pi").source, {
+    type: "npm",
+    registry: "https://registry.npmjs.org",
+    package: "@earendil-works/pi-coding-agent",
+  });
+  assert.deepEqual(component("pnpm").source, {
+    type: "npm",
+    registry: "https://registry.npmjs.org",
+    package: "pnpm",
+  });
+  assert.deepEqual(component("uv").source, {
+    type: "github-release",
+    owner: "astral-sh",
+    repo: "uv",
+    releaseId: 1,
+    tag: "0.13.8",
+  });
+  assert.deepEqual(component("herdr").source, {
+    type: "channel-manifest",
+    manifest: "https://herdr.dev/latest.json",
+    channel: "stable",
+    version: "0.9.5",
+  });
+  assert.equal(report.assets.length, 15);
+  for (const target of report.targets) {
+    const items = report.assets.filter((x) => x.target === target);
+    const pi = items.find((x) => x.component === "pi");
+    assert.equal(pi.packageName, component("pi").package);
+    assert.equal(pi.packageVersion, component("pi").version);
+    const native = items.find(
+      (x) => x.component === "pnpm" && x.role === "native",
+    );
+    assert.equal(native.packageVersion, component("pnpm").version);
+    assert.equal(native.packageName, `@pnpm/exe.${target}`);
+    const uv = items.find((x) => x.component === "uv");
+    assert.equal(uv.releaseId, 1);
+    assert.equal(typeof uv.assetId, "number");
+    assert.ok(uv.assetName.startsWith("uv-"));
+    const herdr = items.find((x) => x.component === "herdr");
+    assert.ok(
+      herdr.assetKey.startsWith(
+        target.startsWith("win32") ? "windows-" : "macos-",
+      ),
+    );
+    assert.equal(herdr.assetName, herdr.identity);
+  }
+  assert.equal(report.definitionDigests.algorithm, "sha256-canonical-json-v1");
+  assert.deepEqual(Object.keys(report.definitionDigests.components), [
+    "herdr",
+    "pi",
+    "pnpm",
+    "uv",
+  ]);
+  assert.deepEqual(Object.keys(report.definitionDigests.integrations), [
+    "pi-herdr",
+  ]);
+  assert.deepEqual(await snapshot(dir), before);
+});
+test("definition digests follow selected canonical data, not format or repository path", async (t) => {
+  const a = await uvAssetsFixture(t);
+  const b = await uvAssetsFixture(t);
+  const args = ["--profile", "coding", "--dry-run", "--json"];
+  const first = run(a.dir, a.preload, args);
+  assert.equal(first.status, 0, first.stdout);
+  const initial = JSON.parse(first.stdout).definitionDigests;
+  const { parse, stringify } = await import("yaml");
+  const original = join(b.dir, "stack/components/pi.yaml");
+  const value = parse(await readFile(original, "utf8"));
+  await rm(original);
+  await writeFile(
+    join(b.dir, "stack/components/pi.json"),
+    JSON.stringify(
+      Object.fromEntries(Object.entries(value).reverse()),
+      null,
+      4,
+    ),
+  );
+  const profile = join(b.dir, "stack/profiles/coding.yaml");
+  await writeFile(
+    profile,
+    "# equivalent comment\n" +
+      stringify(parse(await readFile(profile, "utf8")), { indent: 4 }),
+  );
+  const second = run(b.dir, b.preload, args);
+  assert.equal(second.status, 0, second.stdout);
+  assert.deepEqual(JSON.parse(second.stdout).definitionDigests, initial);
+  const unrelated = join(b.dir, "stack/components/otty.yaml");
+  const text = await readFile(unrelated, "utf8");
+  await writeFile(
+    unrelated,
+    text.replace("description:", "description: unrelated "),
+  );
+  const third = run(b.dir, b.preload, args);
+  assert.equal(third.status, 0, third.stdout);
+  assert.deepEqual(JSON.parse(third.stdout).definitionDigests, initial);
+  value.description += " changed";
+  await writeFile(
+    join(b.dir, "stack/components/pi.json"),
+    JSON.stringify(value),
+  );
+  const fourth = run(b.dir, b.preload, args);
+  assert.equal(fourth.status, 0, fourth.stdout);
+  const changed = JSON.parse(fourth.stdout).definitionDigests;
+  assert.notEqual(changed.components.pi, initial.components.pi);
+  assert.equal(changed.profile, initial.profile);
+  assert.equal(
+    changed.integrations["pi-herdr"],
+    initial.integrations["pi-herdr"],
+  );
+});

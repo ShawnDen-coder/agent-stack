@@ -60,6 +60,9 @@ export function uvAsset(release: UvRelease, target: string) {
   return {
     target,
     identity: `${mapping.name} (asset ${asset.id})`,
+    releaseId: release.id,
+    assetId: asset.id,
+    assetName: asset.name,
     url: asset.browser_download_url,
     sha256: digest[1].toLowerCase(),
     digestSource: "https://api.github.com/repos/astral-sh/uv/releases",

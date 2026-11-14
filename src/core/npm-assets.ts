@@ -84,6 +84,8 @@ export function npmAsset(
     component,
     target,
     identity: `${candidate.name}@${candidate.version}`,
+    packageName: candidate.name,
+    packageVersion: candidate.version,
     url: candidate.dist.tarball,
     integrity: candidate.dist.integrity,
     digestSource: `https://registry.npmjs.org/${encodeURIComponent(candidate.name)}`,
