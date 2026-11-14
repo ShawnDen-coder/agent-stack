@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import {
   cancel,
   intro,
@@ -6,6 +7,8 @@ import {
   select,
   spinner,
 } from "@clack/prompts";
+import stringWidth from "fast-string-width";
+import { wrapAnsi } from "fast-wrap-ansi";
 import { createColors } from "picocolors";
 import type { assess } from "../core/doctor.js";
 import type { Profile, ValidationReport } from "../core/schema.js";
@@ -14,6 +17,7 @@ const interactive = () =>
   Boolean(
     process.stdin.isTTY &&
       process.stdout.isTTY &&
+      process.stderr.isTTY &&
       !process.env.CI &&
       process.env.TERM !== "dumb",
   );
@@ -25,6 +29,28 @@ const colors = createColors(
       process.env.NO_COLOR === undefined,
   ),
 );
+const clean = (value: string) =>
+  stripVTControlCharacters(value).replace(/[\r\n]/g, " ");
+function columns() {
+  return Math.max(20, process.stdout.isTTY ? process.stdout.columns || 80 : 80);
+}
+function line(value = "", indent = "", exact = false) {
+  const width = Math.max(1, columns() - stringWidth(indent));
+  const wrapped = wrapAnsi(value, width, {
+    hard: true,
+    wordWrap: !exact,
+    trim: false,
+  });
+  for (const row of wrapped.split("\n")) console.log(indent + row);
+}
+function pair(left: string, right: string) {
+  if (stringWidth(`    ${left}  |  ${right}`) <= columns())
+    line(`${left}  |  ${right}`, "    ");
+  else {
+    line(left, "    ");
+    line(right, "    ");
+  }
+}
 
 export async function chooseProfile(
   profiles: { id: string; description: string }[],
@@ -32,14 +58,16 @@ export async function chooseProfile(
   if (!interactive()) return null;
   const value = await select({
     message: "Choose a profile",
+    input: process.stdin,
+    output: process.stderr,
     options: profiles.map(({ id, description }) => ({
       value: id,
-      label: id,
-      hint: description,
+      label: clean(id),
+      hint: clean(description),
     })),
   });
   if (isCancel(value)) {
-    cancel("Cancelled.");
+    cancel("Cancelled.", { output: process.stderr });
     process.exitCode = 130;
     return null;
   }
@@ -47,23 +75,26 @@ export async function chooseProfile(
 }
 export function start(title: string, json: boolean) {
   if (json) return;
-  if (interactive()) intro(title);
-  else console.log(`\n${title}\n`);
+  if (interactive()) intro(title, { output: process.stderr });
+  line();
+  line(title);
+  line();
 }
 export function progress(
   message: string,
   json: boolean,
 ): (interrupted?: boolean) => void {
   if (json || !interactive()) return () => {};
-  const task = spinner({ accessible: true });
+  const task = spinner({ accessible: true, output: process.stderr });
   task.start(message);
   return (interrupted) =>
     task.stop(interrupted ? "Inspection interrupted" : "Checks complete");
 }
 export function finish(message: string, json: boolean) {
   if (json) return;
-  if (interactive()) outro(message);
-  else console.log(`\n${message}`);
+  line();
+  line(message);
+  if (interactive()) outro("Report complete.", { output: process.stderr });
 }
 export function validation(
   report: ValidationReport,
@@ -75,15 +106,20 @@ export function validation(
     return;
   }
   start("Agent Stack · Validate", false);
-  console.log(`Repository: ${repo}`);
+  line("Repository:");
+  line(clean(repo), "  ", true);
   const { components, integrations, profiles } = report.checked;
-  console.log(
-    `\n${report.valid ? colors.green("[OK]") : colors.red("[ERROR]")} Definitions: ${components} components, ${integrations} integrations, ${profiles} profiles`,
+  line();
+  line(
+    `${report.valid ? colors.green("[OK]") : colors.red("[ERROR]")} Definitions: ${components} components, ${integrations} integrations, ${profiles} profiles`,
   );
   if (report.issues.length) {
-    console.log("\nIssues:");
-    for (const issue of report.issues)
-      console.log(`  [ERROR] ${issue.file}\n    ${issue.message}`);
+    line();
+    line("Issues:");
+    for (const issue of report.issues) {
+      line(`[ERROR] ${clean(issue.file)}`, "  ");
+      line(clean(issue.message), "    ");
+    }
     finish("Fix the reported definitions and run validate again.", false);
   } else
     finish(
@@ -111,35 +147,85 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
     console.log(JSON.stringify(report, null, 2));
     return;
   }
-  console.log(
-    `Repository: ${repo}\nProfile: ${report.profile} · ${report.platform}\n\nToolchain`,
-  );
+  line("Repository:");
+  line(clean(repo), "  ", true);
+  line(`Profile: ${clean(report.profile)} · ${clean(report.platform)}`);
+  line();
+  line("Toolchain");
+  const failedStatuses = new Set([
+    "not_found",
+    "version_mismatch",
+    "nonzero_exit",
+    "execution_error",
+    "timeout",
+    "output_limit",
+  ]);
+  let matched = 0;
+  let observed = 0;
+  let failed = 0;
+  let unknown = 0;
   for (const item of report.checks) {
-    const mark =
-      item.status === "ok" && !item.channel
-        ? colors.green("[OK]")
-        : colors.yellow("[CHECK]");
-    console.log(`\n  ${mark} ${item.name} · ${item.status}`);
-    console.log(
-      `    Observed: ${item.version ?? "unknown"}  |  Required: ${item.requirement ?? (item.channel ? `channel ${item.channel} (not assessed)` : "none")}`,
+    const failedCheck = failedStatuses.has(item.status);
+    const matchedCheck =
+      item.status === "ok" && !item.channel && item.requirement !== null;
+    const observedCheck =
+      item.status === "ok" && !item.channel && item.requirement === null;
+    if (failedCheck) failed++;
+    else if (matchedCheck) matched++;
+    else if (observedCheck) observed++;
+    else unknown++;
+    const mark = failedCheck
+      ? colors.red("[FAIL]")
+      : matchedCheck
+        ? colors.green("[MATCH]")
+        : observedCheck
+          ? "[OBSERVED]"
+          : colors.yellow("[UNKNOWN]");
+    const status =
+      item.status === "ok" && item.channel
+        ? "channel not assessed"
+        : item.status;
+    line();
+    line(`${mark} ${clean(item.name)} · ${clean(status)}`, "  ");
+    pair(
+      `Observed: ${clean(item.version ?? "unknown")}`,
+      `Required: ${clean(item.requirement ?? (item.channel ? `channel ${item.channel} (not assessed)` : "none"))}`,
     );
-    console.log(`    Path: ${item.path ?? "unknown"}`);
-    console.log(
-      `    Evidence: ${item.evidence ?? "none"}  |  Source: ${item.source}`,
+    line("Path:", "    ");
+    line(clean(item.path ?? "unknown"), "      ", true);
+    pair(
+      `Evidence: ${clean(item.evidence ?? "none")}`,
+      `Source: ${clean(item.source)}`,
     );
   }
-  console.log(
-    `\nNot checked\n  Components: ${report.unchecked.components.map((item) => item.component).join(", ") || "none"}\n  Integrations: ${report.unchecked.integrations.join(", ") || "none"}`,
+  line();
+  line("Not checked");
+  line(
+    `Components: ${report.unchecked.components.map((item) => item.component).join(", ") || "none"}`,
+    "  ",
   );
-  finish(
-    `${report.scope}. Review checks above and rerun doctor after resolving issues.`,
-    false,
+  line(
+    `Integrations: ${report.unchecked.integrations.map(clean).join(", ") || "none"}`,
+    "  ",
   );
+  line();
+  line("Summary");
+  line(`Matched: ${matched}  Observed: ${observed}`, "  ");
+  line(`Failed: ${failed}  Unknown: ${unknown}`, "  ");
+  if (report.checks.some((item) => item.status === "not_found"))
+    line(
+      "Next: Check PATH or install missing tools through their native channels.",
+    );
+  if (report.checks.some((item) => item.status === "version_mismatch"))
+    line("Next: Compare installed versions with the requirements.");
+  if (unknown) line("Next: Inspect unknown entries and unresolved channels.");
+  line("Package metadata does not prove a program can run.");
+  finish(`${report.scope}.`, false);
 }
 export function failure(message: string, json: boolean) {
   if (json) console.log(JSON.stringify({ error: message }));
   else
     console.error(
-      `\n[ERROR] ${message}\n  Check the repository and arguments, then retry.`,
+      `\n[ERROR] ${clean(message)}\n  Check the repository and arguments, then retry.`,
     );
 }
