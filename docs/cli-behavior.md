@@ -2,7 +2,16 @@
 
 状态：**供用户审查的设计稿，尚未批准实施。** 本文规定公共命令的目标行为；只有下一节明确列出的接口已经实现。本文之外的版本锁定技术方案仍需对齐本规范并单独审查。
 
-推荐保留三个常用入口：`setup` 配好设备，`doctor` 看问题，`run` 启动 Agent。需要精细控制时，拆开使用 `lock → plan → apply`；显式升级用 `update`。共享配置与工作方法由 Git 管理。
+日常只记四个动作：**配、查、跑、升**。`setup` 配置或重新对齐设备，`doctor` 检查问题，`run` 启动 Agent，`update` 升级指定部件。首次配置后通常不用反复输入 repo/profile。
+
+| 想做什么                      | 日常命令（拟议）         |
+| ----------------------------- | ------------------------ |
+| 首次配置或 Git 拉取后对齐环境 | `agent-stack setup`      |
+| 检查当前设备                  | `agent-stack doctor`     |
+| 开始开发                      | `agent-stack run coding` |
+| 升级 Pi                       | `agent-stack update pi`  |
+
+`lock/plan/apply/validate/profile` 是进阶操作，按需使用。普通用户不必每次手动走 `lock → plan → apply`；setup/update 自己展示计划并复用相同底层步骤。共享配置与工作方法由 Git 管理。
 
 ## 1. 当前确实能用的接口
 
@@ -21,7 +30,7 @@ pnpm cli doctor --repo . --profile coding --json
 | `doctor --profile <id> [--repo <dir>] [--json]` | 观察当前 Node、npm、Git，以及所选 Pi、pnpm、uv、herdr 的有限版本证据。未检查项单独列出。 |
 | `--help`、`help [command]`、`--version`         | 显示当前已注册命令的帮助或 CLI 自身版本；不执行配置操作。                                |
 
-当前 `--repo` 默认是调用时的当前目录，`doctor` 必须显式提供 `--profile`。`--repo` 和 `--json` 写在子命令后。当前未实现设备默认绑定、环境变量选项、部件筛选、资源筛选、锁文件读取或后文的新命令。
+当前 `--repo` 默认是调用时的当前目录，`doctor` 必须显式提供 `--profile`。`--repo` 和 `--json` 写在子命令后。当前声明读取器只支持 JSON，尚未支持本稿约定的 YAML。当前未实现设备默认绑定、环境变量选项、部件筛选、资源筛选、锁文件读取或后文的新命令。
 
 当前 `doctor` 的 Pi/pnpm 证据来自可核对的 package metadata，不证明程序可启动；herdr 仅查询当前平台的原生入口。`stable` 渠道仍未解析，Otty/Rex 与集成仍未检查。退出 0 只针对报告中已检查的范围，不能解释为整套环境 ready。当前错误通常返回 1，JSON 形状以现有代码为准；后文统一输出与退出码是待实现契约。
 
@@ -29,21 +38,24 @@ pnpm cli doctor --repo . --profile coding --json
 
 ## 2. 命令层级与职责
 
-顶层使用用户动作；只有成组的只读查询使用第二层。命令层级最多两层。
+顶层使用用户动作；只有成组的只读查询使用第二层。命令层级最多两层。目标帮助页按常用/进阶分组；这只是展示分组，不新增一层命令，也不要求记另一套缩写。帮助始终只列已实现的命令。
 
 ```text
-agent-stack
-├── setup                     配好当前设备，并登记日常默认值
-├── doctor [component...]      检查本机实际情况
-├── run <agent> -- [args...]    启动 Agent，保留运行时原生参数
-├── validate                  校验仓库声明与指定的锁
-├── lock                      生成或维护期望版本锁
-├── plan [component...]        预览“当前环境 → 期望状态”的差异
-├── apply [component...]       执行按锁计算的变更，或执行已保存计划
-├── update <component...>      显式升级或降级指定部件
-└── profile
-    ├── list                  查看可选组合
-    └── show <id>             展开组合的要求与资源
+agent-stack <command>
+
+常用命令
+  setup                     配置或重新对齐设备，登记日常默认值
+  doctor [component...]     检查本机实际情况
+  run <agent> -- [args...]   启动 Agent，保留运行时原生参数
+  update <component...>     显式升级或降级指定部件
+
+进阶命令
+  validate                  校验仓库声明与指定的锁
+  lock                      生成或维护期望版本锁
+  plan [component...]       预览“当前环境 → 期望状态”的差异
+  apply [component...]      精细应用或执行已保存计划
+  profile list              查看可选组合
+  profile show <id>         展开组合的要求与资源
 ```
 
 | 层次       | 命令                | 输入                                        | 主要输出                               | 持久写入                              |
@@ -60,7 +72,56 @@ agent-stack
 
 `setup` 复用 `plan/apply/doctor`，`update` 复用候选锁解析、`plan/apply`。快捷入口与拆分操作使用相同规则和 adapter；不各自实现一套安装逻辑。
 
-## 3. 上下文：配置仓库、profile、业务目录
+## 3. 配置书写：自有声明优先 YAML
+
+YAML 优先是已确定的书写方向；读取器迁移是后续独立实现切片，不能将下列示例直接替换成当前 CLI 尚不识别的文件。
+
+| 内容                                    | 目标格式                           | 说明                                                              |
+| --------------------------------------- | ---------------------------------- | ----------------------------------------------------------------- |
+| components、profiles、integrations      | 首选 `.yaml`                       | 人编写的共享声明，可加注释；兼容 `.yml` 和过渡期 JSON。           |
+| Agent 元数据                            | YAML；可作为 Markdown front matter | 具体加载契约在 run 实现时确定，职责和长指令使用 Markdown。        |
+| skills                                  | 标准 `SKILL.md`                    | front matter 使用 YAML，工作流正文使用 Markdown。                 |
+| configs 中的工具配置                    | 工具原生格式                       | Pi JSON、herdr TOML 等保持原格式；原生支持 YAML 的工具使用 YAML。 |
+| `stack.lock.json`、执行计划与 JSON 输出 | JSON                               | 机器生成，便于严格校验和稳定序列化。                              |
+| package.json、pnpm-lock.yaml、业务锁    | 各自原生格式                       | 分别由 npm/pnpm/业务生态维护。                                    |
+
+目标 `profiles/coding.yaml` 的完整示例，字段含义与现有 JSON profile 保持一致：
+
+```yaml
+schemaVersion: 1
+id: coding
+description: Pi 与 herdr 的终端开发组合
+platforms: [darwin, win32, linux]
+
+components:
+  - component: pi
+    version: ">=1.5.2 <2"
+  - component: pnpm
+    version: ">=12.15.0 <13"
+  - component: uv
+    version: ">=0.13.8 <0.14"
+  - component: herdr
+    channel: stable
+
+integrations: [pi-herdr]
+requires:
+  - agent-runtime
+  - workspace
+  - node-packages
+  - python-tools
+  - agent-status
+```
+
+迁移时遵守以下行为：
+
+- YAML/JSON 都先解析成数据，再由同一份 Zod schema 校验；文件格式不改变 profile 或能力语义。
+- 同一 ID 出现于 `.yaml/.yml/.json` 中时明确报重复错误；YAML 优先指作者的默认格式，不表示静默覆盖其他文件。
+- 使用 YAML 1.2，单文件单文档；拒绝重复键与未知自定义标签，不做 include、Shell 或环境变量求值。
+- 版本范围等字符串建议加引号，`schemaVersion` 保持数字。类型错误明确报字段位置，不自动猜测类型。
+- 锁中的声明摘要基于 schema 校验后的规范数据；注释、缩进或等价 JSON→YAML 转换不改变摘要。
+- 读取、检测、锁定都不自动重写作者文件或丢弃其注释；配置同步仍由 Git 和明确的应用动作完成。
+
+## 4. 上下文：配置仓库、profile、业务目录
 
 ### 配置仓库
 
@@ -91,14 +152,16 @@ agent-stack
 agent-stack run coding --repo ~/agent-stack --profile coding-rex --cwd ~/work/app
 ```
 
-## 4. 每个命令的行为
+## 5. 每个命令的行为
 
-### `setup`：按已有锁配置一台设备
+### `setup`：按已有锁配置或重新对齐设备
 
 ```sh
 agent-stack setup --repo ~/agent-stack --profile coding --dry-run
 agent-stack setup --repo ~/agent-stack --profile coding --yes
 ```
+
+首次和后续对齐使用同一入口。已有默认绑定后直接运行 `agent-stack setup`；当前状态已满足时 no-op，不重复安装，也不重新解析版本。普通用户在 Git 拉取后再次 setup 即可；只应用某个资源、限定范围或执行保存计划时再使用进阶 apply。
 
 1. 读取 checkout 和完整锁，验证声明、当前目标及必需 adapter。
 2. 观察已有工具、配置与归属，生成完整计划，展示复用、安装、配置、PATH 变更及冲突。
@@ -234,7 +297,7 @@ agent-stack profile show coding --json
 
 展示声明的平台、组件版本/渠道、来源、集成、资源和能力要求；有锁时可附对应锁版本，明确它不是安装状态。它们不编辑文件、不选择默认 profile、不解析新版本。组合变更先在 Git 中编辑并验证，保持可审查的 diff。
 
-## 5. 灵活性由一致的选择器提供
+## 6. 灵活性由一致的选择器提供
 
 | 需求             | 统一表达                                           | 规则                                                      |
 | ---------------- | -------------------------------------------------- | --------------------------------------------------------- |
@@ -255,7 +318,7 @@ scope、部件和资源选择取交集；冲突或空选择报错，不能输出
 
 MCP 的本地程序安装归入 tools，宿主连接配置归入 integrations，凭证留在本机。只有某运行时具有实际 MCP adapter 时才支持相应资源；未接入的 Pi/MCP 组合不能因写了一段 JSON 就报告可用。后续无需为每类 MCP 服务增加顶层命令。
 
-## 6. 选项适用范围与组合规则
+## 7. 选项适用范围与组合规则
 
 以下全部为目标设计；当前支持项以第 1 节为准。
 
@@ -285,7 +348,7 @@ MCP 的本地程序安装归入 tools，宿主连接配置归入 integrations，
 
 未知命令/选项报错，不自动猜测；重复的单值选项报错，避免不同层级的 repo/profile 值互相覆盖。支持的重复列表去重；重复且冲突的部件版本报错。示例之外的选项组合必须有消费者和验收用例，不能静默忽略不适用选项。
 
-## 7. 完整使用链路示例
+## 8. 完整使用链路示例
 
 以下均是目标行为演示。路径只作用户输入示意，不写入共享锁；实际来源以用户的 Git checkout 为准。
 
@@ -311,7 +374,16 @@ agent-stack run coding --cwd ~/work/app
 
 已有工具按归属与证据复用；来源未知且需要改动的工具明确阻塞。认证在本机按工具原生流程完成，不从 Git 恢复。Windows 使用自己的 checkout 与本机状态路径；WSL 独立使用 Linux 目标与状态。
 
-### 同步共享配置：版本保持不变
+### 日常同步：按 Git 中已有的期望重新对齐
+
+```sh
+git -C ~/agent-stack pull --ff-only
+agent-stack setup
+```
+
+采用拉取后的原生配置和已提交锁，不重新选择发布版本。如果 Git 中锁也被显式更新，计划会展示相应版本变化；如果只改了配置，已匹配的工具保持不变。已对齐时 no-op。
+
+### 仅同步配置：使用进阶范围控制
 
 ```sh
 git -C ~/agent-stack pull --ff-only
@@ -364,7 +436,7 @@ agent-stack setup --profile coding-rex --lock ~/agent-stack/coding-rex.lock.json
 
 CLI 负责分发和确定性检查；如何 shape/implement/verify 由 skills 表达。首版不增加与原生运行时重复的 `skill run` 或自然语言任务解释器。
 
-## 8. 输出、退出码与自动化
+## 9. 输出、退出码与自动化
 
 默认文本优先展示：选择的 checkout/profile、检查或变更范围、结论、具体差异/问题、下一步。计划至少标明 install/reuse/change/remove/blocked，各动作的原因与管理归属，以及不会被本次覆盖的检查范围。
 
@@ -384,7 +456,7 @@ stdout 放结果，stderr 放日志与进度；JSON 无 ANSI 色码和 spinner�
 
 setup/apply/update 在 TTY 中展示计划并确认；非交互必须显式 `--yes`，否则返回用法错误。dry-run 无需确认。lock 的写入是显式文件操作，展示 diff 后写指定锁，不另设交互确认。`--yes` 不等于强制覆盖，本版不提供一个绕过所有检查的 `--force`。
 
-## 9. 失败、并发与恢复边界
+## 10. 失败、并发与恢复边界
 
 1. 规划先检查完整范围；已知阻塞项存在时不开始持久变更。
 2. 下载使用锁内来源与预期摘要；缺资产、校验失败或重定向不受支持时失败，不补 latest。
@@ -393,7 +465,7 @@ setup/apply/update 在 TTY 中展示计划并确认；非交互必须显式 `--y
 5. 源锁写入使用同目录临时文件、协作锁与原子替换；实际安装不是跨程序事务。中断不终止原有用户会话或无关进程。
 6. 首版的确定性回退入口是 Git 恢复旧配置/锁后重新 plan/apply；它仍受迁移、渠道与本地冲突约束。本机备份可辅助恢复已管理的配置，程序降级和运行数据恢复分别给出能力限制，不提供通用的一键历史回滚承诺。
 
-## 10. 三种升级保持独立
+## 11. 三种升级保持独立
 
 | 改变什么                              | 操作入口                         | 对其他层的影响                                                                          |
 | ------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------- |
@@ -403,7 +475,7 @@ setup/apply/update 在 TTY 中展示计划并确认；非交互必须显式 `--y
 
 不另设一个同时执行 npm 升级、Git pull、全部工具升级和凭证同步的 `sync` 命令。版本、配置与设备状态各自有明确所有者。
 
-## 11. 实施顺序与可审查验收
+## 12. 实施顺序与可审查验收
 
 | 切片              | 交付边界                                         | 必须证明的行为                                                                |
 | ----------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
@@ -415,13 +487,15 @@ setup/apply/update 在 TTY 中展示计划并确认；非交互必须显式 `--y
 
 跨切片还需验收：带空格和 `&` 的路径；根/子命令选项位置；重复/互斥选项；非交互确认；JSON 无日志污染；环境默认值覆盖；Windows 原生与 WSL 分开；部分筛选不能偷改能力要求。每个平台的运行结果单独记录，不以解析 fixture 替代实机证据。
 
-## 12. 本轮请重点审查的选择
+## 13. 本轮请重点审查的选择
 
 本文给出推荐而非把问题留空，以下三项影响使用习惯，实施前需用户审查：
 
 1. **setup 只按已有锁配置。** 推荐把完整锁纳入 Git；缺锁时提示 lock，不让换机器时顺手解析出不同版本。
 2. **update 默认真正应用，lock --update 只维护版本期望。** 两个名字分别对应“升级我的工具”和“修改共享锁”，都支持预览。
 3. **组合写在 Git，筛选只作用于本次操作。** 推荐先编辑/审查 profile 后切换；不提供会暗中改能力要求的临时替换参数。
+
+日常操作固定为 setup/doctor/run/update；setup 同时承担首次配置和 Git 拉取后的幂等对齐。自有声明 YAML 优先已按用户偏好纳入约定；本轮尚未迁移读取器或现有声明文件。
 
 本轮批准的是命令行为和分工；来源支持矩阵、锁 schema、安装器及 Agent 资源契约仍按各自切片审查，不因本文列出接口就视为已经实现。
 

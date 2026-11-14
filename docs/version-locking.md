@@ -2,6 +2,8 @@
 
 本文与 [CLI 行为稿](cli-behavior.md) 均为**待用户审查的设计提案**，尚未批准实施；resolver、锁生成或安装均未实现。示例字段和命令不是现有 CLI 接口。现有 `validate` 检查声明一致性，`doctor` 观察本机路径与版本；两者均不解析发布源，也不能证明所选工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
 
+按用户明确的书写偏好，自有声明优先 YAML；当前读取器仍为 JSON，格式迁移单独实现。共享候选锁、正式 `stack.lock.json` 与本机执行计划继续使用 JSON。公共入口按日常 setup/doctor/run/update 与进阶命令分组，具体命令行为仍待用户审查。
+
 ## 建议与实施边界
 
 推荐按两个可审查切片推进：先实现 npm 来源的 Pi/pnpm 内部候选解析和 `lock --dry-run` 解析报告，并对未支持的来源明确失败；再接入 uv 和 herdr 发布源，覆盖显式选择的全部目标，才允许为默认 `coding` 生成正式锁。第一个切片可以通过专用测试 profile 验证，但不能对包含四个部件的 `coding` 写入缺项锁、改 profile、删除 herdr 或降低 `agent-status` 等能力要求。未完成第二个切片前，完整默认组合不可锁定。
@@ -50,7 +52,7 @@ integrations: [<selected-integration-id>]
 
 最低条件分三类：可信来源给出必需的最低 OS、libc/ABI 或 Node 条件时记录，并由后续计划/应用检查；若匹配目标、ABI、Node engines 或已知必需条件所需信息缺失或本机无法核对，阻塞，不能猜测通过；来源没有发布某项最低版本信息时标记未知，不虚构阈值或宣称兼容。未知条件是否允许在非执行的锁中保留须按来源确定，若无法证明资产与目标匹配则连锁生成也阻塞；实际运行验收另行验证，不能由 metadata 或已知最低条件代替。
 
-字段只为真实消费者存在：schema version 给解析器；profile、integrations、definitionDigests 给计划校验及失效检测；targets 和 Node 假设给选择与未来 apply；版本、来源、资产 identity、URL、digest 及其来源给 diff、下载校验及审计。对 JSON 声明先 schema 解析，再对规范化后的语义 JSON（稳定 key 顺序、UTF-8，无时间戳）计算 SHA-256；记录所选 profile、每个所选 component 和 integration 的摘要。格式化变化不触发失效，语义变化会触发。算法版本和 canonicalization 规则必须随 schema version 固定；重读 checkout 时重新计算。集成声明被记录并静态检查，但不声称对应集成已安装或运行。
+字段只为真实消费者存在：schema version 给解析器；profile、integrations、definitionDigests 给计划校验及失效检测；targets 和 Node 假设给选择与未来 apply；版本、来源、资产 identity、URL、digest 及其来源给 diff、下载校验及审计。先将 YAML/JSON 声明解析为数据并通过同一 Zod schema，再对规范化后的语义 JSON（稳定 key 顺序、UTF-8，无时间戳）计算 SHA-256；记录所选 profile、每个所选 component 和 integration 的摘要。等价的 YAML/JSON、注释与缩进变化不触发失效，语义变化会触发；同一 ID 跨格式重复时先拒绝输入。算法版本和 canonicalization 规则必须随 schema version 固定；重读 checkout 时重新计算。集成声明被记录并静态检查，但不声称对应集成已安装或运行。
 
 npm 的 artifact identity 包含 registry、package name、精确版本及 metadata 中的 tarball；GitHub 的 identity 包含 owner/repo、release ID、tag、asset ID 和 asset name。URL 是实际来源返回的值，不承载认证信息；仅接受经配置的官方 HTTPS 域及经过校验的下载重定向，拒绝 URL 中的凭据、查询 token 或跨源非预期跳转。解析阶段读到的是**预期** digest，未来下载后计算并比较才是字节校验通过；digest 来源与传输来源的信任边界要显示。缺可验证的预期 digest 时失败，不能把下载后自行计算的 hash 冒充发行方事先承诺，也不能默默降级为无校验。SHA-256 / SHA-512 只能检测与期望不一致，不自动证明发布者身份；签名与 provenance 验证是另行实现的能力。
 
