@@ -24,9 +24,10 @@ macOS/Linux 安装 `python3` 后，在仓库根目录运行以下命令。脚本
 pnpm build
 demo_dir=$(mktemp -d "${TMPDIR:-/tmp}/agent-stack-demo.XXXXXX")
 mkdir -p "$demo_dir/bin" "$demo_dir/repo/tmp"
-cp -R components profiles integrations "$demo_dir/repo/"
+cp -R stack "$demo_dir/repo/"
 python3 test/pty_driver.py "$(command -v node)" "$PWD/dist/cli.js" "$demo_dir/repo" "$demo_dir/bin" select 80 color
 python3 test/pty_driver.py "$(command -v node)" "$PWD/dist/cli.js" "$demo_dir/repo" "$demo_dir/bin" select 40 color
+python3 test/pty_driver.py "$(command -v node)" "$PWD/dist/cli.js" "$demo_dir/repo" "$demo_dir/bin" select 80 no-color
 python3 test/pty_driver.py "$(command -v node)" "$PWD/dist/cli.js" "$demo_dir/repo" "$demo_dir/bin" select 40 no-color
 python3 test/pty_driver.py "$(command -v node)" "$PWD/dist/cli.js" "$demo_dir/repo" "$demo_dir/bin" cancel 80
 rm -r "$demo_dir"

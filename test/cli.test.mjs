@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   cp,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -17,9 +18,10 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 
-function run(args) {
+function run(args, options = {}) {
   const result = spawnSync(process.execPath, [cli, ...args], {
     encoding: "utf8",
+    ...options,
   });
   assert.ifError(result.error);
   return result;
@@ -310,16 +312,21 @@ test("only stack declarations are read and missing stack has an actionable error
   });
   await writeFile(join(root, "components/pi.yaml"), "invalid: [");
   assert.equal(validate(root).status, 0);
-  const doctor = run([
-    "doctor",
-    "--repo",
-    root,
-    "--profile",
-    "coding",
-    "--json",
-  ]);
-  assert.ok([0, 1].includes(doctor.status));
-  assert.equal(JSON.parse(doctor.stdout).profile, "coding");
+  const bin = join(root, "empty-bin");
+  await mkdir(bin);
+  const doctor = run(
+    ["doctor", "--repo", root, "--profile", "coding", "--json"],
+    { env: { ...process.env, PATH: bin } },
+  );
+  assert.equal(doctor.status, 1);
+  const report = JSON.parse(doctor.stdout);
+  assert.equal(report.profile, "coding");
+  assert.deepEqual(
+    report.checks
+      .filter((item) => item.name !== "node")
+      .map((item) => item.status),
+    Array(6).fill("not_found"),
+  );
   await rm(join(root, "stack"), { recursive: true });
   const missing = validate(root);
   assert.equal(missing.status, 1);
