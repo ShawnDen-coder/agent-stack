@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   cp,
   mkdtemp,
   readdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1741,4 +1742,310 @@ test("definition digests follow selected canonical data, not format or repositor
     changed.integrations["pi-herdr"],
     initial.integrations["pi-herdr"],
   );
+});
+
+test("fresh shared lock is deterministic and never overwrites existing files", async (t) => {
+  const a = await uvAssetsFixture(t);
+  const b = await uvAssetsFixture(t);
+  const args = [
+    "--profile",
+    "coding",
+    "--target",
+    "win32-x64",
+    "--target",
+    "darwin-arm64",
+    "--target",
+    "darwin-x64",
+    "--json",
+  ];
+  const first = run(a.dir, a.preload, args);
+  assert.equal(first.status, 0, first.stdout + first.stderr);
+  assert.equal(JSON.parse(first.stdout).kind, "shared-lock-created");
+  const file = join(a.dir, "stack/stack.lock.json");
+  const bytes = await readFile(file, "utf8");
+  const lock = JSON.parse(bytes);
+  assert.equal(lock.schemaVersion, 1);
+  assert.equal(lock.profile, "coding");
+  assert.equal(lock.components.length, 4);
+  assert.equal(lock.assets.length, 15);
+  assert.deepEqual(
+    lock.targets.map((item) => item.id),
+    ["darwin-arm64", "darwin-x64", "win32-x64"],
+  );
+  assert.ok(
+    lock.assets.every(
+      (item) => item.artifact && item.digest && item.digestSource,
+    ),
+  );
+  const second = run(b.dir, b.preload, args);
+  assert.equal(second.status, 0, second.stdout + second.stderr);
+  assert.equal(
+    await readFile(join(b.dir, "stack/stack.lock.json"), "utf8"),
+    bytes,
+  );
+  const duplicate = run(a.dir, a.preload, args);
+  assert.equal(duplicate.status, 1);
+  assert.match(duplicate.stdout, /already exists/);
+  assert.equal(await readFile(file, "utf8"), bytes);
+});
+
+test("fresh --out is independent and rejects misuse and existing destinations", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const out = join(dir, "candidate.json");
+  const args = [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--out",
+    out,
+    "--json",
+  ];
+  const result = run(dir, preload, args);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(await readFile(out, "utf8")).assets.length, 5);
+  assert.equal(run(dir, preload, args).status, 1);
+  assert.equal(run(dir, preload, [...args, "--dry-run"]).status, 2);
+  assert.equal(run(dir, preload, ["--profile", "coding", "--json"]).status, 2);
+  await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
+    code: "ENOENT",
+  });
+});
+
+test("fresh lock rejects changed selected metadata and definitions", async (t) => {
+  for (const change of ["metadata", "definition"]) {
+    const { dir, preload } = await uvAssetsFixture(t);
+    let body = await readFile(preload, "utf8");
+    if (change === "metadata") {
+      body = `let requests=0;${body}`.replace(
+        "if(u==='https://herdr.dev/latest.json')return new Response(",
+        "if(u==='https://herdr.dev/latest.json' && ++requests > 1) return new Response('{}');if(u==='https://herdr.dev/latest.json')return new Response(",
+      );
+    } else {
+      const path = JSON.stringify(join(dir, "stack/profiles/coding.yaml"));
+      body =
+        `import {readFileSync,writeFileSync} from 'node:fs';let requests=0;${body}`.replace(
+          "if(u==='https://herdr.dev/latest.json')return new Response(",
+          `if(u==='https://herdr.dev/latest.json' && ++requests > 1) writeFileSync(${path},readFileSync(${path},'utf8').replace('Terminal coding','Altered coding'));if(u==='https://herdr.dev/latest.json')return new Response(`,
+        );
+    }
+    await writeFile(preload, body);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--target",
+      "darwin-arm64",
+      "--json",
+    ]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    if (change === "definition")
+      assert.match(result.stdout, /Selected definitions changed/);
+    await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
+      code: "ENOENT",
+    });
+  }
+});
+
+test("fresh lock rejects dangling symlinks and only one concurrent writer publishes", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const dest = join(dir, "candidate.json");
+  if (process.platform !== "win32") await symlink(join(dir, "missing"), dest);
+  const args = [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--out",
+    dest,
+    "--json",
+  ];
+  if (process.platform !== "win32") {
+    assert.equal(run(dir, preload, args).status, 1);
+    await rm(dest);
+  }
+  const child = () =>
+    new Promise((resolve, reject) => {
+      const proc = spawn(process.execPath, [
+        "--import",
+        preload,
+        cli,
+        "lock",
+        "--repo",
+        dir,
+        ...args,
+      ]);
+      let output = "";
+      proc.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
+      proc.stderr.on("data", (chunk) => {
+        output += chunk;
+      });
+      proc.on("error", reject);
+      proc.on("close", (status) => resolve({ status, output }));
+    });
+  const results = await Promise.all([child(), child()]);
+  assert.deepEqual(
+    results.map((x) => x.status).sort(),
+    [0, 1],
+    JSON.stringify(results),
+  );
+  assert.equal(JSON.parse(await readFile(dest, "utf8")).assets.length, 5);
+  assert.ok(!(await readdir(dir)).some((name) => name.endsWith(".tmp")));
+});
+
+test("fresh creation aborts recheck and leaves no published or temporary file", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const marker = join(dir, "rechecking");
+  let body = await readFile(preload, "utf8");
+  body = `import {writeFileSync} from 'node:fs';let count=0;${body}`
+    .replace(
+      "globalThis.fetch=async u=>",
+      "globalThis.fetch=async (u,{signal})=>",
+    )
+    .replace(
+      "if(u==='https://herdr.dev/latest.json')return new Response(",
+      `if(u==='https://herdr.dev/latest.json' && ++count>1){writeFileSync(${JSON.stringify(marker)},'yes');return new Promise((_,reject)=>{const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason)})})}if(u==='https://herdr.dev/latest.json')return new Response(`,
+    );
+  await writeFile(preload, body);
+  const proc = spawn(process.execPath, [
+    "--import",
+    preload,
+    cli,
+    "lock",
+    "--repo",
+    dir,
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  let output = "";
+  proc.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  proc.stderr.on("data", (chunk) => {
+    output += chunk;
+  });
+  const completion = new Promise((resolve) => proc.on("close", resolve));
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    try {
+      await readFile(marker);
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  await readFile(marker);
+  proc.kill("SIGINT");
+  assert.equal(await completion, 130, output);
+  await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
+    code: "ENOENT",
+  });
+  assert.ok(
+    !(await readdir(join(dir, "stack"))).some((name) => name.endsWith(".tmp")),
+  );
+});
+
+test("fresh creation refuses incomplete assets and an existing default lock even with --out", async (t) => {
+  const broken = uvReleaseWithAssets();
+  broken.assets.shift();
+  const a = await uvAssetsFixture(t, broken);
+  const result = run(a.dir, a.preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).kind, "resolution-report");
+  await assert.rejects(readFile(join(a.dir, "stack/stack.lock.json")), {
+    code: "ENOENT",
+  });
+  const b = await uvAssetsFixture(t);
+  const input = join(b.dir, "stack/stack.lock.json");
+  const out = join(b.dir, "candidate.json");
+  await writeFile(input, "sentinel\n");
+  assert.equal(
+    run(b.dir, b.preload, [
+      "--profile",
+      "coding",
+      "--target",
+      "darwin-arm64",
+      "--out",
+      out,
+      "--json",
+    ]).status,
+    1,
+  );
+  assert.equal(await readFile(input, "utf8"), "sentinel\n");
+  await assert.rejects(readFile(out), { code: "ENOENT" });
+});
+
+for (const [columns, color] of [
+  [40, "no-color"],
+  [40, "color"],
+  [80, "no-color"],
+  [80, "color"],
+])
+  test(`fresh lock creation fits ${columns} column ${color} PTY`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const { dir, preload } = await uvAssetsFixture(t);
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, "tmp"));
+    const r = spawnSync(
+      "python3",
+      [
+        ptyDriver,
+        process.execPath,
+        cli,
+        dir,
+        dir,
+        "create",
+        String(columns),
+        color,
+        preload,
+        "darwin-arm64",
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.status, 0, out.stderr);
+    const { stripVTControlCharacters } = await import("node:util");
+    const width = (await import("fast-string-width")).default;
+    const text = stripVTControlCharacters(out.stdout);
+    for (const line of text.split(/\r?\n/))
+      assert.ok(width(line) <= columns, line);
+    assert.match(text, /CREATED/);
+    assert.match(text, /Shared lock/);
+    assert.doesNotMatch(out.stdout, /Rechecking selected metadata/);
+    assert.equal(
+      JSON.parse(await readFile(join(dir, "stack/stack.lock.json"), "utf8"))
+        .assets.length,
+      5,
+    );
+  });
+
+test("fresh creation leaves no lock when output directory is missing", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const out = join(dir, "missing", "candidate.json");
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--out",
+    out,
+    "--json",
+  ]);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  await assert.rejects(readFile(out), { code: "ENOENT" });
+  await assert.rejects(readFile(join(dir, "stack/stack.lock.json")), {
+    code: "ENOENT",
+  });
 });
