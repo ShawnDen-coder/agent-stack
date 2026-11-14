@@ -1821,17 +1821,10 @@ test("fresh lock rejects changed selected metadata and definitions", async (t) =
     const { dir, preload } = await uvAssetsFixture(t);
     let body = await readFile(preload, "utf8");
     if (change === "metadata") {
-      body = `let requests=0;${body}`.replace(
-        "if(u==='https://herdr.dev/latest.json')return new Response(",
-        "if(u==='https://herdr.dev/latest.json' && ++requests > 1) return new Response('{}');if(u==='https://herdr.dev/latest.json')return new Response(",
-      );
+      body += recheckOverride({ herdr: {} });
     } else {
       const path = JSON.stringify(join(dir, "stack/profiles/coding.yaml"));
-      body =
-        `import {readFileSync,writeFileSync} from 'node:fs';let requests=0;${body}`.replace(
-          "if(u==='https://herdr.dev/latest.json')return new Response(",
-          `if(u==='https://herdr.dev/latest.json' && ++requests > 1) writeFileSync(${path},readFileSync(${path},'utf8').replace('Terminal coding','Altered coding'));if(u==='https://herdr.dev/latest.json')return new Response(`,
-        );
+      body += `;{const original=globalThis.fetch;let count=0;globalThis.fetch=async(u,o)=>{if(String(u)==='https://herdr.dev/latest.json' && ++count>1){const fs=await import('node:fs');fs.writeFileSync(${path},fs.readFileSync(${path},'utf8').replace('Terminal coding','Altered coding'))}return original(u,o)}}`;
     }
     await writeFile(preload, body);
     const result = run(dir, preload, [
@@ -1904,15 +1897,7 @@ test("fresh creation aborts recheck and leaves no published or temporary file", 
   const { dir, preload } = await uvAssetsFixture(t);
   const marker = join(dir, "rechecking");
   let body = await readFile(preload, "utf8");
-  body = `import {writeFileSync} from 'node:fs';let count=0;${body}`
-    .replace(
-      "globalThis.fetch=async u=>",
-      "globalThis.fetch=async (u,{signal})=>",
-    )
-    .replace(
-      "if(u==='https://herdr.dev/latest.json')return new Response(",
-      `if(u==='https://herdr.dev/latest.json' && ++count>1){writeFileSync(${JSON.stringify(marker)},'yes');return new Promise((_,reject)=>{const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason)})})}if(u==='https://herdr.dev/latest.json')return new Response(`,
-    );
+  body += `;{const original=globalThis.fetch;let count=0;globalThis.fetch=async(u,o)=>{if(String(u)==='https://herdr.dev/latest.json' && ++count>1){const fs=await import('node:fs');fs.writeFileSync(${JSON.stringify(marker)},'yes');return new Promise((_,reject)=>{const timer=setInterval(()=>{},1000);o.signal.addEventListener('abort',()=>{clearInterval(timer);reject(o.signal.reason)})})}return original(u,o)}}`;
   await writeFile(preload, body);
   const proc = spawn(process.execPath, [
     "--import",
@@ -2056,8 +2041,50 @@ test("fresh creation leaves no lock when output directory is missing", async (t)
   });
 });
 
-function recheckOverride(code) {
-  return `;{const original=globalThis.fetch;const counts=new Map();globalThis.fetch=async(u,o)=>{const url=String(u);const n=(counts.get(url)||0)+1;counts.set(url,n);const response=await original(u,o);if(n<2)return response;const data=await response.json();${code};return new Response(JSON.stringify(data));};}`;
+const fixtureUrls = {
+  pi: `https://registry.npmjs.org/${encodeURIComponent("@earendil-works/pi-coding-agent")}`,
+  pnpm: "https://registry.npmjs.org/pnpm",
+  native: `https://registry.npmjs.org/${encodeURIComponent("@pnpm/exe.darwin-arm64")}`,
+  uv: "https://api.github.com/repos/astral-sh/uv/releases?per_page=100&page=1",
+  herdr: "https://herdr.dev/latest.json",
+};
+function recheckSnapshots() {
+  const packument = (name, version, extra = {}) => ({
+    name,
+    versions: {
+      [version]: {
+        name,
+        version,
+        dist: { tarball: "https://registry.npmjs.org/pkg.tgz", integrity },
+        ...extra,
+      },
+    },
+  });
+  return {
+    pi: packument("@earendil-works/pi-coding-agent", "1.5.2"),
+    pnpm: packument("pnpm", "12.15.0", {
+      optionalDependencies: {
+        "@pnpm/exe.darwin-arm64": "12.15.0",
+        "@pnpm/exe.darwin-x64": "12.15.0",
+        "@pnpm/exe.win32-x64": "12.15.0",
+      },
+    }),
+    native: packument("@pnpm/exe.darwin-arm64", "12.15.0", {
+      os: ["darwin"],
+      cpu: ["arm64"],
+    }),
+    uv: [uvReleaseWithAssets()],
+    herdr: herdrAssetManifest(),
+  };
+}
+function recheckOverride(snapshots, statuses = {}) {
+  const responses = Object.fromEntries(
+    Object.entries(snapshots).map(([key, data]) => [
+      fixtureUrls[key],
+      { data, status: statuses[key] ?? 200 },
+    ]),
+  );
+  return `;{const original=globalThis.fetch;const counts=new Map();const responses=${JSON.stringify(responses)};globalThis.fetch=async(u,o)=>{const url=String(u);const n=(counts.get(url)||0)+1;counts.set(url,n);const entry=responses[url];if(n>1 && entry)return new Response(JSON.stringify(entry.data),{status:entry.status});return original(u,o)};}`;
 }
 
 test("fresh --out rejects empty and whitespace paths without writing", async (t) => {
@@ -2089,12 +2116,11 @@ test("fresh --out rejects empty and whitespace paths without writing", async (t)
 
 test("fresh recheck rejects reuse of selected uv release ID under another tag", async (t) => {
   const { dir, preload } = await uvAssetsFixture(t);
+  const snapshots = recheckSnapshots();
+  snapshots.uv.push(uvRelease("0.13.9", 1));
   await writeFile(
     preload,
-    (await readFile(preload, "utf8")) +
-      recheckOverride(
-        `if(url.startsWith('https://api.github.com/'))data.push({id:1,tag_name:'0.13.9',html_url:'https://github.com/astral-sh/uv/releases/tag/0.13.9',draft:false,prerelease:false})`,
-      ),
+    (await readFile(preload, "utf8")) + recheckOverride({ uv: snapshots.uv }),
   );
   const before = await snapshot(dir);
   const result = run(dir, preload, [
@@ -2110,59 +2136,84 @@ test("fresh recheck rejects reuse of selected uv release ID under another tag", 
     code: "ENOENT",
   });
 });
-
-for (const [label, code, expected] of [
+for (const [label, source, mutate, expected, status] of [
   [
     "npm tarball",
-    `if(decodeURIComponent(url).includes('@earendil-works/pi-coding-agent'))data.versions['1.5.2'].dist.tarball='https://registry.npmjs.org/changed.tgz'`,
+    "pi",
+    (x) => {
+      x.versions["1.5.2"].dist.tarball =
+        "https://registry.npmjs.org/changed.tgz";
+    },
     /npm asset changed/,
   ],
   [
     "npm engines",
-    `if(decodeURIComponent(url).includes('@earendil-works/pi-coding-agent'))data.versions['1.5.2'].engines={node:'>=24.0.0'}`,
+    "pi",
+    (x) => {
+      x.versions["1.5.2"].engines = { node: ">=24.0.0" };
+    },
     /npm metadata changed/,
   ],
   [
     "pnpm native mapping",
-    `if(url==='https://registry.npmjs.org/pnpm')data.versions['12.15.0'].optionalDependencies['@pnpm/exe.darwin-arm64']='12.15.1'`,
+    "pnpm",
+    (x) => {
+      x.versions["12.15.0"].optionalDependencies["@pnpm/exe.darwin-arm64"] =
+        "12.15.1";
+    },
     /native|mapping/i,
   ],
   [
     "pnpm native integrity",
-    `if(decodeURIComponent(url).includes('@pnpm/exe.darwin-arm64'))data.versions['12.15.0'].dist.integrity='sha512-'+Buffer.alloc(64,2).toString('base64')`,
+    "native",
+    (x) => {
+      x.versions["12.15.0"].dist.integrity =
+        `sha512-${Buffer.alloc(64, 2).toString("base64")}`;
+    },
     /native asset changed/,
   ],
   [
     "uv release id",
-    `if(url.startsWith('https://api.github.com/'))data[0].id=2`,
+    "uv",
+    (x) => {
+      x[0].id = 2;
+    },
     /uv release identity changed/,
   ],
   [
     "uv asset digest",
-    `if(url.startsWith('https://api.github.com/'))data[0].assets[0].digest='sha256:'+'b'.repeat(64)`,
+    "uv",
+    (x) => {
+      x[0].assets[0].digest = `sha256:${"b".repeat(64)}`;
+    },
     /uv asset changed/,
   ],
   [
     "herdr stable version",
-    `if(url==='https://herdr.dev/latest.json')data.version='0.9.6'`,
+    "herdr",
+    (x) => {
+      x.version = "0.9.6";
+    },
     /herdr stable version changed/,
   ],
   [
     "herdr asset hash",
-    `if(url==='https://herdr.dev/latest.json')data.sha256['macos-aarch64']='b'.repeat(64)`,
+    "herdr",
+    (x) => {
+      x.sha256["macos-aarch64"] = "b".repeat(64);
+    },
     /herdr asset changed/,
   ],
-  [
-    "release HTTP limit",
-    `if(url.startsWith('https://api.github.com/'))return new Response('{}',{status:429})`,
-    /429/,
-  ],
+  ["release HTTP limit", "uv", () => {}, /429/, 429],
 ])
   test(`fresh recheck rejects changed ${label}`, async (t) => {
     const { dir, preload } = await uvAssetsFixture(t);
+    const snapshots = recheckSnapshots();
+    mutate(snapshots[source]);
     await writeFile(
       preload,
-      (await readFile(preload, "utf8")) + recheckOverride(code),
+      (await readFile(preload, "utf8")) +
+        recheckOverride({ [source]: snapshots[source] }, { [source]: status }),
     );
     const before = await snapshot(dir);
     const result = run(dir, preload, [
@@ -2184,12 +2235,17 @@ for (const [label, code, expected] of [
 
 test("fresh recheck ignores unrelated new releases, history and timestamps", async (t) => {
   const { dir, preload } = await uvAssetsFixture(t);
+  const snapshots = recheckSnapshots();
+  snapshots.uv[0].updated_at = "changed";
+  snapshots.uv.push(uvRelease("0.99.0", 42));
+  for (const source of ["pi", "pnpm", "native"]) {
+    snapshots[source].time = { modified: "changed" };
+    snapshots[source].versions["0.1.0"] = {};
+  }
+  snapshots.herdr.timestamp = "changed";
   await writeFile(
     preload,
-    (await readFile(preload, "utf8")) +
-      recheckOverride(
-        `if(url.startsWith('https://api.github.com/')){data[0].updated_at='changed';data.push({id:42,tag_name:'0.99.0',html_url:'https://github.com/astral-sh/uv/releases/tag/0.99.0',draft:false,prerelease:false})}else if(url.startsWith('https://registry.npmjs.org/')){data.time={modified:'changed'};data.versions['0.1.0']={}}else if(url==='https://herdr.dev/latest.json')data.timestamp='changed'`,
-      ),
+    (await readFile(preload, "utf8")) + recheckOverride(snapshots),
   );
   const result = run(dir, preload, [
     "--profile",
@@ -2785,4 +2841,44 @@ test("SIGINT after lock publication does not report cancellation", {
   assert.ok(
     !(await readdir(join(dir, "stack"))).some((name) => name.endsWith(".tmp")),
   );
+});
+
+for (const [label, mutate] of [
+  [
+    "source identity",
+    (x) => {
+      x.components.find((c) => c.component === "pi").source.unexpected =
+        "extra";
+    },
+  ],
+  [
+    "definition digests",
+    (x) => {
+      x.definitionDigests.unexpected = "extra";
+    },
+  ],
+])
+  test(`validate lock keeps strict unknown-field rejection for ${label}`, async (t) => {
+    const f = await freshForValidation(t);
+    mutate(f.lock);
+    await writeFile(f.path, JSON.stringify(f.lock));
+    const result = validateOffline(f, ["--lock"]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(JSON.parse(result.stdout).issues[0].message, /schema/);
+  });
+
+test("oversized registry body cancels its reader in the real CLI", async (t) => {
+  const { dir, preload } = await setup(t, null);
+  const marker = join(dir, "reader-cancelled");
+  await writeFile(
+    preload,
+    `import {writeFileSync} from 'node:fs';globalThis.fetch=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new Uint8Array(8*1024*1024+1))},cancel(){writeFileSync(${JSON.stringify(marker)},'cancelled')}}));`,
+  );
+  const result = run(dir, preload);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(
+    JSON.parse(result.stdout).components[0].error,
+    /Registry response exceeds size limit/,
+  );
+  assert.equal(await readFile(marker, "utf8"), "cancelled");
 });
