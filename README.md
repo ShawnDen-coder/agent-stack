@@ -1,6 +1,6 @@
 # Agent Stack
 
-Agent Stack 是一个以 Git checkout 管理个人 Agent 环境的项目。部件、组合与集成可分别维护；当前 CLI 可以校验声明、只读检查部分工具链，并预览 npm、uv 和 herdr 的版本候选。
+Agent Stack 是一个以 Git checkout 管理个人 Agent 环境的项目。部件、组合与集成通过 YAML 分别维护；当前 CLI 可以校验声明、只读检查部分工具链，并预览 npm、uv 和 herdr 的版本候选。
 
 **项目尚未发布：**包标记为 `private`、`UNLICENSED`，当前没有授予使用许可。请从源码试用，不要安装同名公开 npm 包。
 
@@ -19,7 +19,7 @@ pnpm cli validate --repo .
 
 `validate` 成功时显示声明计数；它不证明工具已安装或可以运行。可继续使用 `pnpm cli doctor --repo . --profile coding` 只读检查环境；缺失工具或有未核对项时退出 1 是可解释的检查结果。
 
-[完整 Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/research-agent-stack/docs/quickstart.md) 包含 Windows PowerShell、JSON、退出码和可选的在线版本候选报告。当前文档对应 PR 待审查的版本候选切片，须在该切片合入 PR 分支后使用。
+[完整 Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/research-agent-stack/docs/quickstart.md) 包含 pnpm 安装、Windows PowerShell、JSON、退出码和可选的在线版本候选报告。
 
 ## 文档
 

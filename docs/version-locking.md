@@ -1,6 +1,6 @@
 # 版本解析与锁定：阶段 E 审查方案
 
-本文与 [CLI 行为稿](cli-behavior.md) 均为**待用户审查的设计提案**，尚未批准实施；resolver、锁生成或安装均未实现。示例字段和命令不是现有 CLI 接口。现有 `validate` 检查声明一致性，`doctor` 观察本机路径与版本；两者均不解析发布源，也不能证明所选工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
+当前 `lock --dry-run` 已实现版本候选解析报告；完整锁生成、目标发行物和安装尚未实现。本文的锁契约、写入、更新和执行计划仍为设计提案，不能将其中的完整示例当作现有接口。已实现行为见 [CLI 行为稿第 1 节](cli-behavior.md#1-当前确实能用的接口)，操作入口见 [Quickstart](quickstart.md)。`validate` 检查声明一致性，`doctor` 观察本机路径与版本；候选报告、静态校验和版本观察都不证明工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
 
 按用户明确的书写偏好，自有声明优先 YAML；当前读取器支持 YAML 与过渡期 JSON。共享候选锁、正式 `stack/stack.lock.json` 与本机执行计划继续使用 JSON。公共入口按日常 setup/doctor/run/update 与进阶命令分组，具体命令行为仍待用户审查。
 

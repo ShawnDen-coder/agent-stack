@@ -22,7 +22,7 @@
 
 人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；机器生成锁与计划尚未实现，拟使用 JSON。
 
-Node 24 与 26 当前均为 LTS，见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
+运行下限由 `package.json` 的 engines 定义，CI 使用 Node 24 和 26；支持周期见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 
 ## 本地命令
 
@@ -33,17 +33,18 @@ pnpm cli validate --repo . --json
 pnpm check
 ```
 
-| 命令                                        | 行为                                       |
-| ------------------------------------------- | ------------------------------------------ |
-| `pnpm build`                                | 编译 `src/` 到 `dist/`                     |
-| `pnpm cli --help`                           | 运行已编译的 CLI；源码变化后先 build       |
-| `pnpm cli doctor --repo . --profile coding` | 只读检测部分工具链；先 build               |
-| `pnpm validate`                             | 从仓库根目录校验当前声明；先 build         |
-| `pnpm typecheck`                            | TypeScript 只读检查                        |
-| `pnpm lint`                                 | Biome 只读检查                             |
-| `pnpm format`                               | 格式化支持的文件，不执行工具安装或配置应用 |
-| `pnpm test`                                 | 构建后运行真实 CLI 边界测试                |
-| `pnpm check`                                | lint、类型、测试、仓库声明检查             |
+| 命令                                                | 行为                                       |
+| --------------------------------------------------- | ------------------------------------------ |
+| `pnpm build`                                        | 编译 `src/` 到 `dist/`                     |
+| `pnpm cli --help`                                   | 运行已编译的 CLI；源码变化后先 build       |
+| `pnpm cli doctor --repo . --profile coding`         | 只读检测部分工具链；先 build               |
+| `pnpm cli lock --repo . --profile coding --dry-run` | 在线读取版本候选；不写锁；先 build         |
+| `pnpm validate`                                     | 从仓库根目录校验当前声明；先 build         |
+| `pnpm typecheck`                                    | TypeScript 只读检查                        |
+| `pnpm lint`                                         | Biome 只读检查                             |
+| `pnpm format`                                       | 格式化支持的文件，不执行工具安装或配置应用 |
+| `pnpm test`                                         | 构建后运行真实 CLI 边界测试                |
+| `pnpm check`                                        | lint、类型、测试、仓库声明检查             |
 
 测试使用临时目录和 `process.execPath`，不依赖 Bash 展开命令或本机安装 Pi/herdr/Rex。临时路径刻意含空格；测试结束清理自己的目录。
 

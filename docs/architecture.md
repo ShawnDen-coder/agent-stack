@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码校验声明，并提供有限的只读工具链检测。
+Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，以及 npm、uv、herdr 的版本候选报告；安装、配置应用和完整锁尚未实现。
 
 ## 目录职责
 
@@ -108,7 +108,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 调用方向为 `cli → commands → core / adapters`。core 只接收已解析的数据并返回结果；文件、网络、子进程等外部操作由 adapter 承担。导入业务模块不启动服务、不连接网络、不应用配置。
 
-现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据。后续针对 npm、原生发行物、应用配置的 adapter 按真实用例增加；CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
+现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据，npm-registry 与 releases adapter 只读查询官方版本元数据。发行物下载与配置应用的 adapter 在对应功能实现时增加；CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
 
 ## 校验的证据范围
 
