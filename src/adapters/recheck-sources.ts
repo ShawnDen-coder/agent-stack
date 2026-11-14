@@ -103,9 +103,11 @@ export async function recheckSources(
         (x) =>
           typeof x === "object" &&
           x !== null &&
-          "tag_name" in x &&
-          x.tag_name === uvSnapshot.tag_name,
+          (("tag_name" in x && x.tag_name === uvSnapshot.tag_name) ||
+            ("id" in x && x.id === uvSnapshot.id)),
       );
+      if (selected.length !== 1)
+        throw new Error("Selected uv release identity is ambiguous or missing");
       const current = selectUv(selected, `=${uvSnapshot.tag_name}`);
       if (
         current.id !== uvSnapshot.id ||

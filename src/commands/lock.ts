@@ -67,7 +67,9 @@ export function createLockCommand(): Command {
       }
       if (new Set(options.target).size !== options.target.length)
         command.error("error: duplicate --target");
-      if (options.dryRun && options.out)
+      if (options.out !== undefined && !options.out.trim())
+        command.error("error: --out must not be empty or whitespace");
+      if (options.dryRun && options.out !== undefined)
         command.error("error: --dry-run and --out cannot be combined");
       if (!options.dryRun && !options.target.length)
         command.error("error: --target is required when creating a lock");
@@ -76,7 +78,8 @@ export function createLockCommand(): Command {
       try {
         const root = resolve(options.repo ?? ".");
         const inputPath = join(root, "stack", "stack.lock.json");
-        const outputPath = options.out ? resolve(options.out) : inputPath;
+        const outputPath =
+          options.out !== undefined ? resolve(options.out) : inputPath;
         if (!options.dryRun) {
           await requireAbsent(inputPath);
           if (outputPath !== inputPath) await requireAbsent(outputPath);

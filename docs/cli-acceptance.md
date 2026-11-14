@@ -51,3 +51,5 @@ npm 候选选择先筛选范围、预发布、废弃状态及 Node engines，再
 `--target` 还可预览 Pi 顶层 npm tarball 和 pnpm 顶层及对应 native optional package；当前限 macOS arm64/x64 与 Windows x64，pnpm native 按已识别的 pnpm 12 发行契约核对确切依赖及平台元数据。SHA-512 SRI 为 registry 预期值；不执行安装脚本、不锁定传递依赖。uv 目标资产从所选 release 快照读取，仅接受 GitHub 提供的有效 SHA-256。
 
 完整 coding 的三目标版本与资产报告由 `test/lock.test.mjs` 的受控 release fixture 从真实 CLI 验证；预期摘要不等于下载校验，目标资产齐全也不代表锁生成或运行验证。
+
+首次创建期间的实际 SIGINT/清理回归仅在 POSIX 运行；Windows 原生 Ctrl-C 尚未验证。Windows 上仍运行创建、并发与拒绝覆盖的通用测试。[Node.js child_process 文档](https://raw.githubusercontent.com/nodejs/node/v24.x/doc/api/child_process.md)说明 Windows 的 `subprocess.kill()` 信号行为与 POSIX 不同。
