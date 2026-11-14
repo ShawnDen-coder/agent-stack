@@ -286,7 +286,7 @@ export function resolution(report: ResolutionReport, json: boolean) {
         for (const [label, value] of [
           ["URL", item.url],
           [
-            "Expected digest",
+            "integrity" in item ? "Expected SHA-512 SRI" : "Expected SHA-256",
             "integrity" in item ? item.integrity : item.sha256,
           ],
           ["Digest source", item.digestSource],
