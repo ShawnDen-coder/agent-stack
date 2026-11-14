@@ -543,7 +543,11 @@ for (const [label, first, manifestData, pattern, status] of [
 
 for (const [label, uvResponse, pattern] of [
   ["invalid JSON", "new Response('{')", /invalid JSON/],
-  ["oversized metadata", "new Response('x'.repeat(5*1024*1024))", /size limit/],
+  [
+    "oversized metadata",
+    "new Response('x'.repeat(13*1024*1024))",
+    /size limit/,
+  ],
   [
     "untrusted next",
     "new Response('[]',{headers:{link:'<https://evil.test/?page=2>; rel=\"next\"'}})",
@@ -2202,4 +2206,158 @@ test("fresh recheck ignores unrelated new releases, history and timestamps", asy
     lock.components.find((item) => item.component === "uv").version,
     "0.13.8",
   );
+});
+
+test("uv accepts a bounded official page larger than the former 4 MiB limit", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t);
+  const body = await readFile(preload, "utf8");
+  await writeFile(
+    preload,
+    body
+      .replace(
+        "return new Response(JSON.stringify(opts.uv ??",
+        "return new Response(JSON.stringify(opts.uv ??",
+      )
+      .replace(
+        "[{id:1,tag_name:'0.13.8'",
+        "[{padding:'x'.repeat(5*1024*1024),id:1,tag_name:'0.13.8'",
+      ),
+  );
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(
+    JSON.parse(result.stdout).components.find((x) => x.component === "uv")
+      .version,
+    "0.13.8",
+  );
+});
+
+test("uv follows official numeric repository pagination", async (t) => {
+  const body = mixedPreload(
+    [uvRelease("0.13.8", 1)],
+    [uvRelease("0.13.9", 2)],
+    { version: "0.9.5" },
+  ).replace(
+    "https://api.github.com/repos/astral-sh/uv/releases?per_page=100&page=2",
+    "https://api.github.com/repositories/699532645/releases?per_page=100&page=2",
+  );
+  const { dir, preload } = await setup(t, null, body);
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(dir, "stack/profiles/coding.yaml"),
+  );
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(
+    JSON.parse(result.stdout).components.find((x) => x.component === "uv")
+      .version,
+    "0.13.9",
+  );
+});
+
+function pagedUvFixture(code) {
+  const body = npmAssetPreload({ uv: [uvReleaseWithAssets()] });
+  const start = body.indexOf("if(u.startsWith('https://api.github.com/'))");
+  const end = body.indexOf("if(u==='https://herdr.dev/latest.json')", start);
+  assert.ok(start > 0 && end > start);
+  return `${body.slice(0, start)}if(u.startsWith('https://api.github.com/')){${code}}${body.slice(end)}`;
+}
+for (const [label, link] of [
+  [
+    "foreign numeric repo",
+    "https://api.github.com/repositories/699532646/releases?per_page=100&page=2",
+  ],
+  [
+    "foreign host",
+    "https://evil.example/repositories/699532645/releases?per_page=100&page=2",
+  ],
+  [
+    "wrong page",
+    "https://api.github.com/repositories/699532645/releases?per_page=100&page=3",
+  ],
+  [
+    "extra parameter",
+    "https://api.github.com/repositories/699532645/releases?per_page=100&page=2&token=bad",
+  ],
+  [
+    "credentials",
+    "https://user@api.github.com/repositories/699532645/releases?per_page=100&page=2",
+  ],
+])
+  test(`uv rejects ${label} pagination before fresh publication`, async (t) => {
+    const body = pagedUvFixture(
+      `return new Response('[]',{headers:{link:${JSON.stringify(`<${link}>; rel="next"`)}}})`,
+    );
+    const { dir, preload } = await setup(t, null, body);
+    await cp(
+      join(repo, "stack/profiles/coding.yaml"),
+      join(dir, "stack/profiles/coding.yaml"),
+    );
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--target",
+      "darwin-arm64",
+      "--json",
+    ]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /Untrusted release pagination/);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+for (const [label, padding, expected] of [
+  ["total size", 11 * 1024 * 1024, /total size limit/],
+  ["page count", 0, /excessive release pagination/],
+])
+  test(`uv enforces bounded ${label} before fresh publication`, async (t) => {
+    const release = JSON.stringify(uvReleaseWithAssets());
+    const body = pagedUvFixture(
+      `const page=Number(new URL(u).searchParams.get('page'));const entry=${release};entry.id=page;entry.tag_name='0.13.'+(page+10);entry.html_url='https://github.com/astral-sh/uv/releases/tag/'+entry.tag_name;entry.padding='x'.repeat(${padding});return new Response(JSON.stringify([entry]),{headers:{link:'<https://api.github.com/repositories/699532645/releases?per_page=100&page='+(page+1)+'>; rel="next"'}})`,
+    );
+    const { dir, preload } = await setup(t, null, body);
+    await cp(
+      join(repo, "stack/profiles/coding.yaml"),
+      join(dir, "stack/profiles/coding.yaml"),
+    );
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--target",
+      "darwin-arm64",
+      "--json",
+    ]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, expected);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+
+test("oversized uv page blocks fresh lock without writing", async (t) => {
+  const body = pagedUvFixture("return new Response('x'.repeat(13*1024*1024))");
+  const { dir, preload } = await setup(t, null, body);
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(dir, "stack/profiles/coding.yaml"),
+  );
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /size limit/);
+  assert.deepEqual(await snapshot(dir), before);
 });
