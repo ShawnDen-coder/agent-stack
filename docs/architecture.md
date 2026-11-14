@@ -35,7 +35,7 @@ agent-stack/
 
 自有的人编写声明采用 YAML 1.2：`stack/components/<id>.yaml`、`stack/profiles/<id>.yaml`、`stack/integrations/<id>.yaml`，接受 `.yml`，过渡期兼容 JSON。仓库现有声明已迁移，数据模型与能力要求不变。
 
-YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。未来锁文件的声明摘要拟基于校验后的规范数据；该摘要功能尚未实现。读取或锁定不自动重写作者文件。
+YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。只读候选报告对所选、已校验的规范数据输出声明摘要；锁文件尚未实现。读取或锁定不自动重写作者文件。
 
 工具原生配置保持 JSON/TOML/YAML 等原格式；skills 保持标准 Markdown 与 YAML front matter。机器生成的 `stack/stack.lock.json`、执行计划和 CLI JSON 输出继续使用 JSON。人编写的声明与机器产物分别维护。完整示例和命令分工见 [CLI 行为审查稿](cli-behavior.md)。
 

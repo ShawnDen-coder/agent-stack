@@ -238,6 +238,9 @@ export function resolution(report: ResolutionReport, json: boolean) {
   }
   line(`Profile: ${clean(report.profile)}`);
   line(`Node: ${clean(report.node)}`);
+  line(
+    `Definition snapshot: ${Object.keys(report.definitionDigests.components).length} components, ${Object.keys(report.definitionDigests.integrations).length} integrations`,
+  );
   let blocked = 0;
   for (const item of report.components) {
     line();
