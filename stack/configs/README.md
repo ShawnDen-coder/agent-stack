@@ -4,5 +4,5 @@
 
 - 来源与共享默认值保存在 Git；设备覆盖和应用状态留在本机。
 - token、OAuth、会话、缓存与带凭证的 registry 配置不进入此目录。
-- 部件来源、平台、版本选择和集成关系分别放在 `components/`、`profiles/`、`integrations/`。
+- 部件来源、平台、版本选择和集成关系分别放在 `stack/components/`、`stack/profiles/`、`stack/integrations/`。
 - 将来每个写入 adapter 都要说明管理哪些文件/字段，保留本机修改，并提供差异与恢复方式。

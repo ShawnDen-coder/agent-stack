@@ -24,7 +24,9 @@ async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), "agent stack & 测试 "));
   t.after(() => rm(dir, { recursive: true, force: true }));
   for (const name of ["components", "profiles", "integrations"])
-    await cp(join(root, name), join(dir, name), { recursive: true });
+    await cp(join(root, "stack", name), join(dir, "stack", name), {
+      recursive: true,
+    });
   const bin = join(dir, "bin");
   await mkdir(bin);
   await mkdir(join(dir, "tmp"));
@@ -155,7 +157,7 @@ for (const [mode, columns, color] of [
       );
       await chmod(join(bin, "uv"), 0o755);
     }
-    const profilePath = join(dir, "profiles/coding-rex.yaml");
+    const profilePath = join(dir, "stack/profiles/coding-rex.yaml");
     const text = await readFile(profilePath, "utf8");
     await writeFile(
       profilePath,

@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { parseAllDocuments } from "yaml";
 import type { z } from "zod";
@@ -14,7 +14,7 @@ async function readDefinitions<T extends { id: string }>(
   directory: string,
   schema: z.ZodType<T>,
 ): Promise<{ values: T[]; locations: Record<string, string> }> {
-  const entries = await readdir(join(root, directory), {
+  const entries = await readdir(join(root, "stack", directory), {
     withFileTypes: true,
   }).catch((error: unknown) => {
     if (
@@ -33,7 +33,7 @@ async function readDefinitions<T extends { id: string }>(
     .sort();
 
   if (filenames.length === 0 && directory !== "integrations")
-    throw new Error(`${directory}: no definitions found`);
+    throw new Error(`stack/${directory}: no definitions found`);
 
   const locations: Record<string, string> = {};
   for (const filename of filenames) {
@@ -41,13 +41,13 @@ async function readDefinitions<T extends { id: string }>(
     const key = `${directory}/${id}`;
     if (locations[key])
       throw new Error(
-        `${directory}: duplicate definition for ${id}: ${locations[key]}, ${directory}/${filename}`,
+        `stack/${directory}: duplicate definition for ${id}: ${locations[key]}, stack/${directory}/${filename}`,
       );
-    locations[key] = `${directory}/${filename}`;
+    locations[key] = `stack/${directory}/${filename}`;
   }
   const values = await Promise.all(
     filenames.map(async (filename) => {
-      const file = `${directory}/${filename}`;
+      const file = `stack/${directory}/${filename}`;
       try {
         const text = await readFile(join(root, file), "utf8");
         let parsed: unknown;
@@ -84,6 +84,15 @@ async function readDefinitions<T extends { id: string }>(
 }
 
 export async function readRepository(root: string): Promise<Repository> {
+  const stack = await stat(join(root, "stack")).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return undefined;
+    throw error;
+  });
+  if (!stack?.isDirectory())
+    throw new Error(
+      "stack/: directory not found; pass the repository root with --repo and ensure it contains stack/",
+    );
   const [components, integrations, profiles] = await Promise.all([
     readDefinitions(root, "components", componentSchema),
     readDefinitions(root, "integrations", integrationSchema),

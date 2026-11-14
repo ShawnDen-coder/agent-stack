@@ -35,3 +35,5 @@ rm -r "$demo_dir"
 文本报告以 `[MATCH]`、`[OBSERVED]`、`[FAIL]`、`[UNKNOWN]` 区分符合要求、无版本要求的观察、确认失败和未核对，并列出计数与下一步；metadata 匹配不证明程序可运行。交互需要 stdin、stdout 和 stderr 均为 TTY；任一被重定向时不会弹出选择框。
 
 自动化 PTY 使用 Python 标准库 `pty`，仅在 macOS/Linux 执行；Windows 原生终端交互尚未验证。非交互、JSON 和静态包装器测试仍可在 Windows 运行。CI 矩阵配置不等同于已实际运行的平台结果。
+
+布局迁移：真实 CLI 测试从仓库根的 `stack/` 读取声明，覆盖中文和空格路径、缺失目录错误、旧根级声明不读取；测试见 `test/cli.test.mjs`。

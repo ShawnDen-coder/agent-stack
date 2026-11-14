@@ -2,7 +2,7 @@
 
 本文与 [CLI 行为稿](cli-behavior.md) 均为**待用户审查的设计提案**，尚未批准实施；resolver、锁生成或安装均未实现。示例字段和命令不是现有 CLI 接口。现有 `validate` 检查声明一致性，`doctor` 观察本机路径与版本；两者均不解析发布源，也不能证明所选工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
 
-按用户明确的书写偏好，自有声明优先 YAML；当前读取器仍为 JSON，格式迁移单独实现。共享候选锁、正式 `stack.lock.json` 与本机执行计划继续使用 JSON。公共入口按日常 setup/doctor/run/update 与进阶命令分组，具体命令行为仍待用户审查。
+按用户明确的书写偏好，自有声明优先 YAML；当前读取器支持 YAML 与过渡期 JSON。共享候选锁、正式 `stack/stack.lock.json` 与本机执行计划继续使用 JSON。公共入口按日常 setup/doctor/run/update 与进阶命令分组，具体命令行为仍待用户审查。
 
 ## 建议与实施边界
 
@@ -31,7 +31,7 @@
 
 ## 最小锁契约与消费者
 
-建议 `stack.lock.json` 顶层有 schema version、profile ID、明确的 targets、selected integrations 和组件集合；每个组件记录精确版本、来源类型及不可变识别、每目标发行物与预期 digest。**以下是字段设计示意，不是真实锁或可用版本/digest：**
+建议 `stack/stack.lock.json` 顶层有 schema version、profile ID、明确的 targets、selected integrations 和组件集合；每个组件记录精确版本、来源类型及不可变识别、每目标发行物与预期 digest。**以下是字段设计示意，不是真实锁或可用版本/digest：**
 
 ```text
 schemaVersion: 1
@@ -56,7 +56,7 @@ integrations: [<selected-integration-id>]
 
 npm 的 artifact identity 包含 registry、package name、精确版本及 metadata 中的 tarball；GitHub 的 identity 包含 owner/repo、release ID、tag、asset ID 和 asset name。URL 是实际来源返回的值，不承载认证信息；仅接受经配置的官方 HTTPS 域及经过校验的下载重定向，拒绝 URL 中的凭据、查询 token 或跨源非预期跳转。解析阶段读到的是**预期** digest，未来下载后计算并比较才是字节校验通过；digest 来源与传输来源的信任边界要显示。缺可验证的预期 digest 时失败，不能把下载后自行计算的 hash 冒充发行方事先承诺，也不能默默降级为无校验。SHA-256 / SHA-512 只能检测与期望不一致，不自动证明发布者身份；签名与 provenance 验证是另行实现的能力。
 
-不锁本机路径、已安装版本、认证、会话、缓存。共享配置、Agent 和 skills 继续以 Git checkout 为准；当前锁只对被解析声明记录摘要，不伪称已锁配置内容。CLI 自己的 `pnpm-lock.yaml` 和未来外部工具的 `stack.lock.json` 是两套锁，业务项目锁文件仍由业务项目管理。
+不锁本机路径、已安装版本、认证、会话、缓存。共享配置、Agent 和 skills 继续以 Git checkout 为准；当前锁只对被解析声明记录摘要，不伪称已锁配置内容。CLI 自己的 `pnpm-lock.yaml` 和未来外部工具的 `stack/stack.lock.json` 是两套锁，业务项目锁文件仍由业务项目管理。
 
 ## 来源与选择规则
 

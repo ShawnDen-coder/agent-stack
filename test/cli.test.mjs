@@ -26,12 +26,16 @@ function run(args) {
 }
 
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), "agent-stack test "));
+  const root = await mkdtemp(join(tmpdir(), "agent-stack 测试 & "));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const directory of ["components", "integrations", "profiles"]) {
-    await cp(join(repository, directory), join(root, directory), {
-      recursive: true,
-    });
+    await cp(
+      join(repository, "stack", directory),
+      join(root, "stack", directory),
+      {
+        recursive: true,
+      },
+    );
   }
   return root;
 }
@@ -90,7 +94,7 @@ test("validation is read-only and accepts repository paths with spaces", async (
 
 test("a missing selected component is reported with its profile", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.yaml", (value) => {
+  await edit(root, "stack/profiles/coding.yaml", (value) => {
     value.components[0].component = "unknown-runtime";
   });
   const result = validate(root);
@@ -98,7 +102,7 @@ test("a missing selected component is reported with its profile", async (t) => {
   assert.ok(
     result.report.issues.some(
       (issue) =>
-        issue.file === "profiles/coding.yaml" &&
+        issue.file === "stack/profiles/coding.yaml" &&
         issue.message.includes("Unknown component: unknown-runtime"),
     ),
   );
@@ -106,7 +110,7 @@ test("a missing selected component is reported with its profile", async (t) => {
 
 test("a macOS-only component cannot silently enter a cross-platform profile", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.yaml", (value) => {
+  await edit(root, "stack/profiles/coding.yaml", (value) => {
     value.components.push({ component: "otty", channel: "stable" });
   });
   const result = validate(root);
@@ -125,7 +129,7 @@ test("a macOS-only component cannot silently enter a cross-platform profile", as
 
 test("replacing herdr preserves the original profile's capability requirements", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.yaml", (value) => {
+  await edit(root, "stack/profiles/coding.yaml", (value) => {
     value.platforms = ["darwin"];
     value.components = value.components.map((item) =>
       item.component === "herdr" ? { component: "rex", channel: "beta" } : item,
@@ -144,7 +148,7 @@ test("replacing herdr preserves the original profile's capability requirements",
 
 test("stale integration references are rejected after a component replacement", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding-rex.yaml", (value) => {
+  await edit(root, "stack/profiles/coding-rex.yaml", (value) => {
     value.integrations = ["pi-herdr"];
   });
   const result = validate(root);
@@ -159,13 +163,13 @@ test("stale integration references are rejected after a component replacement", 
 
 test("an integration with an unknown selected component cannot provide capabilities", async (t) => {
   const root = await fixture(t);
-  await rm(join(root, "components/herdr.yaml"));
+  await rm(join(root, "stack/components/herdr.yaml"));
   const result = validate(root);
   assert.equal(result.status, 1);
   assert.ok(
     result.report.issues.some(
       (issue) =>
-        issue.file === "profiles/coding.yaml" &&
+        issue.file === "stack/profiles/coding.yaml" &&
         issue.message === "Required capability is not provided: agent-status",
     ),
   );
@@ -173,7 +177,7 @@ test("an integration with an unknown selected component cannot provide capabilit
 
 test("a renamed file must retain a matching definition ID", async (t) => {
   const root = await fixture(t);
-  await edit(root, "components/pi.yaml", (value) => {
+  await edit(root, "stack/components/pi.yaml", (value) => {
     value.id = "other-runtime";
   });
   const result = validate(root);
@@ -186,7 +190,7 @@ test("a renamed file must retain a matching definition ID", async (t) => {
 
 test("unsupported schema versions fail", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.yaml", (value) => {
+  await edit(root, "stack/profiles/coding.yaml", (value) => {
     value.schemaVersion = 2;
   });
   const result = validate(root);
@@ -197,7 +201,7 @@ test("unsupported schema versions fail", async (t) => {
 
 test("the same component cannot be selected twice", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.yaml", (value) => {
+  await edit(root, "stack/profiles/coding.yaml", (value) => {
     value.components.push(value.components[0]);
   });
   const result = validate(root);
@@ -210,9 +214,9 @@ test("the same component cannot be selected twice", async (t) => {
 
 test("a profile can select a runtime without any integration catalog", async (t) => {
   const root = await fixture(t);
-  await rm(join(root, "integrations"), { recursive: true });
-  await rm(join(root, "profiles/coding-rex.yaml"));
-  await edit(root, "profiles/coding.yaml", (value) => {
+  await rm(join(root, "stack/integrations"), { recursive: true });
+  await rm(join(root, "stack/profiles/coding-rex.yaml"));
+  await edit(root, "stack/profiles/coding.yaml", (value) => {
     value.components = value.components.filter(
       (item) => item.component === "pi",
     );
@@ -226,7 +230,7 @@ test("a profile can select a runtime without any integration catalog", async (t)
 
 test("malformed YAML and absent repositories return a failure report", async (t) => {
   const root = await fixture(t);
-  await writeFile(join(root, "components/pi.yaml"), "{");
+  await writeFile(join(root, "stack/components/pi.yaml"), "{");
   const malformed = validate(root);
   assert.equal(malformed.status, 1);
   assert.match(malformed.report.issues[0].message, /components\/pi.yaml/);
@@ -243,12 +247,15 @@ test("an unknown command fails rather than implying an installer exists", () => 
 
 test("legacy JSON and yml declarations remain readable without shadowing", async (t) => {
   const root = await fixture(t);
-  const source = join(root, "components/pi.yaml");
+  const source = join(root, "stack/components/pi.yaml");
   const value = parseYaml(await readFile(source, "utf8"));
   await rm(source);
-  await writeFile(join(root, "components/pi.json"), JSON.stringify(value));
+  await writeFile(
+    join(root, "stack/components/pi.json"),
+    JSON.stringify(value),
+  );
   assert.equal(validate(root).status, 0);
-  await writeFile(join(root, "components/pi.yml"), stringifyYaml(value));
+  await writeFile(join(root, "stack/components/pi.yml"), stringifyYaml(value));
   const duplicate = validate(root);
   assert.equal(duplicate.status, 1);
   assert.match(duplicate.report.issues[0].message, /duplicate definition/);
@@ -256,8 +263,8 @@ test("legacy JSON and yml declarations remain readable without shadowing", async
 
 test("malformed legacy JSON is rejected with its file", async (t) => {
   const root = await fixture(t);
-  await rm(join(root, "components/pi.yaml"));
-  await writeFile(join(root, "components/pi.json"), "{");
+  await rm(join(root, "stack/components/pi.yaml"));
+  await writeFile(join(root, "stack/components/pi.json"), "{");
   const result = validate(root);
   assert.equal(result.status, 1);
   assert.match(result.report.issues[0].message, /components\/pi\.json/);
@@ -283,7 +290,7 @@ for (const [label, mutate, reason] of [
 ])
   test(`YAML rejects ${label} for an otherwise valid definition`, async (t) => {
     const root = await fixture(t);
-    const path = join(root, "components/pi.yaml");
+    const path = join(root, "stack/components/pi.yaml");
     const valid = await readFile(path, "utf8");
     assert.equal(validate(root).status, 0);
     await writeFile(path, mutate(valid));
@@ -292,3 +299,39 @@ for (const [label, mutate, reason] of [
     assert.match(result.report.issues[0].message, /components\/pi\.yaml/);
     assert.match(result.report.issues[0].message, reason);
   });
+
+test("only stack declarations are read and missing stack has an actionable error", async (t) => {
+  const root = await fixture(t);
+  await cp(join(root, "stack/components"), join(root, "components"), {
+    recursive: true,
+  });
+  await cp(join(root, "stack/profiles"), join(root, "profiles"), {
+    recursive: true,
+  });
+  await writeFile(join(root, "components/pi.yaml"), "invalid: [");
+  assert.equal(validate(root).status, 0);
+  const doctor = run([
+    "doctor",
+    "--repo",
+    root,
+    "--profile",
+    "coding",
+    "--json",
+  ]);
+  assert.ok([0, 1].includes(doctor.status));
+  assert.equal(JSON.parse(doctor.stdout).profile, "coding");
+  await rm(join(root, "stack"), { recursive: true });
+  const missing = validate(root);
+  assert.equal(missing.status, 1);
+  assert.match(missing.report.issues[0].message, /stack\/.*--repo/);
+  const missingDoctor = run([
+    "doctor",
+    "--repo",
+    root,
+    "--profile",
+    "coding",
+    "--json",
+  ]);
+  assert.equal(missingDoctor.status, 1);
+  assert.match(missingDoctor.stdout, /stack\//);
+});

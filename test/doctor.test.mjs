@@ -23,7 +23,9 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "doctor fixture & "));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const dir of ["components", "profiles", "integrations"])
-    await cp(join(repo, dir), join(root, dir), { recursive: true });
+    await cp(join(repo, "stack", dir), join(root, "stack", dir), {
+      recursive: true,
+    });
   const bin = join(root, "bin");
   await mkdir(bin);
   return { root, bin };
@@ -46,7 +48,7 @@ async function nativeHerdr(bin, output) {
   await rm(source);
 }
 async function setHerdrRequirement(root, requirement) {
-  const file = join(root, "profiles/coding.yaml");
+  const file = join(root, "stack/profiles/coding.yaml");
   const profile = parseYaml(await readFile(file, "utf8"));
   profile.components = profile.components.map((item) =>
     item.component === "herdr"
@@ -191,7 +193,7 @@ test(
   unix,
   async (t) => {
     const { root, bin } = await fixture(t);
-    const path = join(root, "profiles/coding.yaml");
+    const path = join(root, "stack/profiles/coding.yaml");
     const profile = parseYaml(await readFile(path, "utf8"));
     profile.platforms = [process.platform === "darwin" ? "linux" : "darwin"];
     await writeFile(path, stringifyYaml(profile));
@@ -371,7 +373,7 @@ test(
   unix,
   async (t) => {
     const { root, bin } = await fixture(t);
-    const path = join(root, "profiles/coding.yaml");
+    const path = join(root, "stack/profiles/coding.yaml");
     const profile = parseYaml(await readFile(path, "utf8"));
     profile.platforms = [process.platform === "darwin" ? "linux" : "darwin"];
     await writeFile(path, stringifyYaml(profile));
