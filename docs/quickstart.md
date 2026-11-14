@@ -4,7 +4,14 @@
 
 ## 准备与获取源码
 
-准备 Node.js 24 或更高版本（含 npm）、Git，以及 `packageManager` 指定的 pnpm 12.15.0。先用 `node --version`、`npm --version`、`git --version`、`pnpm --version` 检查；pnpm 版本不符时先按自己的安装渠道取得该确切版本。项目不会替你安装前置工具。
+准备 Node.js 24 或更高版本（含 npm）、Git，以及 `packageManager` 指定的 pnpm 12.15.0。先用 `node --version`、`npm --version`、`git --version` 检查。尚未安装 pnpm 时，可通过 npm 安装对应版本；已有 pnpm 时，先检查版本并沿用自己的安装渠道：
+
+```sh
+npm install --global pnpm@12.15.0 --ignore-scripts
+pnpm --version
+```
+
+确认输出为 `12.15.0` 后继续。版本不符时先检查 PATH 中的 pnpm 入口；项目不会替你安装前置工具。
 
 PR 尚未合并时，远端默认 `master` 只有初始提交，必须指定 PR 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
 
@@ -16,7 +23,7 @@ pnpm build
 pnpm cli --help
 ```
 
-本指南还描述正在审查的 uv/herdr 版本候选切片；该切片合入 PR 分支之前，当前远端分支尚无此部分。安装或构建失败时先检查 Node、pnpm 版本和网络/registry 可用性，不要更改锁文件来绕过版本要求。
+安装或构建失败时先检查 Node、pnpm 版本和网络/registry 可用性，不要更改锁文件来绕过版本要求。
 
 ## 校验声明
 
@@ -50,7 +57,7 @@ pnpm cli lock --repo . --profile coding --dry-run --json
 
 ## 退出码与平台
 
-已实现命令一般使用 0 表示本次检查范围通过，1 表示业务检查或来源失败，2 表示用法错误，交互取消为 130。脚本和 JSON 模式必须显式提供 `--profile`；交互 TTY 可在 doctor 或 lock 中选择。查看上一条命令退出码：
+已实现命令一般使用 0 表示本次检查范围通过，1 表示业务检查或来源失败，2 表示用法错误，交互取消为 130。`doctor` 和 `lock` 在脚本或 JSON 模式下必须显式提供 `--profile`，交互 TTY 可选择；`validate` 不需要 profile。查看上一条命令退出码：
 
 ```sh
 # macOS / Linux shell
