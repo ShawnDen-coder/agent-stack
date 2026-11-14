@@ -2,14 +2,11 @@ import { z } from "zod";
 import { herdrAsset } from "../core/herdr-assets.js";
 import { npmAsset, pnpmNative } from "../core/npm-assets.js";
 import { type Candidate, selectCandidate } from "../core/npm-candidate.js";
-import {
-  selectHerdr,
-  selectUv,
-  type UvRelease,
-} from "../core/release-candidate.js";
+import { selectHerdr, selectUv } from "../core/release-candidate.js";
 import type { ResolutionReport } from "../core/resolution-report.js";
 import type { Profile } from "../core/schema.js";
 import { uvAsset } from "../core/uv-assets.js";
+import type { ResolutionSnapshots } from "./lock-resolution.js";
 import { readPackument } from "./npm-registry.js";
 import { herdrManifest, uvReleases } from "./releases.js";
 
@@ -49,12 +46,10 @@ function selectionFields(value: Candidate) {
 export async function recheckSources(
   profile: Profile,
   report: ResolutionReport,
-  npmSnapshots: Map<string, Candidate>,
-  nativeCache: Map<string, Promise<Candidate>>,
-  uvSnapshot: UvRelease | undefined,
-  herdrSnapshot: unknown,
+  snapshots: ResolutionSnapshots,
   signal: AbortSignal,
 ) {
+  const { npmSnapshots, nativeCache, uvSnapshot, herdrSnapshot } = snapshots;
   const targets = report.targets ?? [];
   for (const selection of profile.components) {
     const item = report.components.find(

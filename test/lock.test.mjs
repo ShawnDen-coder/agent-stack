@@ -2759,3 +2759,30 @@ test("validate lock rejects a FIFO without blocking", {
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(JSON.parse(r.stdout).issues[0].message, /regular file/);
 });
+
+test("SIGINT after lock publication does not report cancellation", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const marker = join(dir, "link-signal");
+  const hook = `\nimport fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';const originalLink=fs.promises.link;fs.promises.link=async(...args)=>{await originalLink(...args);fs.writeFileSync(${JSON.stringify(marker)},'sent');process.kill(process.pid,'SIGINT');await new Promise(resolve=>setImmediate(resolve));};syncBuiltinESMExports();\n`;
+  await writeFile(preload, (await readFile(preload, "utf8")) + hook);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(await readFile(marker, "utf8"), "sent");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).kind, "shared-lock-created");
+  assert.equal(
+    JSON.parse(await readFile(join(dir, "stack/stack.lock.json"), "utf8"))
+      .assets.length,
+    5,
+  );
+  assert.ok(
+    !(await readdir(join(dir, "stack"))).some((name) => name.endsWith(".tmp")),
+  );
+});
