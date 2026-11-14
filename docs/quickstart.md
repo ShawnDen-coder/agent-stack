@@ -71,7 +71,7 @@ $LASTEXITCODE
 
 Windows 原生与 WSL 应使用各自环境中的 Node、pnpm 和 checkout，不共享本机配置路径。已审查基线 `c6cea45` 的 [CI 运行](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43606679733) 在 macOS/Linux/Windows 与 Node 24/26 六组通过；后续版本候选切片需以其自己的 CI 结果为准。Windows PTY、WSL 与真实外部工具安装尚未由该运行验证。
 
-继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。`setup`、`run coding`、锁更新和配置应用尚未实现。
+继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。非预览 setup、`run coding`、锁更新和配置应用尚未实现。
 
 指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 Pi、pnpm 顶层与 pnpm native 包的 npm tarball 及预期 SHA-512，以及 uv release 归档、herdr 发行物 URL 和预期 SHA-256；选项可重复。不指定目标时仅报告版本。pnpm native 预览识别 12.15.0 起的 pnpm 12 发行契约，依赖映射或 native 平台元数据不符时阻塞；CLI 自身使用的 pnpm 版本仍由 packageManager 固定。使用 `--dry-run` 时，若四个部件的目标元数据均完整可返回 0，但不会生成锁；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。
 
@@ -91,3 +91,5 @@ pnpm cli validate --repo . --lock "./candidate lock.json" --json
 ```
 
 裸 `--lock` 读取 `<repo>/stack/stack.lock.json`；显式相对路径以当前调用目录解析。检查只覆盖本地结构、声明与资产身份关系，不能证明远端未撤回、签名或下载字节正确，也不验证安装或运行。
+
+已有完整共享锁时，可运行 `node dist/cli.js setup --repo . --profile coding --dry-run` 离线预览；该命令不安装或应用配置，未实现步骤会导致退出码 1。当前仅确认原生 macOS arm64，其他宿主暂时阻塞。`--lock` 指向候选锁时相对当前目录解析。
