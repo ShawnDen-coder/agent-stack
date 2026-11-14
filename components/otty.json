@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "otty",
+  "description": "Desktop terminal application; current installation target is macOS",
+  "kind": "terminal",
+  "platforms": ["darwin"],
+  "provides": ["desktop-terminal"],
+  "source": {
+    "type": "application",
+    "url": "https://docs.otty.sh/getting-started/installation"
+  }
+}

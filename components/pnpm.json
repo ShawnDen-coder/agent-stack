@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "pnpm",
+  "description": "Node.js package manager",
+  "kind": "cli",
+  "platforms": ["darwin", "win32", "linux"],
+  "provides": ["node-packages"],
+  "source": { "type": "npm", "package": "pnpm" }
+}

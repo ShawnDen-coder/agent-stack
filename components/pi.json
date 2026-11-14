@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "pi",
+  "description": "Pi coding agent runtime",
+  "kind": "runtime",
+  "platforms": ["darwin", "win32", "linux"],
+  "provides": ["agent-runtime"],
+  "source": { "type": "npm", "package": "@earendil-works/pi-coding-agent" }
+}
