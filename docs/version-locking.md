@@ -131,8 +131,10 @@ Windows 原生、WSL 的 Linux 用户态和普通 Linux runner 是不同目标/�
 
 `lock --dry-run` 对 uv 使用 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#list-releases) 分页，仅选择正式 release 的确切 semver tag；例如官方 [0.13.8 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 使用不带 `v` 的 tag。herdr stable 从 [官方 manifest](https://herdr.dev/latest.json) 的 `version` 字段读取；[官方更新源码](https://raw.githubusercontent.com/herdrdev/herdr/master/src/update.rs) 将该 URL 指定为 stable manifest。未指定 `--target` 时只报告来源版本和身份，不解析发行资产或其 digest；无论是否指定目标，当前均不生成完整锁。
 
-当前 `--target` 可从同一次 [herdr stable manifest](https://herdr.dev/latest.json) 快照预览 macOS arm64/x64 和 Windows x64 的 URL 与预期 SHA-256；Windows 为 zip 整体。对应入口与格式见[官方安装文档](https://herdr.dev/tui/docs/install/)。Linux ABI 和最低系统条件尚未在本切片得到足够证据，故不作兼容判断；uv 目标资产尚未覆盖。预期摘要不等于已下载验证或签名，报告不是锁。
+当前 `--target` 可从同一次 [herdr stable manifest](https://herdr.dev/latest.json) 快照预览 macOS arm64/x64 和 Windows x64 的 URL 与预期 SHA-256；Windows 为 zip 整体。对应入口与格式见[官方安装文档](https://herdr.dev/tui/docs/install/)。Linux ABI 和最低系统条件尚未在本切片得到足够证据，故不作兼容判断；uv 目标资产现可预览下述三个目标；Linux 目标仍阻塞。预期摘要不等于已下载验证或签名，报告不是锁。
 
 当前 npm 目标预览只覆盖 macOS arm64/x64 和 Windows x64；pnpm native 仅识别 12.15.0 起、未发布预览版的 pnpm 12 发行系列；未知系列明确阻塞。Pi 报告选中顶层 tarball；pnpm 报告顶层包及选中 manifest 的确切 native optional package，分别保留 registry 的 SHA-512 SRI。目标映射依据 [pnpm 12.15.0 native-binary.mjs](https://github.com/pnpm/pnpm/blob/v12.15.0/pnpm/npm/pnpm/native-binary.mjs) 、[12.18.0 native-binary.mjs](https://github.com/pnpm/pnpm/blob/v12.18.0/pnpm/npm/pnpm/native-binary.mjs) 与 [install.js](https://github.com/pnpm/pnpm/blob/v12.15.0/pnpm/npm/pnpm/install.js)，以所选顶层 manifest 中目标 native 包的确切同版本 optional dependency 为必要证据，并要求 native 包名和版本一致、os/cpu 恰为目标、Node engines 与已选 Node 满足、libc 未产生未知约束，以及官方 registry tarball 和有效 SHA-512 SRI。依赖缺失、range/alias、平台不符或形态不明时失败，绝不回退其他版本。此元数据不证明脚本执行、传递依赖闭包或目标运行兼容性。
 
 2026-11-15 对官方 registry 的只读 12.21.0 元数据抽查中，macOS arm64/x64 与 Windows x64 的 optionalDependencies 均指向同版本 native 包；macOS arm64 native manifest 声明对应 os/cpu。该契约依据已核对版本的源码与实际元数据形成，未来同系列若改变包形态，以上检查将阻塞；它不证明未读取的安装脚本行为或运行兼容性。
+
+当前 uv 目标预览使用同一次选中 GitHub release 记录中的 assets；[uv 0.13.8 官方 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 列出 macOS arm64/x64 tar.gz 与 Windows x64 zip。只接受状态为 uploaded 的唯一目标资产、匹配 release tag 的 GitHub URL 和 asset 记录提供的 `sha256:` digest；缺失或不匹配时失败，不下载归档或以其他版本兜底。GitHub API 可返回 403/限流；预期摘要不代表已验证字节或签名。
