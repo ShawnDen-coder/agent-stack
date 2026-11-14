@@ -1,5 +1,7 @@
 # 后续实施顺序
 
+[Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
+
 首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate`、有限只读 `doctor` 和仅报告版本候选的 `lock --dry-run`，其他命令不得在帮助或 README 中宣称可用。
 
 ## 1. stack/ 目录迁移：根会话审查通过
