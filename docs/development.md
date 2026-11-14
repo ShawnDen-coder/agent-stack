@@ -29,16 +29,17 @@ pnpm cli validate --repo . --json
 pnpm check
 ```
 
-| 命令              | 行为                                       |
-| ----------------- | ------------------------------------------ |
-| `pnpm build`      | 编译 `src/` 到 `dist/`                     |
-| `pnpm cli --help` | 运行已编译的 CLI；源码变化后先 build       |
-| `pnpm validate`   | 从仓库根目录校验当前声明；先 build         |
-| `pnpm typecheck`  | TypeScript 只读检查                        |
-| `pnpm lint`       | Biome 只读检查                             |
-| `pnpm format`     | 格式化支持的文件，不执行工具安装或配置应用 |
-| `pnpm test`       | 构建后运行真实 CLI 边界测试                |
-| `pnpm check`      | lint、类型、测试、仓库声明检查             |
+| 命令                                        | 行为                                       |
+| ------------------------------------------- | ------------------------------------------ |
+| `pnpm build`                                | 编译 `src/` 到 `dist/`                     |
+| `pnpm cli --help`                           | 运行已编译的 CLI；源码变化后先 build       |
+| `pnpm cli doctor --repo . --profile coding` | 只读检测部分工具链；先 build               |
+| `pnpm validate`                             | 从仓库根目录校验当前声明；先 build         |
+| `pnpm typecheck`                            | TypeScript 只读检查                        |
+| `pnpm lint`                                 | Biome 只读检查                             |
+| `pnpm format`                               | 格式化支持的文件，不执行工具安装或配置应用 |
+| `pnpm test`                                 | 构建后运行真实 CLI 边界测试                |
+| `pnpm check`                                | lint、类型、测试、仓库声明检查             |
 
 测试使用临时目录和 `process.execPath`，不依赖 Bash 展开命令或本机安装 Pi/herdr/Rex。临时路径刻意含空格；测试结束清理自己的目录。
 
@@ -66,3 +67,5 @@ npm pack --dry-run --ignore-scripts
 CI 覆盖六组 OS/Node 组合，但只有运行后的结果才算证据。它验证构建、定义校验和 CLI 行为，尚不安装外部工具，也不证明各部件原生集成通过。
 
 后续增加实际安装/应用时，需要分别验证 Windows 原生与 WSL，并覆盖已有工具、多个 PATH 候选、本地修改、重复应用、失败重试和恢复。不能把 Linux runner 等同于 WSL，也不能通过删除能力要求掩盖替换后的缺口。
+
+`doctor` 以独立临时目录运行固定版本查询，限制 3 秒和 16 KiB 输出；不继承凭证环境变量。pnpm 和 Pi 不执行，只有入口匹配 npm package metadata 时报告声明版本。Windows 批处理入口暂不执行。该检测不证明集成可用。
