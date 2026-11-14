@@ -295,12 +295,16 @@ export function resolution(report: ResolutionReport, json: boolean) {
     ).length;
     line();
     line(
-      `Assets checked: ${(report.assets ?? []).length - assetBlocked}  Blocked: ${assetBlocked}`,
+      `Asset candidates: ${(report.assets ?? []).length - assetBlocked}  Blocked: ${assetBlocked}`,
     );
+    if (assetBlocked)
+      line(
+        "Next: Review blocked target assets; this report is not a complete lock.",
+      );
   }
   line();
   line(
-    `Candidates: ${report.components.length - blocked}  Blocked: ${blocked}`,
+    `Version candidates: ${report.components.length - blocked}  Blocked: ${blocked}`,
   );
   if (blocked) line("Next: Review blocked sources or metadata and retry.");
   finish(clean(report.scope), false);
