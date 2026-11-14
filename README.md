@@ -4,7 +4,7 @@
 
 采用 TypeScript + Node.js 实现 npm CLI。部件可以独立升级、锁定版本和重新组合；Pi 是首个 Agent 运行时，herdr 是当前工作区选项，Rex 作为实验组合保留。
 
-**当前阶段：项目基础骨架。** 已实现仓库定义的只读校验、有限工具链检测和 npm 顶层版本候选报告。安装、升级、配置应用和部件锁文件生成尚未实现。
+**当前阶段：项目基础骨架。** 已实现仓库定义的只读校验、有限工具链检测和 npm 顶层包及 uv/herdr 发布版本候选报告。安装、升级、配置应用和部件锁文件生成尚未实现。
 
 ## 试用当前能力
 
@@ -65,4 +65,4 @@ pnpm check
 
 [CLI 验收矩阵](docs/cli-acceptance.md) 列出当前真实行为、PTY 演示和未实现的 setup/run/锁定能力。
 
-`agent-stack lock --repo . --profile coding --dry-run --json` 只报告 npm 顶层版本候选，当前 coding 的 uv/herdr 来源尚不支持，因此报告阻塞并退出非零。该报告不是锁或 apply 计划；不解析目标资产、传递依赖闭包，不安装工具，也不写 `stack/stack.lock.json`。
+`agent-stack lock --repo . --profile coding --dry-run --json` 报告 npm 顶层包及 uv/herdr 发布版本候选，任一来源无法核实时报告阻塞并退出非零。该报告不是锁或 apply 计划；不解析目标资产、传递依赖闭包，不安装工具，也不写 `stack/stack.lock.json`。

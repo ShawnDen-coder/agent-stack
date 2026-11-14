@@ -126,3 +126,7 @@ Windows 原生、WSL 的 Linux 用户态和普通 Linux runner 是不同目标/�
 - herdr stable 对 GitHub release 的筛选是否与其官方渠道 manifest 完全一致；如不一致，以可验证的明确渠道映射为准，不能猜测。
 - npm 包安装的受控原生锁、生命周期脚本和 pnpm 各版本原生二进制物化策略；首轮只承诺列出的资产，不保证依赖闭包。
 - 解析快照复核的时限与离线缓存完整性/有效期策略、本机执行计划过期策略，以及协作锁无法约束外部编辑器的剩余竞争窗口。
+
+## 当前版本候选来源实现
+
+`lock --dry-run` 对 uv 使用 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases#list-releases) 分页，仅选择正式 release 的确切 semver tag；例如官方 [0.13.8 release](https://github.com/astral-sh/uv/releases/tag/0.13.8) 使用不带 `v` 的 tag。herdr stable 从 [官方 manifest](https://herdr.dev/latest.json) 的 `version` 字段读取；[官方更新源码](https://raw.githubusercontent.com/herdrdev/herdr/master/src/update.rs) 将该 URL 指定为 stable manifest。只报告来源版本和身份，不解析发行资产或其 digest，不生成完整锁。

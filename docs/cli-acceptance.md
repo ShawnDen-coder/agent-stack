@@ -39,6 +39,6 @@ rm -r "$demo_dir"
 
 布局迁移：真实 CLI 测试从仓库根的 `stack/` 读取声明，覆盖中文和空格路径、缺失目录错误、旧根级声明不读取；测试见 `test/cli.test.mjs`。
 
-`lock --profile <id> --dry-run [--json]` 的 npm 顶层候选及阻塞报告由 `test/lock.test.mjs` 从编译后的真实 CLI 和受控网络边界验证；报告不是锁或执行计划，不验证目标资产、传递依赖或安装。默认 coding 的 release 来源仍不支持。
+`lock --profile <id> --dry-run [--json]` 的 npm 与 uv/herdr 版本候选及阻塞报告由 `test/lock.test.mjs` 从编译后的真实 CLI 和受控网络边界验证；报告不是锁或执行计划，不验证目标资产、传递依赖或安装。默认 coding 可在全部来源返回有效元数据时报告四个版本。
 
 npm 候选选择先筛选范围、预发布、废弃状态及 Node engines，再对最高兼容候选严格检查 tarball 与 SHA-512；被排除的历史版本不要求现代 integrity 字段。范围内无兼容 Node 版本或 engines 范围非法时失败，选中版本缺摘要不回退。真实 CLI 测试覆盖此策略及只读边界。`test/lock_pty_driver.py` 和 `test/lock.test.mjs` 使用受控网络响应，验证 lock 自身 40/80 列彩色/无色候选与阻塞报告、终端控制字符清理、profile 选择/取消、查询中中断、重定向及 CI/TERM=dumb。PTY 使用 Python 标准库，Windows 原生终端尚未实测。
