@@ -58,4 +58,4 @@ uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以
 
 `validate --lock [file]` 从真实 CLI 验证共享锁与声明一致性，覆盖离线、篡改、格式等价、路径迁移与 40/80 列输出；不验证远端真实性、下载或安装。
 
-`setup --dry-run`：已有锁的只读计划与未实现步骤阻塞由 `test/lock.test.mjs` 的真实 CLI fixture 验证。当前宿主确认仅覆盖 macOS arm64，模拟宿主不等于实机验证；安装与应用仍未实现。
+`setup --dry-run`：已有锁的只读计划与未实现步骤阻塞由 `test/lock.test.mjs` 的真实 CLI fixture 验证。本机实测 Intel macOS；Windows 与 arm64 模拟不等于实机验证；安装与应用仍未实现。

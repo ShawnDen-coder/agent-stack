@@ -15,7 +15,7 @@ import { readRepository } from "../adapters/repository.js";
 import { observe } from "../adapters/toolchain.js";
 import { assess } from "../core/doctor.js";
 import { freshLockSchema } from "../core/fresh-lock.js";
-import { setupPlanSchema } from "../core/setup-plan.js";
+import { componentAction, setupPlanSchema } from "../core/setup-plan.js";
 import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
 
@@ -52,6 +52,10 @@ export function createSetupCommand(): Command {
       };
       if (!options.dryRun)
         command.error("error: setup currently only supports --dry-run");
+      if (options.repo !== undefined && !options.repo.trim())
+        command.error("error: --repo must not be empty or whitespace");
+      if (options.profile !== undefined && !options.profile.trim())
+        command.error("error: --profile must not be empty or whitespace");
       const json = Boolean(options.json);
       const repo = resolve(options.repo ?? process.env.AGENT_STACK_REPO ?? ".");
       const selectedProfile =
@@ -94,10 +98,11 @@ export function createSetupCommand(): Command {
           throw new Error(
             `Lock does not cover the current execution target: ${target}`,
           );
-        const host = observeHost();
+        const host = await observeHost(controller.signal);
+        if (controller.signal.aborted) throw new Error("Cancelled.");
         if (!host.native)
           throw new Error(
-            `Cannot establish a supported native host for ${target}; emulation and this platform remain unverified`,
+            `Cannot establish a supported native host for ${target}: ${host.evidence}`,
           );
         const engine = await cliNodeRequirement();
         const node = {
@@ -191,12 +196,7 @@ export function createSetupCommand(): Command {
               lockedVersion: item.version,
               observation,
               ownership: "unknown",
-              action:
-                observation.status === "not_found"
-                  ? "installation needed"
-                  : observation.status === "ok"
-                    ? "verify reuse; ownership unknown"
-                    : "investigate entry or version conflict",
+              action: componentAction(observation.status),
             };
           }),
           integrations: profile.integrations,
