@@ -279,10 +279,16 @@ export function resolution(report: ResolutionReport, json: boolean) {
       );
       if ("error" in item) line(clean(item.error), "  ");
       else {
-        line(`Identity: ${clean(item.identity)} (${clean(item.format)})`, "  ");
+        line(
+          `Identity: ${clean(item.identity)} (${clean(item.format)}${"role" in item ? `, ${clean(item.role)}` : ""})`,
+          "  ",
+        );
         for (const [label, value] of [
           ["URL", item.url],
-          ["Expected SHA-256", item.sha256],
+          [
+            "Expected digest",
+            "integrity" in item ? item.integrity : item.sha256,
+          ],
           ["Digest source", item.digestSource],
         ] as const) {
           line(`${label}:`, "  ");

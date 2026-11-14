@@ -21,6 +21,16 @@ const itemSchema = z.union([
   }),
 ]);
 const assetSchema = z.union([
+  z.object({
+    component: z.string(),
+    target: z.string(),
+    identity: z.string(),
+    url: z.string(),
+    integrity: z.string(),
+    digestSource: z.string(),
+    format: z.literal("npm-tarball"),
+    role: z.enum(["top-level", "native"]),
+  }),
   z.object({ component: z.string(), target: z.string(), error: z.string() }),
   z.object({
     component: z.string(),

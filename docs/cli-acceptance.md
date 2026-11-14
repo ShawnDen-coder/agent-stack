@@ -46,3 +46,5 @@ rm -r "$demo_dir"
 npm 候选选择先筛选范围、预发布、废弃状态及 Node engines，再对最高兼容候选严格检查 tarball 与 SHA-512；被排除的历史版本不要求现代 integrity 字段。范围内无兼容 Node 版本或 engines 范围非法时失败，选中版本缺摘要不回退。真实 CLI 测试覆盖此策略及只读边界。`test/lock_pty_driver.py` 和 `test/lock.test.mjs` 使用受控网络响应，验证 lock 自身 40/80 列彩色/无色候选与阻塞报告、终端控制字符清理、profile 选择/取消、查询中中断、重定向及 CI/TERM=dumb。PTY 使用 Python 标准库，Windows 原生终端尚未实测。
 
 `lock --dry-run --target <target>` 只对 herdr 的 macOS arm64/x64 和 Windows x64 预览 manifest 资产与预期 SHA-256；Linux ABI 及其他部件资产仍阻塞。真实 CLI fixture 验证单快照、目标映射、错误和只读性，PTY 验证 40/80 列输出。
+
+`--target` 还可预览 Pi 顶层 npm tarball 和 pnpm 顶层及对应 native optional package；当前限 macOS arm64/x64 与 Windows x64。SHA-512 SRI 为 registry 预期值；不执行安装脚本、不锁定传递依赖。uv 目标资产仍未覆盖。
