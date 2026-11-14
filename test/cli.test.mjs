@@ -224,7 +224,7 @@ test("a profile can select a runtime without any integration catalog", async (t)
   assert.equal(result.report.checked.integrations, 0);
 });
 
-test("malformed JSON and absent repositories return a failure report", async (t) => {
+test("malformed YAML and absent repositories return a failure report", async (t) => {
   const root = await fixture(t);
   await writeFile(join(root, "components/pi.yaml"), "{");
   const malformed = validate(root);
@@ -254,15 +254,41 @@ test("legacy JSON and yml declarations remain readable without shadowing", async
   assert.match(duplicate.report.issues[0].message, /duplicate definition/);
 });
 
-for (const [label, value] of [
-  ["duplicate keys", "schemaVersion: 1\nschemaVersion: 1\n"],
-  ["multiple documents", "id: pi\n---\nid: pi\n"],
-  ["unknown tag", "id: !custom pi\n"],
+test("malformed legacy JSON is rejected with its file", async (t) => {
+  const root = await fixture(t);
+  await rm(join(root, "components/pi.yaml"));
+  await writeFile(join(root, "components/pi.json"), "{");
+  const result = validate(root);
+  assert.equal(result.status, 1);
+  assert.match(result.report.issues[0].message, /components\/pi\.json/);
+  assert.match(result.report.issues[0].message, /JSON|end of/i);
+});
+
+for (const [label, mutate, reason] of [
+  [
+    "duplicate keys",
+    (valid) => `${valid}schemaVersion: 1\n`,
+    /unique|duplicate/i,
+  ],
+  [
+    "multiple documents",
+    (valid) => `${valid}---\n${valid}`,
+    /exactly one document/i,
+  ],
+  [
+    "unknown tag",
+    (valid) => valid.replace("id: pi", "id: !custom pi"),
+    /unresolved tag|unknown tag/i,
+  ],
 ])
-  test(`YAML rejects ${label}`, async (t) => {
+  test(`YAML rejects ${label} for an otherwise valid definition`, async (t) => {
     const root = await fixture(t);
-    await writeFile(join(root, "components/pi.yaml"), value);
+    const path = join(root, "components/pi.yaml");
+    const valid = await readFile(path, "utf8");
+    assert.equal(validate(root).status, 0);
+    await writeFile(path, mutate(valid));
     const result = validate(root);
     assert.equal(result.status, 1);
-    assert.match(result.report.issues[0].message, /components\/pi.yaml/);
+    assert.match(result.report.issues[0].message, /components\/pi\.yaml/);
+    assert.match(result.report.issues[0].message, reason);
   });
