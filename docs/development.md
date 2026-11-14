@@ -43,6 +43,8 @@ pnpm check
 
 测试使用临时目录和 `process.execPath`，不依赖 Bash 展开命令或本机安装 Pi/herdr/Rex。临时路径刻意含空格；测试结束清理自己的目录。
 
+在 macOS/Linux 运行 `pnpm test` 或 `pnpm check` 还需要 PATH 中有 C 编译器 `cc`，用于编译 herdr 的临时原生测试程序。这是开发测试依赖，使用打包后的 CLI 不需要编译器；Windows 会跳过这些 Unix fixture。
+
 ## 添加内容
 
 1. 修改部件/组合/集成：维护对应 JSON，文件名与 `id` 一致，运行 `pnpm check`。
