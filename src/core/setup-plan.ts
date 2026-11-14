@@ -77,6 +77,16 @@ export const setupPlanSchema = z.object({
       lockedVersion: z.string(),
       observation,
       ownership: z.literal("unknown"),
+      lockedAsset: z
+        .object({
+          target: z.string(),
+          name: z.string(),
+          url: z.url(),
+          format: z.enum(["tar.gz", "zip"]),
+          sha256: z.string(),
+          digestSource: z.url(),
+        })
+        .optional(),
       action: z.enum([
         "installation needed",
         "verify reuse; ownership unknown",

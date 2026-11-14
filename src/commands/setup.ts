@@ -191,23 +191,61 @@ export function createSetupCommand(): Command {
               (check) => check.name === item.component,
             );
             if (!observation) throw new Error("Missing component observation");
+            const uvAsset =
+              item.component === "uv"
+                ? lock.assets.find(
+                    (asset) =>
+                      asset.component === "uv" &&
+                      asset.target === target &&
+                      asset.artifact.type === "uv",
+                  )
+                : undefined;
+            if (
+              item.component === "uv" &&
+              (uvAsset?.artifact.type !== "uv" ||
+                uvAsset.digest.algorithm !== "sha256" ||
+                (uvAsset.format !== "tar.gz" && uvAsset.format !== "zip"))
+            )
+              throw new Error("Missing validated uv asset for this target");
             return {
               component: item.component,
               lockedVersion: item.version,
               observation,
               ownership: "unknown",
+              ...(uvAsset && uvAsset.artifact.type === "uv"
+                ? {
+                    lockedAsset: {
+                      target: uvAsset.target,
+                      name: uvAsset.artifact.assetName,
+                      url: uvAsset.url,
+                      format: uvAsset.format,
+                      sha256: uvAsset.digest.value,
+                      digestSource: uvAsset.digestSource,
+                    },
+                  }
+                : {}),
               action: componentAction(observation.status),
             };
           }),
           integrations: profile.integrations,
-          resources: ["configuration", "skills", "agent resources"],
+          resources: profile.components.some(
+            (item) => item.component === "pi" || item.component === "herdr",
+          )
+            ? ["configuration", "skills", "agent resources"]
+            : [],
           blockers: [
             ...[node, ...checks]
               .filter((item) => item.status !== "ok")
               .map((item) => `${item.name}: ${item.status}`),
-            "Package-level Node engines are not checked",
-            "Installation and configuration adapters are not implemented",
-            "Required resources and integrations are not applied",
+            ...(lock.components.some((item) => item.source.type === "npm")
+              ? ["Package-level Node engines are not checked"]
+              : []),
+            "Installation adapters are not implemented",
+            ...(profile.components.some(
+              (item) => item.component === "pi" || item.component === "herdr",
+            ) || profile.integrations.length
+              ? ["Required resources and integrations are not applied"]
+              : []),
           ],
           scope:
             "Read-only preview; metadata does not prove executability or ownership; environment readiness is not assessed.",

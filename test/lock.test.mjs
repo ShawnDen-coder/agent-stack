@@ -3413,3 +3413,79 @@ const original=cp.execFile;cp.execFile=(_file,_args,opts,callback)=>{const child
     }
   });
 }
+
+test("setup previews the locked uv asset for a capability-complete uv-only profile", async (t) => {
+  const { dir, preload } = await setup(
+    t,
+    null,
+    npmAssetPreload({ uv: [uvReleaseWithAssets()] }),
+  );
+  await writeFile(
+    join(dir, "stack/profiles/uv-only.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "uv-only",
+      description: "Python tools",
+      platforms: ["darwin", "linux", "win32"],
+      components: [{ component: "uv", version: ">=0.13.8 <0.14" }],
+      integrations: [],
+      requires: ["python-tools"],
+    }),
+  );
+  const created = run(dir, preload, [
+    "--profile",
+    "uv-only",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(created.status, 0, created.stdout + created.stderr);
+  const locked = JSON.parse(
+    await readFile(join(dir, "stack/stack.lock.json"), "utf8"),
+  );
+  const asset = locked.assets.find((entry) => entry.component === "uv");
+  const before = await snapshot(dir);
+  const offline = join(dir, "uv-only-offline.mjs");
+  await writeFile(
+    offline,
+    `import os from 'node:os';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:'arm64'});os.machine=()=> 'arm64';syncBuiltinESMExports();globalThis.fetch=()=>{throw Error('unexpected network')}`,
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      offline,
+      cli,
+      "setup",
+      "--repo",
+      dir,
+      "--profile",
+      "uv-only",
+      "--dry-run",
+      "--json",
+    ],
+    { encoding: "utf8", timeout: 12000, env: { PATH: "", NO_COLOR: "1" } },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.kind, "setup-plan");
+  assert.deepEqual(plan.components[0].lockedAsset, {
+    target: asset.target,
+    name: asset.artifact.assetName,
+    url: asset.url,
+    format: asset.format,
+    sha256: asset.digest.value,
+    digestSource: asset.digestSource,
+  });
+  assert.deepEqual(plan.resources, []);
+  assert.ok(
+    plan.blockers.includes("Installation adapters are not implemented"),
+  );
+  assert.ok(
+    !plan.blockers.some(
+      (entry) =>
+        entry.includes("Node engines") || entry.includes("integrations"),
+    ),
+  );
+  assert.deepEqual(await snapshot(dir), before);
+});
