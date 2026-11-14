@@ -1,50 +1,40 @@
 import { resolve } from "node:path";
 import { Command } from "commander";
+import { shared } from "../adapters/options.js";
+import { validation } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
 import type { ValidationReport } from "../core/schema.js";
 import { validateRepository } from "../core/validate.js";
 
 export function createValidateCommand(): Command {
-  return new Command("validate")
-    .description(
+  return shared(
+    new Command("validate").description(
       "Validate repository definitions without installing tools or writing configuration",
-    )
-    .option("--repo <directory>", "Configuration repository directory", ".")
-    .option("--json", "Print a machine-readable report")
-    .action(async (options: { repo: string; json?: boolean }) => {
-      let report: ValidationReport;
-      try {
-        report = validateRepository(
-          await readRepository(resolve(options.repo)),
-        );
-      } catch (error) {
-        report = {
-          valid: false,
-          checked: { components: 0, integrations: 0, profiles: 0 },
-          issues: [
-            {
-              file: "repository",
-              message: error instanceof Error ? error.message : String(error),
-            },
-          ],
-        };
-      }
+    ),
+  ).action(async (_options: unknown, command: Command) => {
+    const options = command.optsWithGlobals() as {
+      repo?: string;
+      json?: boolean;
+    };
+    const repo = resolve(options.repo ?? ".");
+    let report: ValidationReport;
+    try {
+      report = validateRepository(await readRepository(repo));
+    } catch (error) {
+      report = {
+        valid: false,
+        checked: { components: 0, integrations: 0, profiles: 0 },
+        issues: [
+          {
+            file: "repository",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      };
+    }
 
-      if (options.json) {
-        console.log(JSON.stringify(report, null, 2));
-      } else if (report.valid) {
-        const { components, integrations, profiles } = report.checked;
-        console.log(
-          `Definitions valid: ${components} components, ${integrations} integrations, ${profiles} profiles.`,
-        );
-        console.log(
-          "Tool installation, versions, and runtime compatibility have not been checked.",
-        );
-      } else {
-        for (const issue of report.issues)
-          console.error(`${issue.file}: ${issue.message}`);
-      }
+    validation(report, repo, Boolean(options.json));
 
-      if (!report.valid) process.exitCode = 1;
-    });
+    if (!report.valid) process.exitCode = 1;
+  });
 }

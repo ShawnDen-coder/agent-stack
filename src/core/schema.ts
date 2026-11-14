@@ -68,6 +68,7 @@ export interface Repository {
   components: Component[];
   integrations: Integration[];
   profiles: Profile[];
+  locations: Record<string, string>;
 }
 
 export interface Issue {

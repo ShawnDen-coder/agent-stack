@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
@@ -37,9 +38,9 @@ async function fixture(t) {
 
 async function edit(root, file, change) {
   const path = join(root, file);
-  const value = JSON.parse(await readFile(path, "utf8"));
+  const value = parseYaml(await readFile(path, "utf8"));
   change(value);
-  await writeFile(path, JSON.stringify(value));
+  await writeFile(path, stringifyYaml(value));
 }
 
 function validate(root) {
@@ -51,7 +52,7 @@ async function snapshot(root) {
   const entries = (await readdir(root, { recursive: true })).sort();
   const files = await Promise.all(
     entries
-      .filter((entry) => entry.endsWith(".json"))
+      .filter((entry) => /\.(json|yaml|yml)$/.test(entry))
       .map(async (entry) => [entry, await readFile(join(root, entry), "utf8")]),
   );
   return { entries, files };
@@ -89,7 +90,7 @@ test("validation is read-only and accepts repository paths with spaces", async (
 
 test("a missing selected component is reported with its profile", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.json", (value) => {
+  await edit(root, "profiles/coding.yaml", (value) => {
     value.components[0].component = "unknown-runtime";
   });
   const result = validate(root);
@@ -97,7 +98,7 @@ test("a missing selected component is reported with its profile", async (t) => {
   assert.ok(
     result.report.issues.some(
       (issue) =>
-        issue.file === "profiles/coding.json" &&
+        issue.file === "profiles/coding.yaml" &&
         issue.message.includes("Unknown component: unknown-runtime"),
     ),
   );
@@ -105,7 +106,7 @@ test("a missing selected component is reported with its profile", async (t) => {
 
 test("a macOS-only component cannot silently enter a cross-platform profile", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.json", (value) => {
+  await edit(root, "profiles/coding.yaml", (value) => {
     value.components.push({ component: "otty", channel: "stable" });
   });
   const result = validate(root);
@@ -124,7 +125,7 @@ test("a macOS-only component cannot silently enter a cross-platform profile", as
 
 test("replacing herdr preserves the original profile's capability requirements", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.json", (value) => {
+  await edit(root, "profiles/coding.yaml", (value) => {
     value.platforms = ["darwin"];
     value.components = value.components.map((item) =>
       item.component === "herdr" ? { component: "rex", channel: "beta" } : item,
@@ -143,7 +144,7 @@ test("replacing herdr preserves the original profile's capability requirements",
 
 test("stale integration references are rejected after a component replacement", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding-rex.json", (value) => {
+  await edit(root, "profiles/coding-rex.yaml", (value) => {
     value.integrations = ["pi-herdr"];
   });
   const result = validate(root);
@@ -158,13 +159,13 @@ test("stale integration references are rejected after a component replacement", 
 
 test("an integration with an unknown selected component cannot provide capabilities", async (t) => {
   const root = await fixture(t);
-  await rm(join(root, "components/herdr.json"));
+  await rm(join(root, "components/herdr.yaml"));
   const result = validate(root);
   assert.equal(result.status, 1);
   assert.ok(
     result.report.issues.some(
       (issue) =>
-        issue.file === "profiles/coding.json" &&
+        issue.file === "profiles/coding.yaml" &&
         issue.message === "Required capability is not provided: agent-status",
     ),
   );
@@ -172,31 +173,31 @@ test("an integration with an unknown selected component cannot provide capabilit
 
 test("a renamed file must retain a matching definition ID", async (t) => {
   const root = await fixture(t);
-  await edit(root, "components/pi.json", (value) => {
+  await edit(root, "components/pi.yaml", (value) => {
     value.id = "other-runtime";
   });
   const result = validate(root);
   assert.equal(result.status, 1);
   assert.match(
     result.report.issues[0].message,
-    /components\/pi.json: id must match filename/,
+    /components\/pi.yaml: id must match filename/,
   );
 });
 
 test("unsupported schema versions fail", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.json", (value) => {
+  await edit(root, "profiles/coding.yaml", (value) => {
     value.schemaVersion = 2;
   });
   const result = validate(root);
   assert.equal(result.status, 1);
   assert.equal(result.report.valid, false);
-  assert.match(result.report.issues[0].message, /profiles\/coding.json/);
+  assert.match(result.report.issues[0].message, /profiles\/coding.yaml/);
 });
 
 test("the same component cannot be selected twice", async (t) => {
   const root = await fixture(t);
-  await edit(root, "profiles/coding.json", (value) => {
+  await edit(root, "profiles/coding.yaml", (value) => {
     value.components.push(value.components[0]);
   });
   const result = validate(root);
@@ -210,8 +211,8 @@ test("the same component cannot be selected twice", async (t) => {
 test("a profile can select a runtime without any integration catalog", async (t) => {
   const root = await fixture(t);
   await rm(join(root, "integrations"), { recursive: true });
-  await rm(join(root, "profiles/coding-rex.json"));
-  await edit(root, "profiles/coding.json", (value) => {
+  await rm(join(root, "profiles/coding-rex.yaml"));
+  await edit(root, "profiles/coding.yaml", (value) => {
     value.components = value.components.filter(
       (item) => item.component === "pi",
     );
@@ -225,10 +226,10 @@ test("a profile can select a runtime without any integration catalog", async (t)
 
 test("malformed JSON and absent repositories return a failure report", async (t) => {
   const root = await fixture(t);
-  await writeFile(join(root, "components/pi.json"), "{");
+  await writeFile(join(root, "components/pi.yaml"), "{");
   const malformed = validate(root);
   assert.equal(malformed.status, 1);
-  assert.match(malformed.report.issues[0].message, /components\/pi.json/);
+  assert.match(malformed.report.issues[0].message, /components\/pi.yaml/);
   const absent = validate(join(root, "missing"));
   assert.equal(absent.status, 1);
   assert.equal(absent.report.valid, false);
@@ -236,6 +237,32 @@ test("malformed JSON and absent repositories return a failure report", async (t)
 
 test("an unknown command fails rather than implying an installer exists", () => {
   const result = run(["tools", "install", "pi"]);
-  assert.equal(result.status, 1);
+  assert.equal(result.status, 2);
   assert.match(result.stderr, /unknown command/);
 });
+
+test("legacy JSON and yml declarations remain readable without shadowing", async (t) => {
+  const root = await fixture(t);
+  const source = join(root, "components/pi.yaml");
+  const value = parseYaml(await readFile(source, "utf8"));
+  await rm(source);
+  await writeFile(join(root, "components/pi.json"), JSON.stringify(value));
+  assert.equal(validate(root).status, 0);
+  await writeFile(join(root, "components/pi.yml"), stringifyYaml(value));
+  const duplicate = validate(root);
+  assert.equal(duplicate.status, 1);
+  assert.match(duplicate.report.issues[0].message, /duplicate definition/);
+});
+
+for (const [label, value] of [
+  ["duplicate keys", "schemaVersion: 1\nschemaVersion: 1\n"],
+  ["multiple documents", "id: pi\n---\nid: pi\n"],
+  ["unknown tag", "id: !custom pi\n"],
+])
+  test(`YAML rejects ${label}`, async (t) => {
+    const root = await fixture(t);
+    await writeFile(join(root, "components/pi.yaml"), value);
+    const result = validate(root);
+    assert.equal(result.status, 1);
+    assert.match(result.report.issues[0].message, /components\/pi.yaml/);
+  });

@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "pi-herdr",
-  "description": "Pi state reporting through herdr's native Pi integration",
-  "components": ["pi", "herdr"],
-  "platforms": ["darwin", "win32", "linux"],
-  "provides": ["agent-status"],
-  "reference": "https://herdr.dev/tui/docs/integrations/"
-}

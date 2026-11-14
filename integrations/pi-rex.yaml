@@ -1,0 +1,11 @@
+schemaVersion: 1
+id: pi-rex
+description: Pi uses Rex's native skill for terminal control; does not claim Pi hook support
+components:
+  - pi
+  - rex
+platforms:
+  - darwin
+provides:
+  - terminal-control
+reference: https://www.superlogical.com/rex/docs/automate/agent-skill

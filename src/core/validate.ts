@@ -10,7 +10,9 @@ export function validateRepository(repository: Repository): ValidationReport {
   );
 
   for (const integration of repository.integrations) {
-    const file = `integrations/${integration.id}.json`;
+    const file =
+      repository.locations[`integrations/${integration.id}`] ??
+      `integrations/${integration.id}`;
     for (const componentId of integration.components) {
       const component = components.get(componentId);
       if (!component) {
@@ -29,7 +31,9 @@ export function validateRepository(repository: Repository): ValidationReport {
   }
 
   for (const profile of repository.profiles) {
-    const file = `profiles/${profile.id}.json`;
+    const file =
+      repository.locations[`profiles/${profile.id}`] ??
+      `profiles/${profile.id}`;
     const selected = new Set(profile.components.map((item) => item.component));
     const capabilities = new Set<string>();
 
