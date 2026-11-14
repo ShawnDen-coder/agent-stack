@@ -1,5 +1,7 @@
 # CLI 行为验收矩阵
 
+[Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
+
 此矩阵记录当前已实现能力；`setup`、`run`、完整锁生成、安装和应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
 
 | 行为                                                | 状态   | 测试证据                                          |

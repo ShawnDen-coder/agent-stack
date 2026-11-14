@@ -1,5 +1,7 @@
 # 配置变体设计审查稿
 
+[Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
+
 状态：提案，尚未实现。当前 component schema 不支持下述资源、逻辑目的地或 variants 字段；`setup`、`plan` 和配置 apply 也尚未实现。字段名（包括 `native-config`）仅为讨论示意，待 setup 有真实消费者时再收敛 schema，不向现有声明添加占位字段。
 
 ## 资源与组合

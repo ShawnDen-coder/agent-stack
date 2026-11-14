@@ -1,5 +1,7 @@
 # 项目结构与架构
 
+[Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
+
 Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码校验声明，并提供有限的只读工具链检测。
 
 ## 目录职责
