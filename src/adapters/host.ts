@@ -1,18 +1,135 @@
-import { machine } from "node:os";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { machine, tmpdir } from "node:os";
+import { join } from "node:path";
 
-// Node exposes the execution architecture and a machine name, but does not
-// provide a portable guarantee that x64 is not running under emulation.
-export function observeHost() {
+// IsWow64Process2 examines the actual Node process, not PowerShell itself.
+const windowsProbe = `$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class AgentStackHostProbe {
+ [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint a, bool b, int p);
+ [DllImport("kernel32.dll", SetLastError=true)] public static extern bool IsWow64Process2(IntPtr h, out ushort p, out ushort n);
+ [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+}
+'@
+$h=[AgentStackHostProbe]::OpenProcess(0x1000,$false,$env:AGENT_STACK_PROBE_PID)
+if ($h -eq [IntPtr]::Zero) { throw 'OpenProcess failed' }
+try { [UInt16]$p=0; [UInt16]$n=0; if (-not [AgentStackHostProbe]::IsWow64Process2($h,[ref]$p,[ref]$n)) { throw 'IsWow64Process2 failed' }; Write-Output "$p,$n" } finally { [void][AgentStackHostProbe]::CloseHandle($h) }`;
+
+export async function observeHost(signal?: AbortSignal) {
   const value = machine();
-  const native =
-    process.platform === "darwin" &&
-    process.arch === "arm64" &&
-    ["arm64", "aarch64"].includes(value);
-  return {
+  const base = {
     platform: process.platform,
     processArch: process.arch,
     machine: value,
     target: `${process.platform}-${process.arch}`,
-    native,
   };
+  if (
+    process.platform === "darwin" &&
+    process.arch === "arm64" &&
+    ["arm64", "aarch64"].includes(value)
+  )
+    return { ...base, native: true, evidence: "native-arm64-process" };
+  const home = await mkdtemp(join(tmpdir(), "agent-stack-host-"));
+  try {
+    let command: string;
+    let args: string[];
+    let env: NodeJS.ProcessEnv;
+    if (process.platform === "darwin" && process.arch === "x64") {
+      // Force the child to use the same x86_64 architecture as Node; the
+      // process-scoped sysctl then detects Rosetta for that architecture.
+      command = "/usr/bin/arch";
+      args = ["-x86_64", "/usr/sbin/sysctl", "-n", "sysctl.proc_translated"];
+      env = { PATH: "", HOME: home, LANG: "C", LC_ALL: "C" };
+    } else if (
+      process.platform === "win32" &&
+      process.arch === "x64" &&
+      process.env.SystemRoot
+    ) {
+      command = join(
+        process.env.SystemRoot,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+      );
+      args = [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(windowsProbe, "utf16le").toString("base64"),
+      ];
+      env = {
+        SystemRoot: process.env.SystemRoot,
+        TEMP: home,
+        TMP: home,
+        USERPROFILE: home,
+        AGENT_STACK_PROBE_PID: String(process.pid),
+      };
+    } else
+      return { ...base, native: false, evidence: "unsupported-or-unknown" };
+    const result = await new Promise<{
+      stdout: string;
+      stderr: string;
+      code: number | null;
+    }>((resolve) => {
+      execFile(
+        command,
+        args,
+        {
+          cwd: home,
+          env,
+          timeout: process.platform === "win32" ? 10000 : 3000,
+          maxBuffer: 16384,
+          signal,
+          windowsHide: true,
+          encoding: "utf8",
+        },
+        (error, stdout, stderr) => {
+          resolve({
+            stdout,
+            stderr,
+            code: error
+              ? typeof (error as NodeJS.ErrnoException & { code?: number })
+                  .code === "number"
+                ? (error as unknown as { code: number }).code
+                : null
+              : 0,
+          });
+        },
+      );
+    });
+    if (process.platform === "darwin") {
+      const native =
+        (result.code === 0 && result.stdout.trim() === "0") ||
+        (result.code === 1 &&
+          /^sysctl: unknown oid 'sysctl\.proc_translated'\s*$/.test(
+            result.stderr,
+          ));
+      return {
+        ...base,
+        native,
+        evidence: native
+          ? "same-architecture-sysctl"
+          : result.code === 0 && result.stdout.trim() === "1"
+            ? "rosetta"
+            : "probe-unknown",
+      };
+    }
+    const native = result.code === 0 && result.stdout.trim() === "0,34404";
+    return {
+      ...base,
+      native,
+      evidence: native
+        ? "IsWow64Process2"
+        : result.code === 0 && /^\d+,\d+$/.test(result.stdout.trim())
+          ? "emulated-or-unsupported"
+          : "probe-unknown",
+    };
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 }

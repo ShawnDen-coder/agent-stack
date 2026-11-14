@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
+import stringWidth from "fast-string-width";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
@@ -2892,17 +2894,29 @@ test("setup previews a validated lock offline and refuses incomplete use", async
 Object.defineProperty(process,'platform',{value:'darwin'}); Object.defineProperty(process,'arch',{value:'arm64'}); os.machine=()=> 'arm64'; syncBuiltinESMExports();
 globalThis.fetch=()=>{throw Error('network forbidden')};`,
   );
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(f.dir, "home"));
+  await mkdir(join(f.dir, "tmp"));
   const runSetup = (args, env = {}) =>
     spawnSync(process.execPath, ["--import", preload, cli, ...args], {
       encoding: "utf8",
       timeout: 12000,
-      env: { PATH: "", NO_COLOR: "1", ...env },
+      cwd: f.dir,
+      env: {
+        PATH: "",
+        NO_COLOR: "1",
+        HOME: join(f.dir, "home"),
+        USERPROFILE: join(f.dir, "home"),
+        TMPDIR: join(f.dir, "tmp"),
+        ...env,
+      },
     });
   const originalLock = await readFile(f.path, "utf8");
   const differentNode = JSON.parse(originalLock);
   differentNode.node = "24.0.0";
   await writeFile(f.path, JSON.stringify(differentNode));
   const before = await snapshot(f.dir);
+  const pathsBefore = (await readdir(f.dir, { recursive: true })).sort();
   const result = runSetup([
     "--json",
     "setup",
@@ -2954,6 +2968,23 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
     AGENT_STACK_PROFILE: "coding",
   });
   assert.equal(JSON.parse(env.stdout).profile.selectedBy, "environment");
+  const fromCwd = runSetup([
+    "setup",
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(JSON.parse(fromCwd.stdout).repo.selectedBy, "cwd");
+  const explicit = runSetup(
+    ["--repo", f.dir, "--json", "setup", "--profile", "coding", "--dry-run"],
+    {
+      AGENT_STACK_REPO: join(f.dir, "missing"),
+      AGENT_STACK_PROFILE: "fixture",
+    },
+  );
+  assert.equal(JSON.parse(explicit.stdout).repo.selectedBy, "option");
+  assert.equal(JSON.parse(explicit.stdout).profile.selectedBy, "option");
   const mismatch = runSetup([
     "setup",
     "--repo",
@@ -2966,4 +2997,321 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   assert.equal(mismatch.status, 1);
   assert.notEqual(JSON.parse(mismatch.stdout).kind, "setup-plan");
   assert.deepEqual(await snapshot(f.dir), before);
+  assert.deepEqual(
+    (await readdir(f.dir, { recursive: true })).sort(),
+    pathsBefore,
+  );
+  assert.deepEqual(await readdir(join(f.dir, "home")), []);
+  assert.deepEqual(await readdir(join(f.dir, "tmp")), []);
+});
+
+test("setup validates usage and locked inputs before probing the host", async (t) => {
+  const f = await freshForValidation(t);
+  const marker = join(f.dir, "probe-marker");
+  const preload = join(f.dir, "probe.mjs");
+  await writeFile(
+    preload,
+    `import cp from 'node:child_process'; import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
+Object.defineProperty(process,'platform',{value:'darwin'}); Object.defineProperty(process,'arch',{value:'x64'});
+cp.execFile=()=>{fs.writeFileSync(${JSON.stringify(marker)},'probe'); throw Error('unexpected probe')}; syncBuiltinESMExports();
+globalThis.fetch=()=>{throw Error('unexpected network')};`,
+  );
+  const run = (args) =>
+    spawnSync(
+      process.execPath,
+      ["--import", preload, cli, "setup", ...args, "--json"],
+      { encoding: "utf8", timeout: 12000, env: { PATH: "", NO_COLOR: "1" } },
+    );
+  for (const options of [
+    ["--repo", "", "--profile", "coding"],
+    ["--repo", "  ", "--profile", "coding"],
+    ["--profile", "  "],
+    ["--lock", "", "--profile", "coding"],
+    ["--repo", f.dir, "--repo", f.dir, "--profile", "coding"],
+  ]) {
+    assert.equal(run([...options, "--dry-run"]).status, 2);
+  }
+  assert.equal(
+    run([
+      "--repo",
+      f.dir,
+      "--profile",
+      "coding",
+      "--lock",
+      join(f.dir, "missing"),
+      "--dry-run",
+    ]).status,
+    1,
+  );
+  assert.equal(
+    run(["--repo", f.dir, "--profile", "fixture", "--dry-run"]).status,
+    1,
+  );
+  const noTarget = structuredClone(f.lock);
+  noTarget.targets = noTarget.targets.filter((x) => x.id !== "darwin-x64");
+  noTarget.assets = noTarget.assets.filter((x) => x.target !== "darwin-x64");
+  await writeFile(f.path, JSON.stringify(noTarget));
+  const missing = run(["--repo", f.dir, "--profile", "coding", "--dry-run"]);
+  assert.equal(missing.status, 1);
+  assert.match(JSON.parse(missing.stdout).error, /does not cover/);
+  await writeFile(f.path, "bad json");
+  assert.equal(
+    run(["--repo", f.dir, "--profile", "coding", "--dry-run"]).status,
+    1,
+  );
+  await assert.rejects(readFile(marker));
+});
+
+test("setup evaluates native and emulated Windows Node process evidence", async (t) => {
+  const f = await freshForValidation(t);
+  for (const [answer, expected] of [
+    ["0,34404", true],
+    ["34404,43620", false],
+    ["bad", false],
+  ]) {
+    const preload = join(f.dir, `win-${expected}-${answer.length}.mjs`);
+    await writeFile(
+      preload,
+      `import os from 'node:os'; import cp from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+Object.defineProperty(process,'platform',{value:'win32'}); Object.defineProperty(process,'arch',{value:'x64'}); os.machine=()=> 'x86_64';
+cp.execFile=(file,args,opts,cb)=>{queueMicrotask(()=>cb(null,${JSON.stringify(answer)},''));}; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
+    );
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        preload,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "coding",
+        "--dry-run",
+        "--json",
+      ],
+      {
+        encoding: "utf8",
+        timeout: 12000,
+        env: { PATH: "", SystemRoot: "C:\\Windows" },
+      },
+    );
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const output = JSON.parse(r.stdout);
+    assert.equal(output.kind === "setup-plan", expected);
+    if (expected) assert.equal(output.host.evidence, "IsWow64Process2");
+    else assert.match(output.error, /Cannot establish/);
+  }
+});
+
+test("setup PTY selects, cancels, and renders both widths without mixing streams", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await freshForValidation(t);
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(f.dir, "tmp"));
+  await mkdir(join(f.dir, "bin"));
+  await writeFile(
+    join(f.dir, "setup-pty-preload.mjs"),
+    `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module'; Object.defineProperty(process,'platform',{value:'darwin'}); Object.defineProperty(process,'arch',{value:'arm64'}); os.machine=()=> 'arm64'; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
+  );
+  const driver = join(repo, "test/setup_pty_driver.py");
+  for (const [mode, width, color] of [
+    ["report", "40", "color"],
+    ["report", "40", "no-color"],
+    ["report", "80", "color"],
+    ["report", "80", "no-color"],
+    ["select", "40", "color"],
+    ["cancel", "80", "no-color"],
+    ["redirect-out", "80", "no-color"],
+    ["redirect-err", "80", "no-color"],
+    ["ci", "80", "no-color"],
+    ["dumb", "80", "no-color"],
+  ]) {
+    const result = spawnSync(
+      "python3",
+      [
+        driver,
+        process.execPath,
+        cli,
+        f.dir,
+        join(f.dir, "bin"),
+        mode,
+        width,
+        color,
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const out = JSON.parse(result.stdout);
+    if (mode === "cancel") {
+      assert.equal(out.status, 130, out.stderr);
+      assert.equal(out.sent, true);
+    } else if (["redirect-out", "redirect-err", "ci", "dumb"].includes(mode)) {
+      assert.equal(out.status, 2, out.stderr);
+      assert.doesNotMatch(out.stderr, /Choose a profile/);
+    } else {
+      assert.equal(out.status, 1, out.stderr);
+      assert.match(out.stdout, /Setup preview/);
+      assert.match(out.stdout, /Blockers/);
+      for (const row of stripVTControlCharacters(out.stdout).split(/\r?\n/))
+        assert.ok(stringWidth(row) <= Number(width), row);
+      if (mode === "select") assert.equal(out.sent, true);
+    }
+    assert.doesNotMatch(out.stdout, /Choose a profile/);
+  }
+  const probe = join(f.dir, "bin", "uv");
+  await writeFile(
+    probe,
+    `#!${process.execPath}
+require('node:fs').writeFileSync(${JSON.stringify(join(f.dir, "probe.pid"))}, String(process.pid)); process.on('SIGTERM',()=>{}); setInterval(()=>{},1000);
+`,
+  );
+  await import("node:fs/promises").then(({ chmod }) => chmod(probe, 0o755));
+  const interrupted = spawnSync(
+    "python3",
+    [
+      driver,
+      process.execPath,
+      cli,
+      f.dir,
+      join(f.dir, "bin"),
+      "interrupt",
+      "80",
+      "no-color",
+    ],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(interrupted.status, 0, interrupted.stderr);
+  const outcome = JSON.parse(interrupted.stdout);
+  assert.equal(outcome.status, 130, outcome.stderr);
+  assert.equal(outcome.sent, true);
+  assert.deepEqual(await readdir(join(f.dir, "tmp")), []);
+  const pid = Number(await readFile(join(f.dir, "probe.pid"), "utf8"));
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+});
+
+test("setup distinguishes Intel, Rosetta and unknown sysctl results", async (t) => {
+  const f = await freshForValidation(t);
+  for (const [code, stdout, stderr, native] of [
+    [0, "0\n", "", true],
+    [1, "", "sysctl: unknown oid 'sysctl.proc_translated'\n", true],
+    [0, "1\n", "", false],
+    [1, "", "permission denied", false],
+  ]) {
+    const preload = join(f.dir, `mac-${native}-${stderr.length}.mjs`);
+    await writeFile(
+      preload,
+      `import cp from 'node:child_process'; import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';
+Object.defineProperty(process,'platform',{value:'darwin'}); Object.defineProperty(process,'arch',{value:'x64'}); os.machine=()=> 'x86_64';
+cp.execFile=(file,args,opts,cb)=>{if(file !== '/usr/bin/arch' || args.join(' ') !== '-x86_64 /usr/sbin/sysctl -n sysctl.proc_translated') throw Error('wrong architecture'); const error=${code} ? Object.assign(new Error('failed'),{code:${code}}) : null; queueMicrotask(()=>cb(error,${JSON.stringify(stdout)},${JSON.stringify(stderr)}));}; syncBuiltinESMExports(); globalThis.fetch=()=>{throw Error('network forbidden')};`,
+    );
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        preload,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "coding",
+        "--dry-run",
+        "--json",
+      ],
+      { encoding: "utf8", timeout: 12000, env: { PATH: "" } },
+    );
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const value = JSON.parse(r.stdout);
+    assert.equal(value.kind === "setup-plan", native);
+    if (native) assert.equal(value.host.evidence, "same-architecture-sysctl");
+  }
+});
+
+test("setup distinguishes matched metadata, unverified entry, mismatched version and missing tool", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await freshForValidation(t);
+  const { mkdir, chmod } = await import("node:fs/promises");
+  const bin = join(f.dir, "bin"),
+    pkg = join(f.dir, "pi-package");
+  await mkdir(bin);
+  await mkdir(pkg);
+  const entry = join(pkg, "pi.js");
+  await writeFile(entry, "never execute this entry");
+  await chmod(entry, 0o755);
+  await writeFile(
+    join(pkg, "package.json"),
+    JSON.stringify({
+      name: "@earendil-works/pi-coding-agent",
+      version: "1.5.2",
+      bin: { pi: "pi.js" },
+    }),
+  );
+  await symlink(entry, join(bin, "pi"));
+  await writeFile(join(bin, "pnpm"), "unverified entry");
+  await chmod(join(bin, "pnpm"), 0o755);
+  await writeFile(
+    join(bin, "uv"),
+    `#!${process.execPath}\nconsole.log('uv 9.9.9')\n`,
+  );
+  await chmod(join(bin, "uv"), 0o755);
+  const preload = join(f.dir, "offline-host.mjs");
+  await writeFile(
+    preload,
+    `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module'; Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:'arm64'});os.machine=()=> 'arm64';syncBuiltinESMExports();globalThis.fetch=()=>{throw Error('unexpected fetch')}`,
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ],
+    { encoding: "utf8", timeout: 12000, env: { PATH: bin } },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const plan = JSON.parse(result.stdout),
+    byName = Object.fromEntries(plan.components.map((x) => [x.component, x]));
+  assert.equal(byName.pi.observation.status, "ok");
+  assert.equal(byName.pi.observation.evidence, "package_metadata");
+  assert.equal(byName.pnpm.observation.status, "unverified_entrypoint");
+  assert.equal(byName.uv.observation.status, "version_mismatch");
+  assert.equal(byName.herdr.observation.status, "not_found");
+  assert.ok(plan.components.every((x) => x.ownership === "unknown"));
+});
+
+test("setup observes the real native Windows x64 CI process", {
+  skip: !(process.platform === "win32" && process.env.RUNNER_ARCH === "X64"),
+}, async (t) => {
+  const f = await freshForValidation(t);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      f.offline,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ],
+    { encoding: "utf8", timeout: 20000, env: { ...process.env, PATH: "" } },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.kind, "setup-plan");
+  assert.equal(plan.host.evidence, "IsWow64Process2");
+  assert.equal(plan.host.native, true);
 });

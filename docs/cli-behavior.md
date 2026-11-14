@@ -509,4 +509,4 @@ setup/apply/update 在 TTY 中展示计划并确认；非交互必须显式 `--y
 
 交互与自动化参考 [Command Line Interface Guidelines](https://clig.dev/) 的组合性、stdout/stderr、交互与可预测行为建议；解析实现参考 [Commander 官方文档](https://github.com/tj/commander.js)。这些是设计参考，具体命令语义以本审查稿及后续实现验收为准。
 
-当前实现：`setup --dry-run` 只读预览已有锁，不安装或应用配置；当前只确认原生 macOS arm64，无法可靠识别的宿主阻塞。`--repo` / `AGENT_STACK_REPO` / cwd 和 `--profile` / `AGENT_STACK_PROFILE` / 交互选择按此顺序生效，尚无绑定 fallback。
+当前实现：`setup --dry-run` 只读预览已有锁，不安装或应用配置；支持检测原生 macOS arm64/x64 和 Windows x64，无法可靠识别的宿主阻塞。`--repo` / `AGENT_STACK_REPO` / cwd 和 `--profile` / `AGENT_STACK_PROFILE` / 交互选择按此顺序生效，尚无绑定 fallback。

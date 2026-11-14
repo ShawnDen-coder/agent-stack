@@ -386,6 +386,7 @@ export function setup(
   line(
     `Host: ${clean(plan.host.platform)} · process ${clean(plan.host.processArch)} · machine ${clean(plan.host.machine)}`,
   );
+  line(`Host evidence: ${clean(plan.host.evidence)}`, "  ");
   line();
   line("Prerequisites");
   for (const item of plan.prerequisites) {

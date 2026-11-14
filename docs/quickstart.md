@@ -92,4 +92,4 @@ pnpm cli validate --repo . --lock "./candidate lock.json" --json
 
 裸 `--lock` 读取 `<repo>/stack/stack.lock.json`；显式相对路径以当前调用目录解析。检查只覆盖本地结构、声明与资产身份关系，不能证明远端未撤回、签名或下载字节正确，也不验证安装或运行。
 
-已有完整共享锁时，可运行 `node dist/cli.js setup --repo . --profile coding --dry-run` 离线预览；该命令不安装或应用配置，未实现步骤会导致退出码 1。当前仅确认原生 macOS arm64，其他宿主暂时阻塞。`--lock` 指向候选锁时相对当前目录解析。
+已有完整共享锁时，可运行 `node dist/cli.js setup --repo . --profile coding --dry-run` 离线预览；该命令不安装或应用配置，未实现步骤会导致退出码 1。支持检测原生 macOS arm64/x64 和 Windows x64；未知或仿真宿主阻塞。`--lock` 指向候选锁时相对当前目录解析。
