@@ -195,7 +195,7 @@ for (const [label, body, expected] of [
     assert.match(JSON.parse(result.stdout).components[0].error, expected);
     assert.deepEqual(await snapshot(dir), before);
   });
-test("default coding reports unsupported sources without changing declarations", async (t) => {
+test("default coding reports malformed release metadata without changing declarations", async (t) => {
   const body = `globalThis.fetch=async (url)=>{const name=decodeURIComponent(url.split('/').pop()); const version=name==='pnpm'?'12.15.0':'1.5.2'; return new Response(JSON.stringify({name,versions:{[version]:{name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:${JSON.stringify(integrity)}}}}}));};`;
   const { dir, preload } = await setup(t, null, body);
   await cp(
@@ -214,11 +214,11 @@ test("default coding reports unsupported sources without changing declarations",
   assert.equal(report.components.filter((x) => x.version).length, 2);
   assert.match(
     report.components.find((x) => x.component === "uv").error,
-    /Unsupported source: release/,
+    /Invalid release page/,
   );
   assert.match(
     report.components.find((x) => x.component === "herdr").error,
-    /Unsupported source: release/,
+    /Invalid input/,
   );
   assert.deepEqual(await snapshot(dir), before);
 });
@@ -440,4 +440,203 @@ test("lock accepts root shared options and requires profile when stdin is not a 
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /--profile/);
   assert.doesNotMatch(missing.stderr, /Choose a profile/);
+});
+
+const uvRelease = (version, id, extra = {}) => ({
+  id,
+  tag_name: version,
+  html_url: `https://github.com/astral-sh/uv/releases/tag/${version}`,
+  draft: false,
+  prerelease: false,
+  ...extra,
+});
+function mixedPreload(first, second, manifestData, firstStatus = 200) {
+  return `globalThis.fetch=async (url)=>{url=String(url);if(url.startsWith('https://api.github.com/')){if(url.includes('page=2'))return new Response(${JSON.stringify(JSON.stringify(second))});return new Response(${JSON.stringify(JSON.stringify(first))},{status:${firstStatus},headers:${JSON.stringify(second ? { link: '<https://api.github.com/repos/astral-sh/uv/releases?per_page=100&page=2>; rel="next"' } : {})}})}if(url==='https://herdr.dev/latest.json')return new Response(${JSON.stringify(JSON.stringify(manifestData))});const name=decodeURIComponent(url.split('/').pop());const version=name==='pnpm'?'12.15.0':'1.5.2';return new Response(JSON.stringify({name,versions:{[version]:{name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:${JSON.stringify(integrity)}}}}}));};`;
+}
+test("coding resolves four version candidates across pages without writing", async (t) => {
+  const { dir, preload } = await setup(
+    t,
+    null,
+    mixedPreload(
+      [
+        uvRelease("0.13.8", 1),
+        uvRelease("0.13.99-beta.1", 2, { prerelease: true }),
+      ],
+      [uvRelease("0.13.9", 3)],
+      { version: "0.9.5" },
+    ),
+  );
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(dir, "stack/profiles/coding.yaml"),
+  );
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.components.length, 4);
+  assert.equal(
+    report.components.find((x) => x.component === "uv").version,
+    "0.13.9",
+  );
+  assert.equal(
+    report.components.find((x) => x.component === "herdr").version,
+    "0.9.5",
+  );
+  assert.equal(
+    report.components.find((x) => x.component === "herdr").evidence,
+    "channel",
+  );
+  assert.deepEqual(await snapshot(dir), before);
+});
+for (const [label, first, manifestData, pattern, status] of [
+  [
+    "no uv version",
+    [uvRelease("0.14.0", 1)],
+    { version: "0.9.5" },
+    /No official uv release/,
+    200,
+  ],
+  [
+    "bad stable version",
+    [uvRelease("0.13.8", 1)],
+    { version: "v0.9.5" },
+    /Invalid herdr stable/,
+    200,
+  ],
+  [
+    "duplicate uv identity",
+    [uvRelease("0.13.8", 1), uvRelease("0.13.9", 1)],
+    { version: "0.9.5" },
+    /Duplicate release/,
+    200,
+  ],
+  ["uv limit", [], { version: "0.9.5" }, /HTTP 429/, 429],
+])
+  test(`coding release metadata fails: ${label}`, async (t) => {
+    const { dir, preload } = await setup(
+      t,
+      null,
+      mixedPreload(first, null, manifestData, status),
+    );
+    await cp(
+      join(repo, "stack/profiles/coding.yaml"),
+      join(dir, "stack/profiles/coding.yaml"),
+    );
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ]);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(JSON.stringify(JSON.parse(result.stdout)), pattern);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+
+for (const [label, uvResponse, pattern] of [
+  ["invalid JSON", "new Response('{')", /invalid JSON/],
+  ["oversized metadata", "new Response('x'.repeat(5*1024*1024))", /size limit/],
+  [
+    "untrusted next",
+    "new Response('[]',{headers:{link:'<https://evil.test/?page=2>; rel=\"next\"'}})",
+    /Untrusted release pagination/,
+  ],
+  [
+    "timeout",
+    "await new Promise((_,reject)=>{const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason)})})",
+    /timed out/,
+  ],
+])
+  test(`uv rejects ${label}`, async (t) => {
+    const body = `globalThis.fetch=async (url,{signal})=>{if(String(url).startsWith('https://api.github.com/'))return ${uvResponse};if(String(url)==='https://herdr.dev/latest.json')return new Response('{"version":"0.9.5"}');const name=decodeURIComponent(String(url).split('/').pop());const version=name==='pnpm'?'12.15.0':'1.5.2';return new Response(JSON.stringify({name,versions:{[version]:{name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:${JSON.stringify(integrity)}}}}}));};`;
+    const { dir, preload } = await setup(t, null, body);
+    await cp(
+      join(repo, "stack/profiles/coding.yaml"),
+      join(dir, "stack/profiles/coding.yaml"),
+    );
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ]);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(JSON.stringify(JSON.parse(result.stdout)), pattern);
+  });
+test("herdr beta channel is rejected without requesting manifest", async (t) => {
+  const { dir, preload } = await setup(
+    t,
+    null,
+    mixedPreload([uvRelease("0.13.8", 1)], null, { version: "0.9.5" }),
+  );
+  let profile = await readFile(
+    join(repo, "stack/profiles/coding.yaml"),
+    "utf8",
+  );
+  profile = profile.replace("channel: stable", "channel: beta");
+  await writeFile(join(dir, "stack/profiles/coding.yaml"), profile);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    JSON.parse(result.stdout).components.find((x) => x.component === "herdr")
+      .error,
+    /Unsupported herdr channel/,
+  );
+});
+
+test("mixed coding release report uses bounded PTY layout", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { dir, preload } = await setup(
+    t,
+    null,
+    mixedPreload([uvRelease("0.13.8", 1)], null, { version: "0.9.5" }),
+  );
+  const { parse } = await import("yaml");
+  const profile = parse(
+    await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
+  );
+  profile.id = "fixture";
+  await writeFile(
+    join(dir, "stack/profiles/fixture.json"),
+    JSON.stringify(profile),
+  );
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(dir, "tmp"));
+  const result = spawnSync(
+    "python3",
+    [
+      ptyDriver,
+      process.execPath,
+      cli,
+      dir,
+      dir,
+      "report",
+      "40",
+      "no-color",
+      preload,
+    ],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const out = JSON.parse(result.stdout);
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /channel/);
+  assert.match(out.stdout, /release/);
+  const { stripVTControlCharacters } = await import("node:util");
+  const width = (await import("fast-string-width")).default;
+  for (const row of stripVTControlCharacters(out.stdout).split(/\r?\n/))
+    assert.ok(width(row) <= 40, row);
 });

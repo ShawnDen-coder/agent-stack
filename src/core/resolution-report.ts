@@ -4,6 +4,14 @@ const itemSchema = z.union([
   z.object({ component: z.string(), error: z.string() }),
   z.object({
     component: z.string(),
+    version: z.string(),
+    requirement: z.string(),
+    metadata: z.string(),
+    identity: z.string(),
+    evidence: z.enum(["release", "channel"]),
+  }),
+  z.object({
+    component: z.string(),
     package: z.string(),
     version: z.string(),
     requirement: z.string(),

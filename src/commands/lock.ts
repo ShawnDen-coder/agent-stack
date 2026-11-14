@@ -9,8 +9,15 @@ import {
   resolution,
   start,
 } from "../adapters/presentation.js";
+import {
+  herdrManifest,
+  herdrUrl,
+  uvReleases,
+  uvUrl,
+} from "../adapters/releases.js";
 import { readRepository } from "../adapters/repository.js";
 import { selectCandidate } from "../core/npm-candidate.js";
+import { selectHerdr, selectUv } from "../core/release-candidate.js";
 import {
   type ResolutionItem,
   resolutionReportSchema,
@@ -20,7 +27,7 @@ import { validateRepository } from "../core/validate.js";
 export function createLockCommand(): Command {
   return shared(
     new Command("lock").description(
-      "Report npm version candidates without writing a lock",
+      "Report version candidates without writing a lock",
     ),
   )
     .addOption(profileOption())
@@ -57,9 +64,9 @@ export function createLockCommand(): Command {
         const controller = new AbortController();
         const interrupt = () => controller.abort();
         process.once("SIGINT", interrupt);
-        start("Agent Stack · npm candidate report", Boolean(options.json));
+        start("Agent Stack · version candidate report", Boolean(options.json));
         const stop = progress(
-          "Resolving npm candidates",
+          "Resolving version candidates",
           Boolean(options.json),
         );
         let components: ResolutionItem[];
@@ -74,6 +81,59 @@ export function createLockCommand(): Command {
                   component: selection.component,
                   error: "Unknown component",
                 };
+              if (component.source.type === "release") {
+                try {
+                  if (
+                    component.id === "uv" &&
+                    component.source.url ===
+                      "https://docs.astral.sh/uv/getting-started/installation/" &&
+                    "version" in selection
+                  ) {
+                    const candidate = selectUv(
+                      await uvReleases(controller.signal),
+                      selection.version,
+                    );
+                    return {
+                      component: component.id,
+                      version: candidate.version,
+                      requirement: selection.version,
+                      metadata: uvUrl,
+                      identity: `release ${candidate.id} ${candidate.tag_name}`,
+                      evidence: "release" as const,
+                    };
+                  }
+                  if (
+                    component.id === "herdr" &&
+                    component.source.url ===
+                      "https://github.com/herdrdev/herdr/releases" &&
+                    "channel" in selection
+                  ) {
+                    if (selection.channel !== "stable")
+                      throw new Error(
+                        `Unsupported herdr channel: ${selection.channel}`,
+                      );
+                    const version = selectHerdr(
+                      await herdrManifest(controller.signal),
+                      selection.channel,
+                    );
+                    return {
+                      component: component.id,
+                      version,
+                      requirement: `channel ${selection.channel}`,
+                      metadata: herdrUrl,
+                      identity: `stable manifest version ${version}`,
+                      evidence: "channel" as const,
+                    };
+                  }
+                  throw new Error("Unsupported release source or selector");
+                } catch (error) {
+                  return {
+                    component: component.id,
+                    error:
+                      error instanceof Error ? error.message : String(error),
+                  };
+                }
+              }
               if (component.source.type !== "npm")
                 return {
                   component: component.id,
@@ -127,7 +187,7 @@ export function createLockCommand(): Command {
           node: process.versions.node,
           components,
           scope:
-            "npm top-level candidates only; no lock, target assets, dependency closure, installation or runtime verification",
+            "version metadata only; no lock, target assets, digests for releases, dependency closure, installation or runtime verification",
         });
         resolution(report, Boolean(options.json));
         if (components.some((item) => "error" in item)) process.exitCode = 1;

@@ -247,9 +247,18 @@ export function resolution(report: ResolutionReport, json: boolean) {
       line(clean(item.error), "  ");
     } else {
       line(
-        `${colors.green("[CANDIDATE]")} ${clean(item.component)}: ${clean(item.package)}@${clean(item.version)}`,
+        `${colors.green("[CANDIDATE]")} ${clean(item.component)}: ${clean("package" in item ? item.package : item.component)}@${clean(item.version)}`,
       );
       line(`Required: ${clean(item.requirement)}`, "  ");
+      if ("evidence" in item) {
+        line(
+          `Evidence: ${clean(item.evidence)} · ${clean(item.identity)}`,
+          "  ",
+        );
+        line("Metadata:", "  ");
+        line(clean(item.metadata), "    ", true);
+        continue;
+      }
       for (const [label, value] of [
         ["Metadata", item.metadata],
         ["Tarball", item.tarball],
