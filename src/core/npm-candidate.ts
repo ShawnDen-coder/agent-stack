@@ -63,7 +63,12 @@ export function selectCandidate(
       `Node ${node} does not satisfy engines for any matching version`,
     );
   const selected = manifestSchema.parse(best.value);
-  const url = new URL(selected.dist.tarball);
+  checkNpmDistribution(selected.dist.tarball, selected.dist.integrity);
+  return selected;
+}
+
+export function checkNpmDistribution(tarball: string, integrity: string): void {
+  const url = new URL(tarball);
   if (
     url.protocol !== "https:" ||
     url.hostname !== "registry.npmjs.org" ||
@@ -76,12 +81,11 @@ export function selectCandidate(
     throw new Error(
       "Invalid tarball URL: expected official npm HTTPS registry",
     );
-  const match = /^sha512-([A-Za-z0-9+/]{86}==)$/.exec(selected.dist.integrity);
+  const match = /^sha512-([A-Za-z0-9+/]{86}==)$/.exec(integrity);
   if (
     !match?.[1] ||
     Buffer.from(match[1], "base64").length !== 64 ||
     Buffer.from(match[1], "base64").toString("base64") !== match[1]
   )
     throw new Error("Missing or invalid SHA512 integrity");
-  return selected;
 }

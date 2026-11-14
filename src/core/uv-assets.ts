@@ -36,12 +36,43 @@ export function uvAsset(release: UvRelease, target: string) {
       entry.id === asset.id,
   );
   if (otherIds.length !== 1) throw new Error("Duplicate uv asset identity");
-  const digest = /^sha256:([0-9a-fA-F]{64})$/.exec(asset.digest);
+  const checked = checkUvDistribution(
+    target,
+    release.tag_name,
+    asset.name,
+    asset.browser_download_url,
+    asset.digest,
+  );
+  return {
+    target,
+    identity: `${mapping.name} (asset ${asset.id})`,
+    releaseId: release.id,
+    assetId: asset.id,
+    assetName: asset.name,
+    url: asset.browser_download_url,
+    sha256: checked.sha256,
+    digestSource: checked.digestSource,
+    format: checked.format,
+  };
+}
+
+export function checkUvDistribution(
+  target: string,
+  version: string,
+  name: string,
+  rawUrl: string,
+  digestValue: string,
+) {
+  const mapping = mappings[target];
+  if (!mapping) throw new Error(`uv target ${target} is not supported`);
+  if (name !== mapping.name)
+    throw new Error(`Missing or duplicate uv asset: ${mapping.name}`);
+  const digest = /^sha256:([0-9a-fA-F]{64})$/.exec(digestValue);
   if (!digest?.[1])
     throw new Error(`Missing or invalid SHA-256 digest for ${mapping.name}`);
   let url: URL;
   try {
-    url = new URL(asset.browser_download_url);
+    url = new URL(rawUrl);
   } catch {
     throw new Error("Invalid uv asset URL");
   }
@@ -54,18 +85,12 @@ export function uvAsset(release: UvRelease, target: string) {
     url.search ||
     url.hash ||
     url.pathname !==
-      `/astral-sh/uv/releases/download/${release.tag_name}/${mapping.name}`
+      `/astral-sh/uv/releases/download/${version}/${mapping.name}`
   )
     throw new Error("Untrusted or version-mismatched uv asset URL");
   return {
-    target,
-    identity: `${mapping.name} (asset ${asset.id})`,
-    releaseId: release.id,
-    assetId: asset.id,
-    assetName: asset.name,
-    url: asset.browser_download_url,
     sha256: digest[1].toLowerCase(),
-    digestSource: "https://api.github.com/repos/astral-sh/uv/releases",
     format: mapping.format,
+    digestSource: "https://api.github.com/repos/astral-sh/uv/releases",
   };
 }
