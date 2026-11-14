@@ -65,6 +65,7 @@ export function validateRepository(repository: Repository): ValidationReport {
             message: `${integrationId} requires selected component: ${componentId}`,
           });
         }
+        if (!components.has(componentId)) complete = false;
       }
       for (const target of profile.platforms) {
         if (!integration.platforms.includes(target)) {

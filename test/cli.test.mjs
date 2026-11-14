@@ -156,6 +156,20 @@ test("stale integration references are rejected after a component replacement", 
   );
 });
 
+test("an integration with an unknown selected component cannot provide capabilities", async (t) => {
+  const root = await fixture(t);
+  await rm(join(root, "components/herdr.json"));
+  const result = validate(root);
+  assert.equal(result.status, 1);
+  assert.ok(
+    result.report.issues.some(
+      (issue) =>
+        issue.file === "profiles/coding.json" &&
+        issue.message === "Required capability is not provided: agent-status",
+    ),
+  );
+});
+
 test("a renamed file must retain a matching definition ID", async (t) => {
   const root = await fixture(t);
   await edit(root, "components/pi.json", (value) => {
