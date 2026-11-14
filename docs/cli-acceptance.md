@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-此矩阵记录当前已实现能力；`setup`、`run`、完整锁生成、安装和应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
+此矩阵记录当前已实现能力；`setup`、`run`、锁更新、安装和应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
 
 | 行为                                                | 状态   | 测试证据                                          |
 | --------------------------------------------------- | ------ | ------------------------------------------------- |
@@ -14,7 +14,8 @@
 | stdout 结果、stderr 交互/进度、重定向时不询问       | 已实现 | `test/interaction.test.mjs`、`test/pty_driver.py` |
 | 真实 TTY 选择、Ctrl-C 取消及检查中中断              | 已实现 | `test/interaction.test.mjs`、`test/pty_driver.py` |
 | doctor 的版本证据、超时和输出上限                   | 已实现 | `test/doctor.test.mjs`、`test/cmd-shim.test.mjs`  |
-| setup / run / 完整锁生成 / 安装 / 配置应用          | 待实现 | 不注册占位命令                                    |
+| 显式目标的首次共享锁创建、复核、并发拒绝            | 已实现 | `test/lock.test.mjs`                              |
+| setup / run / 锁更新 / 安装 / 配置应用              | 待实现 | 不注册占位命令                                    |
 
 `validate` 与 `doctor` 成功 JSON 保留既有业务形状；`doctor` 的业务错误仍为 `{ "error": "..." }`，`validate` 失败仍为报告。Commander 用法错误为版本化 `{ "schemaVersion": 1, "error": { "kind": "usage", "message": "..." } }`，退出 2；JSON 帮助和版本为 `{ "schemaVersion": 1, "output": "..." }`。业务失败为 1，交互取消为 130。机器输出没有标题、spinner 或 ANSI，日志只走 stderr。
 

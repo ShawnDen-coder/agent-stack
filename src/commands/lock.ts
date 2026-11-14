@@ -1,14 +1,17 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { Command } from "commander";
+import { publishNewLock, requireAbsent } from "../adapters/fresh-lock-file.js";
 import { readPackument } from "../adapters/npm-registry.js";
 import { profileOption, shared } from "../adapters/options.js";
 import {
   chooseProfile,
+  createdLock,
   failure,
   progress,
   resolution,
   start,
 } from "../adapters/presentation.js";
+import { recheckSources } from "../adapters/recheck-sources.js";
 import {
   herdrManifest,
   herdrUrl,
@@ -17,6 +20,7 @@ import {
 } from "../adapters/releases.js";
 import { readRepository } from "../adapters/repository.js";
 import { definitionDigests } from "../core/definition-digests.js";
+import { buildFreshLock } from "../core/fresh-lock.js";
 import { herdrAsset, validTarget } from "../core/herdr-assets.js";
 import { npmAsset, pnpmNative } from "../core/npm-assets.js";
 import { type Candidate, selectCandidate } from "../core/npm-candidate.js";
@@ -36,11 +40,12 @@ import { validateRepository } from "../core/validate.js";
 export function createLockCommand(): Command {
   return shared(
     new Command("lock").description(
-      "Report version candidates without writing a lock",
+      "Preview candidates or create a new shared lock",
     ),
   )
     .addOption(profileOption())
     .option("--dry-run", "Report candidates without writing")
+    .option("--out <file>", "Write a new shared candidate lock")
     .option(
       "--target <target>",
       "Preview assets for an execution target (repeatable)",
@@ -53,6 +58,7 @@ export function createLockCommand(): Command {
         profile?: string;
         json?: boolean;
         dryRun?: boolean;
+        out?: string;
         target: string[];
       };
       for (const target of options.target) {
@@ -61,14 +67,21 @@ export function createLockCommand(): Command {
       }
       if (new Set(options.target).size !== options.target.length)
         command.error("error: duplicate --target");
-      if (!options.dryRun)
-        command.error(
-          "error: --dry-run is required; lock writing is not implemented",
-        );
+      if (options.dryRun && options.out)
+        command.error("error: --dry-run and --out cannot be combined");
+      if (!options.dryRun && !options.target.length)
+        command.error("error: --target is required when creating a lock");
       if (!options.profile && options.json)
         command.error("error: --profile is required in JSON mode");
       try {
-        const repository = await readRepository(resolve(options.repo ?? "."));
+        const root = resolve(options.repo ?? ".");
+        const inputPath = join(root, "stack", "stack.lock.json");
+        const outputPath = options.out ? resolve(options.out) : inputPath;
+        if (!options.dryRun) {
+          await requireAbsent(inputPath);
+          if (outputPath !== inputPath) await requireAbsent(outputPath);
+        }
+        const repository = await readRepository(root);
         if (!validateRepository(repository).valid)
           throw new Error(
             "Repository definitions are invalid; run validate for details",
@@ -86,7 +99,12 @@ export function createLockCommand(): Command {
         const controller = new AbortController();
         const interrupt = () => controller.abort();
         process.once("SIGINT", interrupt);
-        start("Agent Stack · version candidate report", Boolean(options.json));
+        start(
+          options.dryRun
+            ? "Agent Stack · version candidate report"
+            : "Agent Stack · create shared lock",
+          Boolean(options.json),
+        );
         const stop = progress(
           "Resolving version candidates",
           Boolean(options.json),
@@ -375,12 +393,64 @@ export function createLockCommand(): Command {
             ? "npm, uv and herdr asset metadata only; expected digests are not downloaded-byte verification or signatures; dependency closure, lifecycle scripts, installation, runtime compatibility and complete lock are not checked"
             : "version metadata only; no lock, target assets, digests for releases, dependency closure, installation or runtime verification",
         });
-        resolution(report, Boolean(options.json));
         if (
+          options.dryRun ||
           components.some((item) => "error" in item) ||
           assets.some((item) => "error" in item)
-        )
-          process.exitCode = 1;
+        ) {
+          resolution(report, Boolean(options.json));
+          if (
+            components.some((item) => "error" in item) ||
+            assets.some((item) => "error" in item)
+          )
+            process.exitCode = 1;
+          return;
+        }
+        const lock = buildFreshLock(profile, report);
+        process.once("SIGINT", interrupt);
+        const stopRecheck = progress(
+          "Rechecking selected metadata",
+          Boolean(options.json),
+        );
+        try {
+          await recheckSources(
+            profile,
+            report,
+            npmSnapshots,
+            nativeCache,
+            uvSnapshot,
+            herdrSnapshot,
+            controller.signal,
+          );
+          const current = await readRepository(root);
+          const currentProfile = current.profiles.find(
+            (item) => item.id === profile.id,
+          );
+          if (
+            !validateRepository(current).valid ||
+            !currentProfile ||
+            JSON.stringify(definitionDigests(current, currentProfile)) !==
+              JSON.stringify(report.definitionDigests)
+          )
+            throw new Error("Selected definitions changed during resolution");
+          await publishNewLock(
+            outputPath,
+            inputPath,
+            `${JSON.stringify(lock, null, 2)}\n`,
+            controller.signal,
+          );
+        } catch (error) {
+          if (controller.signal.aborted) {
+            process.exitCode = 130;
+            failure("Cancelled.", Boolean(options.json));
+            return;
+          }
+          throw error;
+        } finally {
+          process.removeListener("SIGINT", interrupt);
+          stopRecheck(controller.signal.aborted);
+        }
+        createdLock(outputPath, lock, Boolean(options.json));
       } catch (error) {
         if (error instanceof Error && error.name === "CommanderError")
           throw error;

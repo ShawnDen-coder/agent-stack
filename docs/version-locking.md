@@ -1,8 +1,14 @@
 # 版本解析与锁定：阶段 E 审查方案
 
-当前 `lock --dry-run` 已实现版本候选与部分目标发行物元数据预览；首次锁生成和安装尚未实现。本文的锁契约、写入、更新和执行计划仍为设计提案，不能将其中的完整示例当作现有接口。已实现行为见 [CLI 行为稿第 1 节](cli-behavior.md#1-当前确实能用的接口)，操作入口见 [Quickstart](quickstart.md)。`validate` 检查声明一致性，`doctor` 观察本机路径与版本；候选报告、静态校验和版本观察都不证明工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
+当前 `lock --dry-run` 已实现版本候选与部分目标发行物元数据预览；已支持显式目标的首次共享锁生成；安装尚未实现。本文中更新和执行计划仍为设计提案，不能将其中的完整示例当作现有接口。已实现行为见 [CLI 行为稿第 1 节](cli-behavior.md#1-当前确实能用的接口)，操作入口见 [Quickstart](quickstart.md)。`validate` 检查声明一致性，`doctor` 观察本机路径与版本；候选报告、静态校验和版本观察都不证明工具或集成可运行。项目约束见 [架构](architecture.md)、[开发](development.md) 和 [roadmap](roadmap.md)。
 
 按用户明确的书写偏好，自有声明优先 YAML；当前读取器支持 YAML 与过渡期 JSON。共享候选锁、正式 `stack/stack.lock.json` 与本机执行计划继续使用 JSON。公共入口按日常 setup/doctor/run/update 与进阶命令分组，具体命令行为仍待用户审查。
+
+## 已实现的首次创建
+
+`lock --profile coding --target darwin-arm64` 首次写 `<repo>/stack/stack.lock.json`；可重复指定 `darwin-x64`、`win32-x64`，`--out <file>` 创建独立共享候选锁。`--dry-run` 保持只读，不能与 `--out` 同用。无目标时只允许预览；不推断 ABI。现有默认锁或目的地（包括链接）会阻止创建。Node 假设是当前确切版本。
+
+写前重新读取已选声明并复核选中版本及目标资产，选择变化、缺项或来源失败则不发布。临时文件在同目录写入并 flush，以硬链接 no-clobber 发布；文件系统不支持时失败。此操作不保证外部编辑器在声明复核之后不再修改声明，也不保证目录在断电后持久；不构成跨文件事务。预期 digest 未经下载验证；传递依赖闭包、配置和 skills 未锁定。后续更新、离线及安装仍未实现。
 
 ## 建议与实施边界
 
@@ -12,7 +18,7 @@
 
 ## 用户链路和拟议命令
 
-以下命令均为待用户审查的拟议接口；解析、复核与原子写入是内部步骤，不增加 `lock` 的公共子命令。
+以下链路除上文明确实现的首次创建和预览外，均为拟议接口；解析、复核与原子写入是内部步骤，不增加 `lock` 的公共子命令。
 
 1. 在 Git checkout 编辑 profile 与部件/集成声明，用现有 `validate` 检查引用、平台及能力。**待审查推荐**：首次 `lock` 没有 `--target` 时仅选可靠识别的本机目标，Linux ABI 等无法确定时要求显式指定；已有锁未指定目标时保留原目标集合，显式 `--target` 列表替换为新的完整目标集合并展示增删。首建默认 Node 假设为当前运行 Node 的确切版本，后续保留，`--node-version <exact>` 显式改变并展示差异。它是 npm engines 的假设，不安装或管理 Node。
 2. 拟议 `agent-stack lock --profile coding --dry-run --json` 在线解析并输出**版本候选/解析报告**及差异，不写锁；`--dry-run` 不能与 `--out` 同用。报告可以包含失败原因和不完整诊断，不能作为 `apply --plan` 的输入。首次建立锁解析完整 profile；仅显式 `--update <component[@exact]>` 时重新选择该部件的版本，选定版本仍需满足声明及来源策略。其他部件保持原版本，新增目标只补查原版本的资产；无法满足时失败并提示逐项更新。

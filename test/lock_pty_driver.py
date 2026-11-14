@@ -35,7 +35,11 @@ if pid == 0:
         env["CI"] = "true"
     if mode == "dumb":
         env["TERM"] = "dumb"
-    args = [node, "--import", preload, cli, "lock", "--dry-run", "--repo", repo]
+    args = [node, "--import", preload, cli, "lock", "--repo", repo]
+    if mode != "create":
+        args += ["--dry-run"]
+    if mode == "create":
+        args += ["--profile", "coding"]
     if mode in ("interrupt", "report"):
         args += ["--profile", "fixture"]
     if len(sys.argv) > 9:

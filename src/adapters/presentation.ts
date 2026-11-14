@@ -318,3 +318,36 @@ export function resolution(report: ResolutionReport, json: boolean) {
   if (blocked) line("Next: Review blocked sources or metadata and retry.");
   finish(clean(report.scope), false);
 }
+
+export function createdLock(
+  path: string,
+  lock: import("../core/fresh-lock.js").FreshLock,
+  json: boolean,
+) {
+  const scope =
+    "Shared lock records expected metadata only; downloads, dependency closure, configuration and runtime compatibility were not verified.";
+  if (json) {
+    console.log(
+      JSON.stringify(
+        {
+          kind: "shared-lock-created",
+          path,
+          profile: lock.profile,
+          targets: lock.targets.map((target) => target.id),
+          assets: lock.assets.length,
+          scope,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  line(`${colors.green("[CREATED]")} Shared lock`);
+  line("Path:");
+  line(clean(path), "  ", true);
+  line(
+    `Profile: ${clean(lock.profile)} · Targets: ${lock.targets.length} · Assets: ${lock.assets.length}`,
+  );
+  finish(scope, false);
+}
