@@ -1,6 +1,13 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 
@@ -19,6 +26,7 @@ export async function observe(name: string): Promise<Observation> {
     for (const extension of extensions) {
       const candidate = resolve(dir, `${name}${extension}`);
       try {
+        if (!(await stat(candidate)).isFile()) continue;
         await access(candidate, constants.X_OK);
         path = candidate;
         break;
@@ -74,43 +82,65 @@ export async function observe(name: string): Promise<Observation> {
     return { path, version: null, failure: "unsupported_wrapper" };
   const home = await mkdtemp(join(tmpdir(), "agent-stack-doctor-"));
   try {
-    const result = spawnSync(path, ["--version"], {
-      cwd: home,
-      env: {
-        PATH: process.env.PATH ?? "",
-        HOME: home,
-        USERPROFILE: home,
-        ...(process.env.SystemRoot
-          ? { SystemRoot: process.env.SystemRoot }
-          : {}),
-        COREPACK_ENABLE_NETWORK: "0",
-        COREPACK_ENABLE_PROJECT_SPEC: "0",
-        COREPACK_ENABLE_AUTO_PIN: "0",
-        COREPACK_ENV_FILE: "0",
-        COREPACK_DEFAULT_TO_LATEST: "0",
-        COREPACK_HOME: join(home, "corepack"),
-        pnpm_config_pm_on_fail: "ignore",
-        npm_config_manage_package_manager_versions: "false",
-        PI_CODING_AGENT_DIR: join(home, "pi"),
-      },
-      encoding: "utf8",
-      timeout: 3000,
-      maxBuffer: 16384,
-      windowsHide: true,
-    });
-    if (result.error)
-      return {
-        path,
-        version: null,
-        failure:
-          (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT"
-            ? "timeout"
-            : (result.error as NodeJS.ErrnoException).code === "ENOBUFS"
-              ? "output_limit"
-              : "execution_error",
+    const result = await new Promise<{
+      stdout: string;
+      failure: string | null;
+    }>((resolveResult) => {
+      const child = spawn(path, ["--version"], {
+        cwd: home,
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          USERPROFILE: home,
+          ...(process.env.SystemRoot
+            ? { SystemRoot: process.env.SystemRoot }
+            : {}),
+          COREPACK_ENABLE_NETWORK: "0",
+          COREPACK_ENABLE_PROJECT_SPEC: "0",
+          COREPACK_ENABLE_AUTO_PIN: "0",
+          COREPACK_ENV_FILE: "0",
+          COREPACK_DEFAULT_TO_LATEST: "0",
+          COREPACK_HOME: join(home, "corepack"),
+          pnpm_config_pm_on_fail: "ignore",
+          npm_config_manage_package_manager_versions: "false",
+          PI_CODING_AGENT_DIR: join(home, "pi"),
+        },
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const chunks: Buffer[] = [];
+      let stdoutSize = 0;
+      let stderrSize = 0;
+      let settled = false;
+      const finish = (failure: string | null, terminate = false) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (terminate) {
+          child.kill("SIGKILL");
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.unref();
+        }
+        resolveResult({
+          stdout: Buffer.concat(chunks).toString("utf8"),
+          failure,
+        });
       };
-    if (result.status !== 0)
-      return { path, version: null, failure: "nonzero_exit" };
+      const timer = setTimeout(() => finish("timeout", true), 3000);
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdoutSize += chunk.length;
+        if (stdoutSize > 16384) finish("output_limit", true);
+        else chunks.push(chunk);
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderrSize += chunk.length;
+        if (stderrSize > 16384) finish("output_limit", true);
+      });
+      child.once("error", () => finish("execution_error"));
+      child.once("close", (code) => finish(code === 0 ? null : "nonzero_exit"));
+    });
+    if (result.failure) return { path, version: null, failure: result.failure };
     const match = result.stdout
       .trim()
       .match(
