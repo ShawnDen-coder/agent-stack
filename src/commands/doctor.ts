@@ -38,7 +38,7 @@ export function createDoctorCommand(): Command {
             engine,
           );
           const selected = profile.components.filter((item) =>
-            ["pnpm", "uv", "pi"].includes(item.component),
+            ["pnpm", "uv", "pi", "herdr"].includes(item.component),
           );
           const checks = await Promise.all(
             ["npm", "git", ...selected.map((item) => item.component)].map(
@@ -89,7 +89,8 @@ export function createDoctorCommand(): Command {
             ],
             unchecked: {
               components: profile.components.filter(
-                (item) => !["pnpm", "uv", "pi"].includes(item.component),
+                (item) =>
+                  !["pnpm", "uv", "pi", "herdr"].includes(item.component),
               ),
               integrations: profile.integrations,
             },

@@ -32,6 +32,28 @@ async function fake(bin, name, script) {
   await writeFile(path, `#!/bin/sh\n${script}\n`);
   await chmod(path, 0o755);
 }
+async function nativeHerdr(bin, output) {
+  const source = join(bin, "fixture.c");
+  await writeFile(
+    source,
+    `#include <stdio.h>\nint main(void) { puts(${JSON.stringify(output)}); return 0; }\n`,
+  );
+  const result = spawnSync("cc", [source, "-o", join(bin, "herdr")], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  await rm(source);
+}
+async function setHerdrRequirement(root, requirement) {
+  const file = join(root, "profiles/coding.json");
+  const profile = JSON.parse(await readFile(file, "utf8"));
+  profile.components = profile.components.map((item) =>
+    item.component === "herdr"
+      ? { component: "herdr", version: requirement }
+      : item,
+  );
+  await writeFile(file, JSON.stringify(profile));
+}
 async function fakePackage(bin, name, version) {
   const dir = join(bin, `package-${name}`);
   await mkdir(dir);
@@ -94,6 +116,8 @@ test(
       await fake(bin, name, `echo 'noise' >&2\necho '${version}'`);
     await fakePackage(bin, "pnpm", "12.15.0");
     await fakePackage(bin, "pi", "1.5.2");
+    await nativeHerdr(bin, "herdr 0.9.4");
+    await setHerdrRequirement(root, ">=0.9.0 <1");
     const before = await readFile(join(root, "package.json"), "utf8");
     const entries = await readdir(root);
     const result = run(root, bin);
@@ -106,7 +130,9 @@ test(
     assert.equal(check(report, "pnpm").evidence, "package_metadata");
     assert.equal(check(report, "uv").evidence, "version_command");
     assert.deepEqual(report.unchecked.integrations, ["pi-herdr"]);
-    assert.equal(report.unchecked.components[0].component, "herdr");
+    assert.equal(check(report, "herdr").version, "0.9.4");
+    assert.equal(check(report, "herdr").evidence, "version_command");
+    assert.deepEqual(report.unchecked.components, []);
     assert.equal(await readFile(join(root, "package.json"), "utf8"), before);
     assert.deepEqual(await readdir(root), entries);
     const text = spawnSync(
@@ -282,3 +308,75 @@ test("doctor does not run a POSIX Corepack npm symlink", unix, async (t) => {
   assert.equal(check(report, "npm").evidence, null);
   assert.equal((await readdir(root)).includes("unexpected"), false);
 });
+
+test(
+  "herdr reports version and leaves stable channel unresolved",
+  unix,
+  async (t) => {
+    const { root, bin } = await fixture(t);
+    await nativeHerdr(bin, "herdr 0.9.4");
+    const result = run(root, bin);
+    const report = JSON.parse(result.stdout);
+    const herdr = check(report, "herdr");
+    assert.equal(result.status, 1);
+    assert.equal(herdr.path, join(bin, "herdr"));
+    assert.equal(herdr.version, "0.9.4");
+    assert.equal(herdr.status, "ok");
+    assert.equal(herdr.channel, "stable");
+    assert.equal(herdr.evidence, "version_command");
+    assert.equal(herdr.source, "unknown");
+    assert.deepEqual(report.unchecked.integrations, ["pi-herdr"]);
+  },
+);
+
+test(
+  "herdr reports missing, version mismatch and unknown output",
+  unix,
+  async (t) => {
+    const { root, bin } = await fixture(t);
+    assert.equal(
+      check(JSON.parse(run(root, bin).stdout), "herdr").status,
+      "not_found",
+    );
+    await setHerdrRequirement(root, ">=1.0.0 <2");
+    await nativeHerdr(bin, "herdr 0.9.4");
+    let herdr = check(JSON.parse(run(root, bin).stdout), "herdr");
+    assert.equal(herdr.status, "version_mismatch");
+    assert.equal(herdr.requirement, ">=1.0.0 <2");
+    await nativeHerdr(bin, "unexpected 0.9.4");
+    herdr = check(JSON.parse(run(root, bin).stdout), "herdr");
+    assert.equal(herdr.status, "unparseable_version");
+  },
+);
+
+test("herdr skips scripts and unselected profiles", unix, async (t) => {
+  const { root, bin } = await fixture(t);
+  await fake(bin, "herdr", `echo executed > '${join(root, "unexpected")}'`);
+  let report = JSON.parse(run(root, bin).stdout);
+  assert.equal(check(report, "herdr").status, "unverified_entrypoint");
+  assert.equal(check(report, "herdr").evidence, null);
+  const result = spawnSync(
+    process.execPath,
+    [cli, "doctor", "--repo", root, "--profile", "coding-rex", "--json"],
+    { encoding: "utf8", env: { ...process.env, PATH: bin } },
+  );
+  report = JSON.parse(result.stdout);
+  assert.equal(check(report, "herdr"), undefined);
+  assert.equal((await readdir(root)).includes("unexpected"), false);
+});
+
+test(
+  "herdr is not queried when profile platform does not apply",
+  unix,
+  async (t) => {
+    const { root, bin } = await fixture(t);
+    const path = join(root, "profiles/coding.json");
+    const profile = JSON.parse(await readFile(path, "utf8"));
+    profile.platforms = [process.platform === "darwin" ? "linux" : "darwin"];
+    await writeFile(path, JSON.stringify(profile));
+    await nativeHerdr(bin, "herdr 0.9.4");
+    const herdr = check(JSON.parse(run(root, bin).stdout), "herdr");
+    assert.equal(herdr.status, "platform_not_applicable");
+    assert.equal(herdr.path, null);
+  },
+);
