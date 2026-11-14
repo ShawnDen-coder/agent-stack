@@ -1,17 +1,15 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import {
-  access,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { access, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 import type { Observation } from "../core/doctor.js";
+import {
+  cmdShimVersion,
+  isCorepackEntry,
+  packageVersion,
+} from "./package-metadata.js";
 
 export async function observe(name: string): Promise<Observation> {
   const extensions =
@@ -36,50 +34,36 @@ export async function observe(name: string): Promise<Observation> {
     }
     if (path) break;
   }
-  if (!path) return { path, version: null, failure: "not_found" };
-  // Never execute potentially auto-installing package-manager or agent shims.
-  if (name === "pnpm" || name === "pi") {
-    try {
-      const target = await realpath(path);
-      let directory = dirname(target);
-      for (let depth = 0; depth < 5; depth++) {
-        try {
-          const manifest = JSON.parse(
-            await readFile(join(directory, "package.json"), "utf8"),
-          ) as {
-            name?: string;
-            version?: string;
-            bin?: string | Record<string, string>;
-          };
-          const expected =
-            name === "pnpm" ? "pnpm" : "@earendil-works/pi-coding-agent";
-          const bin =
-            typeof manifest.bin === "string"
-              ? manifest.bin
-              : manifest.bin?.[name];
-          if (
-            manifest.name === expected &&
-            bin &&
-            (await realpath(resolve(directory, bin))) === target &&
-            manifest.version
-          )
-            return { path, version: manifest.version, failure: null };
-          break;
-        } catch {
-          /* find a parent manifest */
-        }
-        const parent = dirname(directory);
-        if (parent === directory) break;
-        directory = parent;
-      }
-    } catch {
-      /* unresolved entry point */
-    }
-    return { path, version: null, failure: "unverified_entrypoint" };
+  if (!path)
+    return { path, version: null, failure: "not_found", evidence: null };
+  // Batch wrappers are inspected as data, never executed.
+  if (/\.(cmd|bat)$/i.test(path) && process.platform === "win32") {
+    const version = ["npm", "pnpm", "pi"].includes(name)
+      ? await cmdShimVersion(path, name)
+      : null;
+    return {
+      path,
+      version,
+      failure: version ? null : "unverified_entrypoint",
+      evidence: version ? "package_metadata" : null,
+    };
   }
-  // cmd.exe requires shell parsing; do not interpret paths or arbitrary batch files.
-  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(path))
-    return { path, version: null, failure: "unsupported_wrapper" };
+  if (name === "pnpm" || name === "pi") {
+    const version = await packageVersion(path, name);
+    return {
+      path,
+      version,
+      failure: version ? null : "unverified_entrypoint",
+      evidence: version ? "package_metadata" : null,
+    };
+  }
+  if (name === "npm" && (await isCorepackEntry(path)))
+    return {
+      path,
+      version: null,
+      failure: "unverified_entrypoint",
+      evidence: null,
+    };
   const home = await mkdtemp(join(tmpdir(), "agent-stack-doctor-"));
   try {
     const result = await new Promise<{
@@ -140,7 +124,13 @@ export async function observe(name: string): Promise<Observation> {
       child.once("error", () => finish("execution_error"));
       child.once("close", (code) => finish(code === 0 ? null : "nonzero_exit"));
     });
-    if (result.failure) return { path, version: null, failure: result.failure };
+    if (result.failure)
+      return {
+        path,
+        version: null,
+        failure: result.failure,
+        evidence: "version_command",
+      };
     const match = result.stdout
       .trim()
       .match(
@@ -150,6 +140,7 @@ export async function observe(name: string): Promise<Observation> {
       path,
       version: match?.[1] ?? null,
       failure: match ? null : "unparseable_version",
+      evidence: "version_command",
     };
   } finally {
     await rm(home, { recursive: true, force: true });

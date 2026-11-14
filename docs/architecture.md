@@ -97,7 +97,7 @@ agent-stack/
 
 调用方向为 `cli → commands → core / adapters`。core 只接收已解析的数据并返回结果；文件、网络、子进程等外部操作由 adapter 承担。导入业务模块不启动服务、不连接网络、不应用配置。
 
-现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据。后续针对 npm、原生发行物、应用配置的 adapter 按真实用例增加；CLI 不直接拼接 Shell 命令。Windows 命令包装器、路径和 Shell 处理在对应边界中验证。
+现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据。后续针对 npm、原生发行物、应用配置的 adapter 按真实用例增加；CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
 
 ## 校验的证据范围
 
