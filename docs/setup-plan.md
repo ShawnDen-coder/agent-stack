@@ -1,6 +1,6 @@
 # Setup 实施方案：按锁对齐 coding
 
-状态：方案待根会话审查；`setup`、计划执行和安装均未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
+状态：方案已通过根会话审查；当前仅实现 `setup --dry-run` 只读预览，计划执行和安装尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
 
 ## 推荐路径与成功条件
 
@@ -24,7 +24,7 @@
 
 推荐所有新安装进入用户级 Agent Stack 专属版本目录，按组件、确切版本和目标区分；不使用全局 npm prefix 或接管 brew、Corepack 等已有渠道。计划中显示目录、原生入口与 PATH 差异，不能把私有绝对路径放入共享锁。原生 `pi`、`pnpm`/其已证实别名、`uv`/`uvx` 和 `herdr` 仍可直接使用；只建立经对应版本验证的入口。若受管目录不在当前及持久 PATH，计划列出所需用户级 PATH 变更并经确认；冲突、无法安全识别 shell/profile 或 Windows 用户环境写入能力时阻塞，不静默改系统 PATH。当前进程不能修改父 shell：成功结果须区分持久 PATH 已写入和需重启 shell 才生效；结果检查使用按计划构造的子进程环境验证原生入口，另须验证新 shell/用户环境能读取持久 PATH，不能声称已修改父 shell。
 
-所有下载只使用锁内 URL 和预期 digest，允许的 HTTPS 跳转链、字节和时间上限须固定且逐跳验证；不携带用户凭证，不追 latest。先在同一受管文件系统临时区下载并计算锁定 SHA-512 SRI/SHA-256，再解包到隔离目录；拒绝绝对路径、`..`、逃逸链接、特殊文件、重复目标、解压炸弹与不匹配的资产布局，限制文件数和展开大小。校验前不执行、不发布。目标缺项、digest 不符、网络失败或正在使用/无法安全替换均停止；不用在线安装脚本绕过锁。
+共享锁列出的资产下载只使用锁内 URL 和预期 digest，允许的 HTTPS 跳转链、字节和时间上限须固定且逐跳验证；不携带用户凭证，不追 latest。先在同一受管文件系统临时区下载并计算锁定 SHA-512 SRI/SHA-256，再解包到隔离目录；拒绝绝对路径、`..`、逃逸链接、特殊文件、重复目标、解压炸弹与不匹配的资产布局，限制文件数和展开大小。校验前不执行、不发布。目标缺项、digest 不符、网络失败或正在使用/无法安全替换均停止；不用在线安装脚本绕过锁。
 
 - **uv/herdr**：从锁内资产直接部署，核对所选版本/目标的归档内容与入口。官方允许直接获取 [uv release 资产](https://docs.astral.sh/uv/getting-started/installation/#github-releases) 和 [herdr 发行物](https://herdr.dev/tui/docs/install/#download-manually)。Windows herdr 必须保留 zip 内 app-local ConPTY 目录，不只复制 exe；这是整包 digest，不是 exe digest。
 - **pnpm**：校验锁内顶层包及所选 exact native 包的各自 SRI，安全解包后读取已校验顶层 tarball 内 manifest，核对目标 native optional dependency 的确切包名/版本与锁一致；读取已校验 native 包的 manifest 核对 OS/CPU、engines 和入口，再按锁定版本已核实的 [native 映射](https://github.com/pnpm/pnpm/blob/v12.15.0/pnpm/npm/pnpm/native-binary.mjs)部署对应二进制；不运行安装脚本来猜入口。是否可安全提供 `pnpx` 等别名、Windows 可执行布局和所选版本兼容性须先逐版本系列验证，缺证据即阻塞。
@@ -58,3 +58,5 @@
 4. **确认、恢复与结果片**：贯通同一内部计划的确认、逐项复核、日志、部分失败恢复、幂等及成功后绑定，测试新机器、既有工具、重复运行、两进程竞争、源/锁/env/目标在确认后变化、每一步故障与重试。真实编译 CLI 从临时环境完成 `setup → doctor`；补齐后续 `run coding` 的资源加载与透传后，再用假 runtime/本地集成完成 `setup → doctor → run coding` 验收。仅部分命令或 dry-run 可用不算首版闭环。
 
 真实平台验收分别记录 macOS、Windows 原生和 Linux/WSL；模拟 `path.win32` 不等于 Windows 实机通过。每片 `pnpm check`、适用时实际 pack/解包并交根会话审查。当前锁**没有**传递依赖闭包、各版本安装脚本/入口可运行性、配置/skills 内容摘要、集成扩展身份、最低 OS 条件或本机归属；资源片用本机计划冻结 Git 内容，版本专属 adapter 补安装与路径证据。若需要可跨设备复现 npm 闭包或独立固定扩展，再单独设计生态原生锁/共享锁扩展和迁移，不能把现有字段解释成已有这些保证。
+
+当前只读预览使用进程平台与架构和 Node 的 `os.machine()`；仅在两者均指向 macOS arm64 时确认原生目标。Intel macOS 和 Windows x64 尚缺可靠的进程仿真判定，因此明确阻塞，不能凭 x64 进程或 machine 字符串断言物理宿主。Apple 对 Rosetta 提供的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/Apple-Silicon/about-the-rosetta-translation-environment) 需要检查当前进程；启动单独的 `sysctl` 进程不能代替检查 Node 进程。Windows 原生架构的识别仍需可靠方案及实机验收。

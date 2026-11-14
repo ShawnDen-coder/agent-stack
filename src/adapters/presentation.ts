@@ -366,3 +366,61 @@ export function createdLock(
   );
   finish(scope, false);
 }
+
+export function setup(
+  plan: import("../core/setup-plan.js").SetupPlan,
+  json: boolean,
+) {
+  if (json) {
+    console.log(JSON.stringify(plan, null, 2));
+    return;
+  }
+  line("Repository:");
+  line(clean(plan.repo.path), "  ", true);
+  line(
+    `Profile: ${clean(plan.profile.id)} (${clean(plan.profile.selectedBy)})`,
+  );
+  line("Lock:");
+  line(clean(plan.lock.path), "  ", true);
+  line(`Lock Node assumption: ${clean(plan.lock.node)}`);
+  line(
+    `Host: ${clean(plan.host.platform)} · process ${clean(plan.host.processArch)} · machine ${clean(plan.host.machine)}`,
+  );
+  line();
+  line("Prerequisites");
+  for (const item of plan.prerequisites) {
+    line(
+      `[${item.status === "ok" ? "OBSERVED" : "CHECK"}] ${clean(item.name)}: ${clean(item.version ?? "unknown")} (${clean(item.status)})`,
+      "  ",
+    );
+    line(
+      `Evidence: ${clean(item.evidence ?? "none")} · Required: ${clean(item.requirement ?? "none")}`,
+      "    ",
+    );
+  }
+  line();
+  line("Components");
+  for (const item of plan.components) {
+    line(
+      `[CHECK] ${clean(item.component)} · locked ${clean(item.lockedVersion)}`,
+      "  ",
+    );
+    line(
+      `Observed: ${clean(item.observation.version ?? "unknown")} · ${clean(item.observation.status)}`,
+      "    ",
+    );
+    line(
+      `Evidence: ${clean(item.observation.evidence ?? "none")} · ownership: unknown`,
+      "    ",
+    );
+    if (item.observation.path) line(clean(item.observation.path), "    ", true);
+    line(clean(item.action), "    ");
+  }
+  line();
+  line(`Integrations: ${plan.integrations.map(clean).join(", ") || "none"}`);
+  line(`Resources: ${plan.resources.map(clean).join(", ")}`);
+  line();
+  line("Blockers");
+  for (const item of plan.blockers) line(`[BLOCKED] ${clean(item)}`, "  ");
+  finish(clean(plan.scope), false);
+}

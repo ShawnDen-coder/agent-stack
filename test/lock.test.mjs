@@ -2882,3 +2882,88 @@ test("oversized registry body cancels its reader in the real CLI", async (t) => 
   );
   assert.equal(await readFile(marker, "utf8"), "cancelled");
 });
+
+test("setup previews a validated lock offline and refuses incomplete use", async (t) => {
+  const f = await freshForValidation(t);
+  const preload = join(f.dir, "setup-offline.mjs");
+  await writeFile(
+    preload,
+    `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';
+Object.defineProperty(process,'platform',{value:'darwin'}); Object.defineProperty(process,'arch',{value:'arm64'}); os.machine=()=> 'arm64'; syncBuiltinESMExports();
+globalThis.fetch=()=>{throw Error('network forbidden')};`,
+  );
+  const runSetup = (args, env = {}) =>
+    spawnSync(process.execPath, ["--import", preload, cli, ...args], {
+      encoding: "utf8",
+      timeout: 12000,
+      env: { PATH: "", NO_COLOR: "1", ...env },
+    });
+  const originalLock = await readFile(f.path, "utf8");
+  const differentNode = JSON.parse(originalLock);
+  differentNode.node = "24.0.0";
+  await writeFile(f.path, JSON.stringify(differentNode));
+  const before = await snapshot(f.dir);
+  const result = runSetup([
+    "--json",
+    "setup",
+    "--repo",
+    f.dir,
+    "--profile",
+    "coding",
+    "--dry-run",
+  ]);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.kind, "setup-plan");
+  assert.equal(plan.host.target, "darwin-arm64");
+  assert.equal(plan.lock.node, "24.0.0");
+  assert.equal(plan.components.length, 4);
+  assert.ok(
+    plan.components.every(
+      (item) =>
+        item.ownership === "unknown" && item.observation.status === "not_found",
+    ),
+  );
+  assert.ok(plan.blockers.length);
+  assert.notEqual(
+    runSetup(["setup", "--repo", f.dir, "--dry-run", "--json"]).status,
+    0,
+  );
+  assert.ok(plan.integrations.includes("pi-herdr"));
+  assert.equal(
+    runSetup(["setup", "--repo", f.dir, "--profile", "coding", "--json"])
+      .status,
+    2,
+  );
+  assert.equal(
+    runSetup([
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--lock",
+      " ",
+      "--json",
+    ]).status,
+    2,
+  );
+  const env = runSetup(["setup", "--dry-run", "--json"], {
+    AGENT_STACK_REPO: f.dir,
+    AGENT_STACK_PROFILE: "coding",
+  });
+  assert.equal(JSON.parse(env.stdout).profile.selectedBy, "environment");
+  const mismatch = runSetup([
+    "setup",
+    "--repo",
+    f.dir,
+    "--profile",
+    "fixture",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(mismatch.status, 1);
+  assert.notEqual(JSON.parse(mismatch.stdout).kind, "setup-plan");
+  assert.deepEqual(await snapshot(f.dir), before);
+});
