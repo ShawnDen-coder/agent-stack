@@ -39,7 +39,7 @@ const assetSchema = z.union([
     url: z.string(),
     sha256: z.string(),
     digestSource: z.string(),
-    format: z.enum(["zip", "binary"]),
+    format: z.enum(["zip", "binary", "tar.gz"]),
   }),
 ]);
 export type AssetItem = z.infer<typeof assetSchema>;

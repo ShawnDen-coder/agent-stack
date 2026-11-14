@@ -19,12 +19,17 @@ import { readRepository } from "../adapters/repository.js";
 import { herdrAsset, validTarget } from "../core/herdr-assets.js";
 import { npmAsset, pnpmNative } from "../core/npm-assets.js";
 import { type Candidate, selectCandidate } from "../core/npm-candidate.js";
-import { selectHerdr, selectUv } from "../core/release-candidate.js";
+import {
+  selectHerdr,
+  selectUv,
+  type UvRelease,
+} from "../core/release-candidate.js";
 import {
   type AssetItem,
   type ResolutionItem,
   resolutionReportSchema,
 } from "../core/resolution-report.js";
+import { uvAsset } from "../core/uv-assets.js";
 import { validateRepository } from "../core/validate.js";
 
 export function createLockCommand(): Command {
@@ -87,6 +92,7 @@ export function createLockCommand(): Command {
         );
         let components: ResolutionItem[];
         let herdrSnapshot: unknown;
+        let uvSnapshot: UvRelease | undefined;
         const npmSnapshots = new Map<string, Candidate>();
         try {
           components = await Promise.all(
@@ -111,6 +117,7 @@ export function createLockCommand(): Command {
                       await uvReleases(controller.signal),
                       selection.version,
                     );
+                    uvSnapshot = candidate;
                     return {
                       component: component.id,
                       version: candidate.version,
@@ -284,6 +291,23 @@ export function createLockCommand(): Command {
               }
               continue;
             }
+            if (selection.component === "uv") {
+              try {
+                if (!uvSnapshot)
+                  throw new Error("uv version metadata unavailable");
+                assets.push({
+                  component: selection.component,
+                  ...uvAsset(uvSnapshot, target),
+                });
+              } catch (error) {
+                assets.push({
+                  component: selection.component,
+                  target,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+              continue;
+            }
             if (selection.component !== "herdr") {
               assets.push({
                 component: selection.component,
@@ -328,7 +352,7 @@ export function createLockCommand(): Command {
           components,
           ...(targets.length ? { targets, assets } : {}),
           scope: targets.length
-            ? "npm and herdr asset metadata only; expected digests are not downloaded-byte verification or signatures; uv assets, dependency closure, lifecycle scripts, installation, runtime compatibility and complete lock are not checked"
+            ? "npm, uv and herdr asset metadata only; expected digests are not downloaded-byte verification or signatures; dependency closure, lifecycle scripts, installation, runtime compatibility and complete lock are not checked"
             : "version metadata only; no lock, target assets, digests for releases, dependency closure, installation or runtime verification",
         });
         resolution(report, Boolean(options.json));

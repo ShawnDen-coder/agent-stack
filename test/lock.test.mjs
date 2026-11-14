@@ -970,7 +970,7 @@ test("herdr target request aborts on PTY interrupt", {
 
 function npmAssetPreload(overrides = {}) {
   const data = { ...herdrAssetManifest() };
-  return `const opts=${JSON.stringify(overrides)};const hashes=${JSON.stringify(integrity)};globalThis.fetch=async u=>{u=String(u);if(u.startsWith('https://api.github.com/'))return new Response(JSON.stringify([{id:1,tag_name:'0.13.8',html_url:'https://github.com/astral-sh/uv/releases/tag/0.13.8',draft:false,prerelease:false}]));if(u==='https://herdr.dev/latest.json')return new Response(${JSON.stringify(JSON.stringify(data))});const name=decodeURIComponent(u.split('/').pop()),version=name.startsWith('@pnpm/exe.')||name==='pnpm'?'12.15.0':'1.5.2';const deps={'@pnpm/exe.darwin-arm64':'12.15.0','@pnpm/exe.darwin-x64':'12.15.0','@pnpm/exe.win32-x64':'12.15.0'};let entry={name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:hashes}};if(name==='pnpm')entry.optionalDependencies={...deps,...(opts.dependencies||{})};if(name.startsWith('@pnpm/exe.')){const parts=name.split('.').pop().split('-');entry.os=[parts[0]];entry.cpu=[parts[1]];Object.assign(entry,opts.native||{});}if(name==='@earendil-works/pi-coding-agent')Object.assign(entry,opts.pi||{});return new Response(JSON.stringify({name,versions:{[version]:entry}}));};`;
+  return `const opts=${JSON.stringify(overrides)};const hashes=${JSON.stringify(integrity)};globalThis.fetch=async u=>{u=String(u);if(u.startsWith('https://api.github.com/'))return new Response(JSON.stringify(opts.uv ?? [{id:1,tag_name:'0.13.8',html_url:'https://github.com/astral-sh/uv/releases/tag/0.13.8',draft:false,prerelease:false}]));if(u==='https://herdr.dev/latest.json')return new Response(${JSON.stringify(JSON.stringify(data))});const name=decodeURIComponent(u.split('/').pop()),version=name.startsWith('@pnpm/exe.')||name==='pnpm'?'12.15.0':'1.5.2';const deps={'@pnpm/exe.darwin-arm64':'12.15.0','@pnpm/exe.darwin-x64':'12.15.0','@pnpm/exe.win32-x64':'12.15.0'};let entry={name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:hashes}};if(name==='pnpm')entry.optionalDependencies={...deps,...(opts.dependencies||{})};if(name.startsWith('@pnpm/exe.')){const parts=name.split('.').pop().split('-');entry.os=[parts[0]];entry.cpu=[parts[1]];Object.assign(entry,opts.native||{});}if(name==='@earendil-works/pi-coding-agent')Object.assign(entry,opts.pi||{});return new Response(JSON.stringify({name,versions:{[version]:entry}}));};`;
 }
 async function codingNpmFixture(t, overrides = {}) {
   const { dir, preload } = await setup(t, null, npmAssetPreload(overrides));
@@ -1014,7 +1014,10 @@ test("npm and herdr preview supported targets with uv blocked", async (t) => {
     assert.equal(native.integrity, integrity);
     assert.match(native.url, /^https:\/\/registry\.npmjs\.org\//);
     assert.ok(a.find((x) => x.component === "herdr").sha256);
-    assert.match(a.find((x) => x.component === "uv").error, /not covered/);
+    assert.match(
+      a.find((x) => x.component === "uv").error,
+      /assets are unavailable/,
+    );
   }
   assert.deepEqual(await snapshot(dir), before);
 });
@@ -1360,4 +1363,252 @@ test("pnpm native rejects libc constraint on macOS", async (t) => {
   ]);
   assert.equal(result.status, 1);
   assert.match(JSON.stringify(JSON.parse(result.stdout).assets), /libc/);
+});
+
+const uvNames = [
+  "uv-aarch64-apple-darwin.tar.gz",
+  "uv-x86_64-apple-darwin.tar.gz",
+  "uv-x86_64-pc-windows-msvc.zip",
+];
+function uvReleaseWithAssets() {
+  return uvRelease("0.13.8", 1, {
+    assets: uvNames.map((name, i) => ({
+      id: 100 + i,
+      name,
+      state: "uploaded",
+      browser_download_url: `https://github.com/astral-sh/uv/releases/download/0.13.8/${name}`,
+      digest: `sha256:${assetHash}`,
+    })),
+  });
+}
+async function uvAssetsFixture(t, release = uvReleaseWithAssets()) {
+  return codingNpmFixture(t, { uv: [release] });
+}
+test("full coding resolves all target assets from selected release without writing", async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  await writeFile(join(dir, "stack/stack.lock.json"), "unchanged\n");
+  const before = await snapshot(dir);
+  const r = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+    "--target",
+    "win32-x64",
+    "--target",
+    "darwin-x64",
+    "--target",
+    "darwin-arm64",
+  ]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const report = JSON.parse(r.stdout);
+  assert.equal(report.kind, "resolution-report");
+  assert.equal(report.assets.length, 15);
+  assert.equal(report.assets.filter((x) => x.error).length, 0);
+  for (const [i, target] of [
+    "darwin-arm64",
+    "darwin-x64",
+    "win32-x64",
+  ].entries()) {
+    const item = report.assets.find(
+      (x) => x.component === "uv" && x.target === target,
+    );
+    assert.equal(item.sha256, assetHash);
+    assert.equal(
+      item.url,
+      uvReleaseWithAssets().assets[i].browser_download_url,
+    );
+    assert.equal(item.format, i === 2 ? "zip" : "tar.gz");
+    assert.match(item.identity, new RegExp(`asset ${100 + i}`));
+  }
+  assert.deepEqual(await snapshot(dir), before);
+});
+for (const [label, mutate, pattern] of [
+  ["missing", (r) => r.assets.shift(), /Missing or duplicate/],
+  [
+    "duplicate",
+    (r) => r.assets.push({ ...r.assets[0] }),
+    /Missing or duplicate/,
+  ],
+  [
+    "duplicate id",
+    (r) => (r.assets[1].id = r.assets[0].id),
+    /Duplicate uv asset identity/,
+  ],
+  [
+    "wrong tag URL",
+    (r) =>
+      (r.assets[0].browser_download_url =
+        r.assets[0].browser_download_url.replace("/0.13.8/", "/0.13.7/")),
+    /version-mismatched/,
+  ],
+  [
+    "foreign host",
+    (r) => (r.assets[0].browser_download_url = "https://evil.test/archive"),
+    /Untrusted/,
+  ],
+  ["absent digest", (r) => delete r.assets[0].digest, /digest/],
+  [
+    "wrong algorithm",
+    (r) => (r.assets[0].digest = `sha512:${assetHash}`),
+    /invalid SHA-256/,
+  ],
+  [
+    "bad digest",
+    (r) => (r.assets[0].digest = "sha256:nope"),
+    /invalid SHA-256/,
+  ],
+  ["not uploaded", (r) => (r.assets[0].state = "new"), /uploaded/],
+  ["invalid release id", (r) => (r.id = 0), /id/],
+  [
+    "invalid release tag",
+    (r) => (r.html_url = "https://github.com/other/uv/releases/tag/0.13.8"),
+    /Invalid uv release identity/,
+  ],
+])
+  test(`uv target rejects ${label}`, async (t) => {
+    const release = uvReleaseWithAssets();
+    mutate(release);
+    const { dir, preload } = await uvAssetsFixture(t, release);
+    const before = await snapshot(dir);
+    const r = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+      "--target",
+      "darwin-arm64",
+    ]);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(JSON.stringify(JSON.parse(r.stdout)), pattern);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+test("uv version-only ignores unrelated malformed assets", async (t) => {
+  const release = uvReleaseWithAssets();
+  release.assets = [{ name: "unrelated" }];
+  const { dir, preload } = await uvAssetsFixture(t, release);
+  const r = run(dir, preload, ["--profile", "coding", "--dry-run", "--json"]);
+  assert.equal(r.status, 0, r.stdout);
+});
+test("uv target never falls back from selected release with missing assets", async (t) => {
+  const newer = uvRelease("0.13.9", 2, { assets: [] });
+  const older = uvReleaseWithAssets();
+  const { dir, preload } = await codingNpmFixture(t, { uv: [older, newer] });
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+    "--target",
+    "darwin-arm64",
+  ]);
+  assert.equal(result.status, 1);
+  const report = JSON.parse(result.stdout);
+  assert.equal(
+    report.components.find((x) => x.component === "uv").version,
+    "0.13.9",
+  );
+  assert.match(
+    report.assets.find((x) => x.component === "uv").error,
+    /Missing or duplicate/,
+  );
+});
+for (const [columns, color] of [
+  [40, "no-color"],
+  [40, "color"],
+  [80, "no-color"],
+  [80, "color"],
+])
+  test(`uv mixed assets fit ${columns} column ${color} PTY`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const { dir, preload } = await uvAssetsFixture(t);
+    const { parse } = await import("yaml");
+    const profile = parse(
+      await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
+    );
+    profile.id = "fixture";
+    await writeFile(
+      join(dir, "stack/profiles/fixture.json"),
+      JSON.stringify(profile),
+    );
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, "tmp"));
+    const r = spawnSync(
+      "python3",
+      [
+        ptyDriver,
+        process.execPath,
+        cli,
+        dir,
+        dir,
+        "report",
+        String(columns),
+        color,
+        preload,
+        "darwin-arm64",
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.status, 0, out.stderr);
+    const { stripVTControlCharacters } = await import("node:util");
+    const width = (await import("fast-string-width")).default;
+    const text = stripVTControlCharacters(out.stdout);
+    for (const line of text.split(/\r?\n/))
+      assert.ok(width(line) <= columns, line);
+    const compact = text.replace(/\s/g, "");
+    assert.ok(compact.includes(integrity));
+    assert.ok(compact.includes(assetHash));
+    assert.ok(
+      compact.includes(uvReleaseWithAssets().assets[0].browser_download_url),
+    );
+    assert.doesNotMatch(out.stdout, /Choose a profile/);
+  });
+test("uv release query aborts on target preview Ctrl-C", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { dir, preload } = await uvAssetsFixture(t);
+  const marker = join(dir, "probe.pid"),
+    aborted = join(dir, "aborted");
+  let body = await readFile(preload, "utf8");
+  body =
+    `import {writeFileSync} from 'node:fs';` +
+    body.replace(
+      "globalThis.fetch=async u=>{u=String(u);",
+      `globalThis.fetch=async (u,{signal})=>{u=String(u);if(u.startsWith('https://api.github.com/'))return new Promise((_,reject)=>{writeFileSync(${JSON.stringify(marker)},'start');const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);writeFileSync(${JSON.stringify(aborted)},'yes');reject(signal.reason)})});`,
+    );
+  await writeFile(preload, body);
+  const { parse } = await import("yaml");
+  const profile = parse(
+    await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
+  );
+  profile.id = "fixture";
+  await writeFile(
+    join(dir, "stack/profiles/fixture.json"),
+    JSON.stringify(profile),
+  );
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(dir, "tmp"));
+  const r = spawnSync(
+    "python3",
+    [
+      ptyDriver,
+      process.execPath,
+      cli,
+      dir,
+      dir,
+      "interrupt",
+      "80",
+      "no-color",
+      preload,
+      "darwin-arm64",
+    ],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const output = JSON.parse(r.stdout);
+  assert.equal(output.status, 130, output.stderr);
+  assert.equal(await readFile(aborted, "utf8"), "yes");
 });

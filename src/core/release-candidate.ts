@@ -7,7 +7,9 @@ const releaseSchema = z.object({
   html_url: z.string(),
   draft: z.boolean(),
   prerelease: z.boolean(),
+  assets: z.unknown().optional(),
 });
+export type UvRelease = z.infer<typeof releaseSchema>;
 const manifestSchema = z.object({ version: z.string() });
 const releaseStatusSchema = z.object({
   draft: z.boolean(),
