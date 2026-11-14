@@ -1,3 +1,5 @@
+import { readJsonBody } from "./json-body.js";
+
 const uvUrl = "https://api.github.com/repos/astral-sh/uv/releases";
 const herdrUrl = "https://herdr.dev/latest.json";
 
@@ -16,33 +18,21 @@ async function readJson(
     });
     if (!response.ok)
       throw new Error(`Release metadata HTTP ${response.status}`);
-    if (!response.body) throw new Error("Release metadata has no body");
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let length = 0;
-    try {
-      while (true) {
-        const part = await reader.read();
-        if (part.done) break;
-        length += part.value.length;
-        if (length > pageLimit)
-          throw new Error("Release metadata exceeds size limit");
-        if (length > remaining)
-          throw new Error("Release metadata exceeds total size limit");
-        chunks.push(part.value);
-      }
-    } finally {
-      await reader.cancel().catch(() => {});
+    const body = await readJsonBody(response, pageLimit, remaining);
+    if (!body.ok) {
+      if (body.reason === "no-body")
+        throw new Error("Release metadata has no body");
+      if (body.reason === "invalid-json")
+        throw new Error("Release metadata is invalid JSON");
+      if (body.reason === "total-limit")
+        throw new Error("Release metadata exceeds total size limit");
+      throw new Error("Release metadata exceeds size limit");
     }
-    try {
-      return {
-        data: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
-        link: response.headers.get("link"),
-        bytes: length,
-      };
-    } catch {
-      throw new Error("Release metadata is invalid JSON");
-    }
+    return {
+      data: body.data,
+      link: response.headers.get("link"),
+      bytes: body.bytes,
+    };
   } catch (error) {
     if (timeout.aborted) throw new Error("Release metadata request timed out");
     if (signal.aborted) throw new Error("Release metadata request cancelled");

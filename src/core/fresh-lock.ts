@@ -1,26 +1,17 @@
 import { z } from "zod";
 import type { ResolutionReport } from "./resolution-report.js";
 import type { Profile } from "./schema.js";
+import {
+  channelSourceShape,
+  definitionDigestsShape,
+  npmSourceShape,
+  releaseSourceShape,
+} from "./source-shapes.js";
 
 const source = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("npm"),
-    registry: z.literal("https://registry.npmjs.org"),
-    package: z.string(),
-  }),
-  z.strictObject({
-    type: z.literal("github-release"),
-    owner: z.literal("astral-sh"),
-    repo: z.literal("uv"),
-    releaseId: z.number().int().positive(),
-    tag: z.string(),
-  }),
-  z.strictObject({
-    type: z.literal("channel-manifest"),
-    manifest: z.literal("https://herdr.dev/latest.json"),
-    channel: z.literal("stable"),
-    version: z.string(),
-  }),
+  z.strictObject(npmSourceShape),
+  z.strictObject(releaseSourceShape),
+  z.strictObject(channelSourceShape),
 ]);
 const artifact = z.discriminatedUnion("type", [
   z.strictObject({
@@ -45,12 +36,7 @@ export const freshLockSchema = z.strictObject({
   schemaVersion: z.literal(1),
   profile: z.string(),
   integrations: z.array(z.string()),
-  definitionDigests: z.strictObject({
-    algorithm: z.literal("sha256-canonical-json-v1"),
-    profile: z.string(),
-    components: z.record(z.string(), z.string()),
-    integrations: z.record(z.string(), z.string()),
-  }),
+  definitionDigests: z.strictObject(definitionDigestsShape),
   node: z.string(),
   targets: z
     .array(

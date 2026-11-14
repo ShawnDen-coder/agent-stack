@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  channelSourceShape,
+  definitionDigestsShape,
+  npmSourceShape,
+  releaseSourceShape,
+} from "./source-shapes.js";
 
 const itemSchema = z.union([
   z.object({ component: z.string(), error: z.string() }),
@@ -10,29 +16,14 @@ const itemSchema = z.union([
     identity: z.string(),
     evidence: z.enum(["release", "channel"]),
     source: z.union([
-      z.object({
-        type: z.literal("github-release"),
-        owner: z.literal("astral-sh"),
-        repo: z.literal("uv"),
-        releaseId: z.number().int().positive(),
-        tag: z.string(),
-      }),
-      z.object({
-        type: z.literal("channel-manifest"),
-        manifest: z.literal("https://herdr.dev/latest.json"),
-        channel: z.literal("stable"),
-        version: z.string(),
-      }),
+      z.object(releaseSourceShape),
+      z.object(channelSourceShape),
     ]),
   }),
   z.object({
     component: z.string(),
     package: z.string(),
-    source: z.object({
-      type: z.literal("npm"),
-      registry: z.literal("https://registry.npmjs.org"),
-      package: z.string(),
-    }),
+    source: z.object(npmSourceShape),
     version: z.string(),
     requirement: z.string(),
     metadata: z.string(),
@@ -85,12 +76,7 @@ export const resolutionReportSchema = z.object({
   node: z.string(),
   components: z.array(itemSchema),
   scope: z.string(),
-  definitionDigests: z.object({
-    algorithm: z.literal("sha256-canonical-json-v1"),
-    profile: z.string(),
-    components: z.record(z.string(), z.string()),
-    integrations: z.record(z.string(), z.string()),
-  }),
+  definitionDigests: z.object(definitionDigestsShape),
   targets: z.array(z.string()).optional(),
   assets: z.array(assetSchema).optional(),
 });

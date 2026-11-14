@@ -1,3 +1,5 @@
+import { readJsonBody } from "./json-body.js";
+
 const limit = 8 * 1024 * 1024;
 export async function readPackument(
   name: string,
@@ -14,27 +16,15 @@ export async function readPackument(
       headers: { accept: "application/vnd.npm.install-v1+json" },
     });
     if (!response.ok) throw new Error(`Registry HTTP ${response.status}`);
-    if (!response.body) throw new Error("Registry response has no body");
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      while (true) {
-        const part = await reader.read();
-        if (part.done) break;
-        size += part.value.length;
-        if (size > limit)
-          throw new Error("Registry response exceeds size limit");
-        chunks.push(part.value);
-      }
-    } finally {
-      await reader.cancel().catch(() => {});
+    const body = await readJsonBody(response, limit);
+    if (!body.ok) {
+      if (body.reason === "no-body")
+        throw new Error("Registry response has no body");
+      if (body.reason === "invalid-json")
+        throw new Error("Registry response is invalid JSON");
+      throw new Error("Registry response exceeds size limit");
     }
-    try {
-      return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-    } catch {
-      throw new Error("Registry response is invalid JSON");
-    }
+    return body.data;
   } catch (error) {
     if (timeout.aborted) throw new Error("Registry request timed out");
     if (signal.aborted) throw new Error("Registry request cancelled");
