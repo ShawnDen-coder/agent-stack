@@ -640,3 +640,73 @@ test("mixed coding release report uses bounded PTY layout", {
   for (const row of stripVTControlCharacters(out.stdout).split(/\r?\n/))
     assert.ok(width(row) <= 40, row);
 });
+
+for (const [label, flags] of [
+  ["draft", { draft: true, prerelease: false }],
+  ["prerelease", { draft: false, prerelease: true }],
+]) {
+  test(`uv ignores non-semver ${label} when selecting an official release`, async (t) => {
+    const pending = {
+      id: 2,
+      tag_name: "work-in-progress",
+      html_url: "https://github.com/astral-sh/uv/releases/tag/work-in-progress",
+      ...flags,
+    };
+    const { dir, preload } = await setup(
+      t,
+      null,
+      mixedPreload([uvRelease("0.13.8", 1), pending], null, {
+        version: "0.9.5",
+      }),
+    );
+    await cp(
+      join(repo, "stack/profiles/coding.yaml"),
+      join(dir, "stack/profiles/coding.yaml"),
+    );
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(
+      JSON.parse(result.stdout).components.find((x) => x.component === "uv")
+        .version,
+      "0.13.8",
+    );
+    assert.deepEqual(await snapshot(dir), before);
+  });
+}
+
+test("uv rejects malformed identity in a formal release", async (t) => {
+  const bad = {
+    id: 2,
+    tag_name: "work-in-progress",
+    html_url: "https://github.com/astral-sh/uv/releases/tag/work-in-progress",
+    draft: false,
+    prerelease: false,
+  };
+  const { dir, preload } = await setup(
+    t,
+    null,
+    mixedPreload([uvRelease("0.13.8", 1), bad], null, { version: "0.9.5" }),
+  );
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(dir, "stack/profiles/coding.yaml"),
+  );
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(
+    JSON.parse(result.stdout).components.find((x) => x.component === "uv")
+      .error,
+    /Invalid uv release identity/,
+  );
+});

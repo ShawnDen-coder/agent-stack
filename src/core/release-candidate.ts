@@ -9,12 +9,20 @@ const releaseSchema = z.object({
   prerelease: z.boolean(),
 });
 const manifestSchema = z.object({ version: z.string() });
+const releaseStatusSchema = z.object({
+  draft: z.boolean(),
+  prerelease: z.boolean(),
+});
 export function selectUv(data: unknown[], range: string) {
   if (!semver.validRange(range))
     throw new Error(`Invalid semver range: ${range}`);
   const ids = new Set<number>();
   const tags = new Set<string>();
   const candidates = data
+    .filter((entry) => {
+      const status = releaseStatusSchema.parse(entry);
+      return !status.draft && !status.prerelease;
+    })
     .map((entry) => {
       const r = releaseSchema.parse(entry);
       if (ids.has(r.id) || tags.has(r.tag_name))
@@ -32,10 +40,7 @@ export function selectUv(data: unknown[], range: string) {
     })
     .filter(
       (r) =>
-        !r.draft &&
-        !r.prerelease &&
-        !semver.prerelease(r.version) &&
-        semver.satisfies(r.version, range),
+        !semver.prerelease(r.version) && semver.satisfies(r.version, range),
     );
   candidates.sort((a, b) => semver.rcompare(a.version, b.version));
   if (!candidates[0])
