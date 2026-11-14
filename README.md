@@ -29,4 +29,4 @@ pnpm cli validate --repo .
 
 ## 当前边界
 
-`lock --dry-run` 只报告版本元数据，不生成锁或执行计划，也不验证目标资产、release digest、传递依赖闭包或工具能否运行。安装、配置应用、完整锁、`setup` 和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。
+`lock --dry-run` 报告版本元数据；提供 `--target` 时可预览 herdr 的 macOS arm64/x64 和 Windows x64 发行物及预期摘要，其他部件的目标资产尚未覆盖。该报告不生成锁或执行计划，也不验证下载的资产、release digest、传递依赖闭包或工具能否运行。安装、配置应用、完整锁、`setup` 和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。

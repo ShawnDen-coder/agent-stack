@@ -710,3 +710,259 @@ test("uv rejects malformed identity in a formal release", async (t) => {
     /Invalid uv release identity/,
   );
 });
+
+const assetHash = "a".repeat(64);
+function herdrAssetManifest() {
+  const version = "0.9.5";
+  const keys = ["macos-x86_64", "macos-aarch64", "windows-x86_64"];
+  return {
+    version,
+    assets: Object.fromEntries(
+      keys.map((k) => [
+        k,
+        `https://github.com/herdrdev/herdr/releases/download/v${version}/herdr-${k}${k.startsWith("windows") ? ".zip" : ""}`,
+      ]),
+    ),
+    sha256: Object.fromEntries(keys.map((k) => [k, assetHash])),
+  };
+}
+async function herdrFixture(t, manifest) {
+  const body = `import {writeFileSync,readFileSync,existsSync} from 'node:fs';let calls=0;globalThis.fetch=async()=>{calls++;writeFileSync(new URL('./count',import.meta.url),String(calls));return new Response(${JSON.stringify(JSON.stringify(manifest))});};`;
+  const f = await setup(t, null, body);
+  await writeFile(
+    join(f.dir, "stack/profiles/fixture.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "fixture",
+      description: "herdr only",
+      platforms: ["darwin", "win32", "linux"],
+      components: [{ component: "herdr", channel: "stable" }],
+      integrations: [],
+      requires: ["workspace"],
+    }),
+  );
+  return f;
+}
+test("herdr target preview uses one snapshot, preserves files and sorts targets", async (t) => {
+  const { dir, preload } = await herdrFixture(t, herdrAssetManifest());
+  await writeFile(join(dir, "stack/stack.lock.json"), "keep\n");
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "fixture",
+    "--dry-run",
+    "--json",
+    "--target",
+    "win32-x64",
+    "--target",
+    "darwin-x64",
+    "--target",
+    "darwin-arm64",
+  ]);
+  assert.equal(result.status, 0, result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(report.targets, ["darwin-arm64", "darwin-x64", "win32-x64"]);
+  assert.equal(report.assets.length, 3);
+  assert.equal(report.assets[2].format, "zip");
+  assert.match(report.assets[2].url, /windows-x86_64\.zip$/);
+  const manifest = herdrAssetManifest();
+  for (const [index, key] of [
+    "macos-aarch64",
+    "macos-x86_64",
+    "windows-x86_64",
+  ].entries()) {
+    assert.equal(report.assets[index].url, manifest.assets[key]);
+    assert.equal(report.assets[index].sha256, assetHash);
+    assert.equal(
+      report.assets[index].digestSource,
+      "https://herdr.dev/latest.json",
+    );
+  }
+  assert.equal(await readFile(join(dir, "count"), "utf8"), "1");
+  assert.deepEqual(await snapshot(dir), before);
+});
+for (const [label, change, target, pattern] of [
+  [
+    "missing asset",
+    (m) => delete m.assets["macos-aarch64"],
+    "darwin-arm64",
+    /Missing asset/,
+  ],
+  [
+    "missing hash",
+    (m) => delete m.sha256["macos-aarch64"],
+    "darwin-arm64",
+    /SHA-256/,
+  ],
+  [
+    "bad hash",
+    (m) => (m.sha256["macos-aarch64"] = "xyz"),
+    "darwin-arm64",
+    /SHA-256/,
+  ],
+  [
+    "foreign host",
+    (m) => (m.assets["macos-aarch64"] = "https://evil.test/herdr"),
+    "darwin-arm64",
+    /Untrusted/,
+  ],
+  [
+    "wrong version",
+    (m) =>
+      (m.assets["macos-aarch64"] = m.assets["macos-aarch64"].replace(
+        "v0.9.5",
+        "v0.9.4",
+      )),
+    "darwin-arm64",
+    /version-mismatched/,
+  ],
+  ["linux ABI", () => {}, "linux-x64-gnu", /not supported/],
+  ["unknown arch", () => {}, "darwin-riscv64", /not supported/],
+  ["unknown OS", () => {}, "freebsd-x64", /not supported/],
+])
+  test(`herdr asset blocks ${label}`, async (t) => {
+    const m = herdrAssetManifest();
+    change(m);
+    const { dir, preload } = await herdrFixture(t, m);
+    const before = await snapshot(dir);
+    const r = run(dir, preload, [
+      "--profile",
+      "fixture",
+      "--dry-run",
+      "--json",
+      "--target",
+      target,
+    ]);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(JSON.parse(r.stdout).assets[0].error, pattern);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+test("target usage rejects duplicates and malformed syntax", async (t) => {
+  const { dir, preload } = await herdrFixture(t, herdrAssetManifest());
+  for (const targets of [
+    ["--target", "bad!"],
+    ["--target", "darwin-x64", "--target", "darwin-x64"],
+  ]) {
+    const r = run(dir, preload, [
+      "--profile",
+      "fixture",
+      "--dry-run",
+      "--json",
+      ...targets,
+    ]);
+    assert.equal(r.status, 2, r.stdout);
+    assert.equal(JSON.parse(r.stdout).error.kind, "usage");
+  }
+});
+test("coding target preview blocks uncovered assets", async (t) => {
+  const source = mixedPreload(
+    [uvRelease("0.13.8", 1)],
+    null,
+    herdrAssetManifest(),
+  );
+  const { dir, preload } = await setup(t, null, source);
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(dir, "stack/profiles/coding.yaml"),
+  );
+  const r = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--json",
+    "--target",
+    "darwin-arm64",
+  ]);
+  assert.equal(r.status, 1, r.stdout);
+  const assets = JSON.parse(r.stdout).assets;
+  assert.equal(assets.filter((x) => x.error).length, 3);
+  assert.equal(assets.find((x) => x.component === "herdr").sha256, assetHash);
+});
+for (const columns of [40, 80])
+  test(`herdr target preview fits ${columns} column PTY`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const { dir, preload } = await herdrFixture(t, herdrAssetManifest());
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(dir, "tmp"));
+    const r = spawnSync(
+      "python3",
+      [
+        ptyDriver,
+        process.execPath,
+        cli,
+        dir,
+        dir,
+        "report",
+        String(columns),
+        "no-color",
+        preload,
+        "darwin-arm64",
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    const output = JSON.parse(r.stdout);
+    assert.equal(output.status, 0, output.stderr);
+    const { stripVTControlCharacters } = await import("node:util");
+    const width = (await import("fast-string-width")).default;
+    const plain = stripVTControlCharacters(output.stdout);
+    for (const line of plain.split(/\r?\n/))
+      assert.ok(width(line) <= columns, line);
+    const flat = plain.replace(/\s/g, "");
+    assert.ok(flat.includes(assetHash));
+    assert.ok(flat.includes(herdrAssetManifest().assets["macos-aarch64"]));
+  });
+
+test("herdr target network failure reports blocked assets", async (t) => {
+  const { dir, preload } = await herdrFixture(t, herdrAssetManifest());
+  await writeFile(
+    preload,
+    'globalThis.fetch=async()=>{throw new Error("offline")};',
+  );
+  const r = run(dir, preload, [
+    "--profile",
+    "fixture",
+    "--dry-run",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(r.status, 1);
+  const report = JSON.parse(r.stdout);
+  assert.match(report.components[0].error, /offline/);
+  assert.match(report.assets[0].error, /unavailable/);
+});
+test("herdr target request aborts on PTY interrupt", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { dir, preload } = await herdrFixture(t, herdrAssetManifest());
+  const marker = join(dir, "probe.pid");
+  const aborted = join(dir, "aborted");
+  await writeFile(
+    preload,
+    `import {writeFileSync} from 'node:fs';globalThis.fetch=async (_u,{signal})=>new Promise((_,reject)=>{writeFileSync(${JSON.stringify(marker)},'start');const timer=setInterval(()=>{},1000);signal.addEventListener('abort',()=>{clearInterval(timer);writeFileSync(${JSON.stringify(aborted)},'yes');reject(signal.reason)})});`,
+  );
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(join(dir, "tmp"));
+  const r = spawnSync(
+    "python3",
+    [
+      ptyDriver,
+      process.execPath,
+      cli,
+      dir,
+      dir,
+      "interrupt",
+      "80",
+      "no-color",
+      preload,
+      "darwin-arm64",
+    ],
+    { encoding: "utf8", timeout: 15000 },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const output = JSON.parse(r.stdout);
+  assert.equal(output.status, 130, output.stderr);
+  assert.equal(await readFile(aborted, "utf8"), "yes");
+});
