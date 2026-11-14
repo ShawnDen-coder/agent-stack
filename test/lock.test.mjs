@@ -1234,10 +1234,103 @@ test("asset-only metadata does not change version-only reports", async (t) => {
   assert.equal(result.status, 0, result.stdout);
   assert.equal(JSON.parse(result.stdout).components.length, 4);
 });
-test("unverified pnpm versions do not infer native layout", async (t) => {
+test("pnpm 12.21 contract resolves native targets without a per-version whitelist", async (t) => {
   const { dir, preload } = await codingNpmFixture(t);
   let body = await readFile(preload, "utf8");
-  body = body.replaceAll("12.15.0", "12.16.0");
+  body = body.replaceAll("12.15.0", "12.21.0");
+  await writeFile(preload, body);
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1);
+  const report = JSON.parse(result.stdout);
+  assert.equal(
+    report.assets.find((x) => x.component === "pnpm" && x.role === "native")
+      ?.identity,
+    "@pnpm/exe.darwin-arm64@12.21.0",
+  );
+  assert.deepEqual(await snapshot(dir), before);
+});
+
+test("pnpm unknown major distribution series is blocked", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t);
+  const body = await readFile(preload, "utf8");
+  await writeFile(preload, body.replaceAll("12.15.0", "13.0.0"));
+  const file = join(dir, "stack/profiles/coding.yaml");
+  let profile = await readFile(file, "utf8");
+  profile = profile.replace(">=12.15.0 <13", ">=13.0.0 <14");
+  await writeFile(file, profile);
+  const before = await snapshot(dir);
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(
+    JSON.stringify(JSON.parse(result.stdout).assets),
+    /Unsupported pnpm native distribution series/,
+  );
+  assert.deepEqual(await snapshot(dir), before);
+});
+for (const [label, override] of [
+  ["empty os", { os: [] }],
+  ["empty cpu", { cpu: [] }],
+  ["ambiguous cpu", { cpu: ["arm64", "x64"] }],
+])
+  test(`pnpm native blocks ${label}`, async (t) => {
+    const { dir, preload } = await codingNpmFixture(t, { native: override });
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--target",
+      "darwin-arm64",
+      "--json",
+    ]);
+    assert.equal(result.status, 1);
+    assert.match(
+      JSON.stringify(JSON.parse(result.stdout).assets),
+      /os\/cpu metadata/,
+    );
+  });
+for (const [label, spec] of [
+  ["alias", "npm:@pnpm/exe.darwin-arm64@12.21.0"],
+  ["different version", "12.20.0"],
+])
+  test(`pnpm rejects ${label} optional dependency`, async (t) => {
+    const { dir, preload } = await codingNpmFixture(t, {
+      dependencies: { "@pnpm/exe.darwin-arm64": spec },
+    });
+    const before = await snapshot(dir);
+    const result = run(dir, preload, [
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--target",
+      "darwin-arm64",
+      "--json",
+    ]);
+    assert.equal(result.status, 1);
+    assert.match(
+      JSON.stringify(JSON.parse(result.stdout).assets),
+      /unsupported exact native dependency/,
+    );
+    assert.deepEqual(await snapshot(dir), before);
+  });
+test("pnpm native rejects undeclared platform fields", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t);
+  let body = await readFile(preload, "utf8");
+  body = body.replace("entry.os=[parts[0]];entry.cpu=[parts[1]];", "");
   await writeFile(preload, body);
   const result = run(dir, preload, [
     "--profile",
@@ -1250,6 +1343,21 @@ test("unverified pnpm versions do not infer native layout", async (t) => {
   assert.equal(result.status, 1);
   assert.match(
     JSON.stringify(JSON.parse(result.stdout).assets),
-    /native mapping is not verified/,
+    /os\/cpu metadata/,
   );
+});
+test("pnpm native rejects libc constraint on macOS", async (t) => {
+  const { dir, preload } = await codingNpmFixture(t, {
+    native: { libc: ["musl"] },
+  });
+  const result = run(dir, preload, [
+    "--profile",
+    "coding",
+    "--dry-run",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(JSON.stringify(JSON.parse(result.stdout).assets), /libc/);
 });

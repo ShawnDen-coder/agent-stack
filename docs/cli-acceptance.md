@@ -47,4 +47,4 @@ npm 候选选择先筛选范围、预发布、废弃状态及 Node engines，再
 
 `lock --dry-run --target <target>` 对 herdr 的 macOS arm64/x64 和 Windows x64 预览 manifest 资产与预期 SHA-256；Linux ABI 及 uv 目标资产仍阻塞。真实 CLI fixture 验证单快照、目标映射、错误和只读性，PTY 验证 40/80 列输出。
 
-`--target` 还可预览 Pi 顶层 npm tarball 和 pnpm 顶层及对应 native optional package；当前限 macOS arm64/x64 与 Windows x64，pnpm native 映射仅接受 12.15.0 和 12.18.0。SHA-512 SRI 为 registry 预期值；不执行安装脚本、不锁定传递依赖。uv 目标资产仍未覆盖。
+`--target` 还可预览 Pi 顶层 npm tarball 和 pnpm 顶层及对应 native optional package；当前限 macOS arm64/x64 与 Windows x64，pnpm native 按已识别的 pnpm 12 发行契约核对确切依赖及平台元数据。SHA-512 SRI 为 registry 预期值；不执行安装脚本、不锁定传递依赖。uv 目标资产仍未覆盖。
