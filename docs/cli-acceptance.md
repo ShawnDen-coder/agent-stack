@@ -1,6 +1,6 @@
 # CLI 行为验收矩阵
 
-此矩阵记录当前已实现能力；`setup`、`run`、`lock`、安装和应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
+此矩阵记录当前已实现能力；`setup`、`run`、完整锁生成、安装和应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
 
 | 行为                                                | 状态   | 测试证据                                          |
 | --------------------------------------------------- | ------ | ------------------------------------------------- |
@@ -12,7 +12,7 @@
 | stdout 结果、stderr 交互/进度、重定向时不询问       | 已实现 | `test/interaction.test.mjs`、`test/pty_driver.py` |
 | 真实 TTY 选择、Ctrl-C 取消及检查中中断              | 已实现 | `test/interaction.test.mjs`、`test/pty_driver.py` |
 | doctor 的版本证据、超时和输出上限                   | 已实现 | `test/doctor.test.mjs`、`test/cmd-shim.test.mjs`  |
-| setup / run / resolver / 安装 / 配置应用            | 待实现 | 不注册占位命令                                    |
+| setup / run / 完整锁生成 / 安装 / 配置应用          | 待实现 | 不注册占位命令                                    |
 
 `validate` 与 `doctor` 成功 JSON 保留既有业务形状；`doctor` 的业务错误仍为 `{ "error": "..." }`，`validate` 失败仍为报告。Commander 用法错误为版本化 `{ "schemaVersion": 1, "error": { "kind": "usage", "message": "..." } }`，退出 2；JSON 帮助和版本为 `{ "schemaVersion": 1, "output": "..." }`。业务失败为 1，交互取消为 130。机器输出没有标题、spinner 或 ANSI，日志只走 stderr。
 
@@ -38,3 +38,5 @@ rm -r "$demo_dir"
 自动化 PTY 使用 Python 标准库 `pty`，仅在 macOS/Linux 执行；Windows 原生终端交互尚未验证。非交互、JSON 和静态包装器测试仍可在 Windows 运行。CI 矩阵配置不等同于已实际运行的平台结果。
 
 布局迁移：真实 CLI 测试从仓库根的 `stack/` 读取声明，覆盖中文和空格路径、缺失目录错误、旧根级声明不读取；测试见 `test/cli.test.mjs`。
+
+`lock --profile <id> --dry-run [--json]` 的 npm 顶层候选及阻塞报告由 `test/lock.test.mjs` 从编译后的真实 CLI 和受控网络边界验证；报告不是锁或执行计划，不验证目标资产、传递依赖或安装。默认 coding 的 release 来源仍不支持。

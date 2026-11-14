@@ -4,6 +4,7 @@ import { Command, CommanderError } from "commander";
 import { shared } from "./adapters/options.js";
 import { helpStyle } from "./adapters/presentation.js";
 import { createDoctorCommand } from "./commands/doctor.js";
+import { createLockCommand } from "./commands/lock.js";
 import { createValidateCommand } from "./commands/validate.js";
 
 const { version } = JSON.parse(
@@ -37,7 +38,8 @@ const program = shared(new Command())
   .allowExcessArguments(false)
   .exitOverride()
   .addCommand(createValidateCommand())
-  .addCommand(createDoctorCommand());
+  .addCommand(createDoctorCommand())
+  .addCommand(createLockCommand());
 for (const command of program.commands) {
   command
     .configureOutput(output)
