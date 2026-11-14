@@ -32,6 +32,8 @@ export async function observeHost(signal?: AbortSignal) {
     ["arm64", "aarch64"].includes(value)
   )
     return { ...base, native: true, evidence: "native-arm64-process" };
+  if (signal?.aborted)
+    return { ...base, native: false, evidence: "probe-unknown" };
   const home = await mkdtemp(join(tmpdir(), "agent-stack-host-"));
   try {
     let command: string;
@@ -71,12 +73,21 @@ export async function observeHost(signal?: AbortSignal) {
       };
     } else
       return { ...base, native: false, evidence: "unsupported-or-unknown" };
+    if (signal?.aborted)
+      return { ...base, native: false, evidence: "probe-unknown" };
     const result = await new Promise<{
       stdout: string;
       stderr: string;
       code: number | null;
     }>((resolve) => {
-      execFile(
+      let closed = false;
+      let output:
+        | { stdout: string; stderr: string; code: number | null }
+        | undefined;
+      const finish = () => {
+        if (closed && output) resolve(output);
+      };
+      const child = execFile(
         command,
         args,
         {
@@ -84,12 +95,12 @@ export async function observeHost(signal?: AbortSignal) {
           env,
           timeout: process.platform === "win32" ? 10000 : 3000,
           maxBuffer: 16384,
-          signal,
+          killSignal: "SIGKILL",
           windowsHide: true,
           encoding: "utf8",
         },
         (error, stdout, stderr) => {
-          resolve({
+          output = {
             stdout,
             stderr,
             code: error
@@ -98,9 +109,20 @@ export async function observeHost(signal?: AbortSignal) {
                 ? (error as unknown as { code: number }).code
                 : null
               : 0,
-          });
+          };
+          finish();
         },
       );
+      const abort = () => {
+        child.kill("SIGKILL");
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
+      child.once("close", () => {
+        signal?.removeEventListener("abort", abort);
+        closed = true;
+        finish();
+      });
     });
     if (process.platform === "darwin") {
       const native =
