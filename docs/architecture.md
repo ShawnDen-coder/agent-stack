@@ -28,6 +28,14 @@ agent-stack/
 
 `configs/`、`agents/`、`skills/` 已建立各自的编写约定，尚未放入自动应用的原生配置或可执行工作流。它们不属于当前 `validate` 命令的校验范围。
 
+## 声明书写格式
+
+自有的人编写声明优先采用 YAML 1.2：目标为 `components/<id>.yaml`、`profiles/<id>.yaml`、`integrations/<id>.yaml`，接受 `.yml`，过渡期兼容 JSON。**当前读取器与仓库文件仍为 JSON，YAML 支持及文件迁移尚未实现。** 下文的 `.json` 路径描述当前状态，迁移保持同一数据模型与能力要求。
+
+YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。声明摘要基于校验后的规范数据，因此注释、缩进或等价的格式转换不改变摘要。读取或锁定不自动重写作者文件。
+
+工具原生配置保持 JSON/TOML/YAML 等原格式；skills 保持标准 Markdown 与 YAML front matter。机器生成的 `stack.lock.json`、执行计划和 CLI JSON 输出继续使用 JSON。人编写的声明与机器产物分别维护。完整示例和命令分工见 [CLI 行为审查稿](cli-behavior.md)。
+
 ## 四种声明
 
 ### 部件

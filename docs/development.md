@@ -18,6 +18,8 @@
 
 所有 npm 依赖使用确切版本，传递依赖由 `pnpm-lock.yaml` 锁定。开发 pnpm 版本由 `packageManager` 固定；这与 profile 中将来安装到用户环境的 pnpm 要求分别维护。
 
+人编写的 components/profiles/integrations 优先采用 YAML；当前 repository adapter 仍只读取 JSON。下一格式迁移切片先增加 YAML 1.2 解析和同 ID 跨格式冲突检测，再转换现有文件，保持 Zod 数据模型与所有能力要求不变。原生配置和生态锁保持原格式，机器生成锁与计划使用 JSON；具体约定见 [CLI 行为稿](cli-behavior.md)。这项约定不表示当前 CLI 已支持 YAML。
+
 Node 24 与 26 当前均为 LTS，见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 
 ## 本地命令
