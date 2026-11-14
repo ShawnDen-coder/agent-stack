@@ -100,7 +100,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 | Token、OAuth、会话、缓存                           | 各工具的原生本地目录       |
 | 项目规则、验收入口、pnpm/uv 业务依赖               | 各业务项目                 |
 
-[配置变体审查稿](config-variants.md) 说明未来如何将逻辑目标与平台内容变体分开；当前 schema 和配置应用尚不支持该设计。配置 adapter 应明确文件或字段的归属，保留未知内容和本地修改。能直接引用的资源可以引用；需要写入的文件再复制或合并。跨系统不能只依赖软链接。凭证不通过仓库或 npm 包分发。
+[Setup 实施方案](setup-plan.md) 定义按锁对齐的分片与验收；[配置变体审查稿](config-variants.md) 说明未来如何将逻辑目标与平台内容变体分开；当前 schema 和配置应用尚不支持该设计。配置 adapter 应明确文件或字段的归属，保留未知内容和本地修改。能直接引用的资源可以引用；需要写入的文件再复制或合并。跨系统不能只依赖软链接。凭证不通过仓库或 npm 包分发。
 
 当前 npm 包的 `files` 仅包含 `dist`，npm 自动附带的 README/package metadata 除外。CLI 不从安装包内查找一份陈旧的配置副本，`--repo` 明确指定源 checkout。
 
@@ -109,6 +109,20 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 调用方向为 `cli → commands → core / adapters`。core 只接收已解析的数据并返回结果；文件、网络、子进程等外部操作由 adapter 承担。导入业务模块不启动服务、不连接网络、不应用配置。
 
 现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据，npm-registry 与 releases adapter 只读查询官方版本元数据。发行物下载与配置应用的 adapter 在对应功能实现时增加；CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
+
+`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线和安装尚未实现。
+
+### 来源规则与锁校验
+
+来源解析核对真实响应及身份，并与离线锁校验共同调用对应来源的纯资产规则；锁校验直接使用锁内字段，不虚构远端记录。报告与持久锁仍是不同产物；本地规则匹配不能证明远端发布或下载字节。
+
+### 锁操作协调
+
+`lock` 命令负责参数、profile、报告、退出码和整个操作的中断生命周期。来源 adapter 将版本结果与本次快照一起返回，资产收集和写前复核共用该快照；每个进度阶段自行清理。一次操作只维护一个 handler，发布成功后不报告取消。来源规则仍在 core，文件和网络 I/O 仍在 adapters。
+
+### 共享边界与保留差异
+
+网络 adapter 共用响应体的有界读取、JSON 解析和 reader 清理；npm 与 release 仍各自决定请求、超时、预算及错误。锁文件是本机普通文件，使用独立的 1 MiB 读取边界。报告和持久锁共用来源身份与声明摘要字段形状，报告保留部分失败和宽松解析，锁继续严格拒绝未知字段；两者不合并为一个模型。
 
 ## 校验的证据范围
 
@@ -122,17 +136,3 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 - [herdr 集成](https://herdr.dev/tui/docs/integrations/)：Pi 状态报告的声明来源。
 - [Rex Agent 支持](https://www.superlogical.com/rex/docs/automate/agent-skill)：Pi skill 与 hook 的支持范围不同。
 - [Rex 安装](https://www.superlogical.com/rex/docs/installation)、[Otty 安装](https://docs.otty.sh/getting-started/installation)：客户端、服务端与平台范围需要分别核对。
-
-`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线和安装尚未实现。
-
-### 来源规则与锁校验
-
-此前离线锁校验通过构造临时 registry packument、release 和 manifest，再调用候选选择器验证资产。现在来源解析先核对真实响应及身份，再与离线锁校验共同调用对应来源的纯资产规则；锁校验直接使用锁内字段，不虚构远端记录。报告与持久锁仍是不同产物；本地规则匹配不能证明远端发布或下载字节。
-
-### 锁操作协调
-
-`lock` 命令负责参数、profile、报告、退出码和整个操作的中断生命周期。来源 adapter 将版本结果与本次快照一起返回，资产收集和写前复核共用该快照；每个进度阶段自行清理。此前并行请求修改外部快照变量，命令在三个阶段分别安装和移除中断 handler；现在一次操作只维护一个 handler，发布成功后不报告取消。来源规则仍在 core，文件和网络 I/O 仍在 adapters。
-
-### 共享边界与保留差异
-
-网络 adapter 共用响应体的有界读取、JSON 解析和 reader 清理；npm 与 release 仍各自决定请求、超时、预算及错误。锁文件是本机普通文件，使用独立的 1 MiB 读取边界。报告和持久锁共用来源身份与声明摘要字段形状，报告保留部分失败和宽松解析，锁继续严格拒绝未知字段；两者不合并为一个模型。
