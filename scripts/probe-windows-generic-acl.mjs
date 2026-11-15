@@ -63,12 +63,23 @@ const run = (script, extra = {}) => {
       windowsHide: true,
     },
   );
-  assert.ifError(result.error);
+  if (result.error)
+    throw new Error(
+      `PowerShell probe failed: ${result.error.message}; signal=${result.signal}; stderr=${(result.stderr ?? "").slice(0, 2048)}`,
+      { cause: result.error },
+    );
   assert.equal(result.signal, null, result.stderr);
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout.replace(/^\uFEFF/, "").trim());
 };
+// Windows PowerShell 5.1 runs on .NET Framework; load the inbox serializer
+// directly to avoid automatic discovery of Microsoft.PowerShell.Utility.
+const jsonPrelude = `[Console]::Error.WriteLine('stage: powershell-started')
+[void][Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$json=[System.Web.Script.Serialization.JavaScriptSerializer]::new()
+[Console]::Error.WriteLine('stage: serializer-ready')`;
 const setup = `$ErrorActionPreference='Stop'
+${jsonPrelude}
 $u=[Security.Principal.WindowsIdentity]::GetCurrent().User
 $di=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($env:TEST_BASE))
 if ($di.DriveFormat -ne 'NTFS') { throw 'This diagnostic requires real NTFS' }
@@ -77,8 +88,11 @@ $a.SetOwner($u)
 $a.SetAccessRuleProtection($true,$false)
 $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($u,[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))
 [IO.Directory]::SetAccessControl($env:TEST_BASE,$a)
-@{fileSystem=$di.DriveFormat;psVersion=$PSVersionTable.PSVersion.ToString();osVersion=[Environment]::OSVersion.Version.ToString()} | ConvertTo-Json -Compress`;
+[Console]::Error.WriteLine('stage: setup-acl-written')
+$result=@{fileSystem=$di.DriveFormat;psVersion=$PSVersionTable.PSVersion.ToString();osVersion=[Environment]::OSVersion.Version.ToString()}
+[Console]::Out.WriteLine($json.Serialize($result))`;
 const configure = `$ErrorActionPreference='Stop'
+${jsonPrelude}
 $u=[Security.Principal.WindowsIdentity]::GetCurrent().User
 $everyone=[Security.Principal.SecurityIdentifier]::new('S-1-1-0')
 function AceRows($raw) {
@@ -101,25 +115,27 @@ function ReadAcl($p,$directory) {
  return @{ownerIsCurrentUser=($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -eq $u.Value);raw=@(AceRows $raw);rules=$rules}
 }
 $p=$env:TEST_DIR
-[IO.Directory]::CreateDirectory($p) | Out-Null
+[void][IO.Directory]::CreateDirectory($p)
 $dacl=[Security.AccessControl.RawAcl]::new(2,2)
 $dacl.InsertAce(0,[Security.AccessControl.CommonAce]::new([Security.AccessControl.AceFlags]3,[Security.AccessControl.AceQualifier]::AccessAllowed,0x1F01FF,$u,$false,$null))
 $mask=[int]::Parse($env:TEST_MASK)
 if ($mask -ne 0) {$dacl.InsertAce(1,[Security.AccessControl.CommonAce]::new(([Security.AccessControl.AceFlags]([int]::Parse($env:TEST_FLAGS))),[Security.AccessControl.AceQualifier]::AccessAllowed,$mask,$everyone,$false,$null))}
 $raw=[Security.AccessControl.RawSecurityDescriptor]::new([Security.AccessControl.ControlFlags]0x9004,$u,$u,$null,$dacl)
-$bytes=New-Object byte[] ($raw.BinaryLength)
+$bytes=[Array]::CreateInstance([byte],$raw.BinaryLength)
 $raw.GetBinaryForm($bytes,0)
 $acl=[Security.AccessControl.DirectorySecurity]::new()
 $acl.SetSecurityDescriptorBinaryForm($bytes,[Security.AccessControl.AccessControlSections]'Owner, Access')
 $prePersist=[Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
 [IO.Directory]::SetAccessControl($p,$acl)
 $child=[IO.Path]::Combine($p,'child')
-[IO.Directory]::CreateDirectory($child) | Out-Null
+[void][IO.Directory]::CreateDirectory($child)
 $directFile=[IO.Path]::Combine($p,'direct.txt')
 $nestedFile=[IO.Path]::Combine($child,'nested.txt')
 [IO.File]::WriteAllText($directFile,'fixture')
 [IO.File]::WriteAllText($nestedFile,'fixture')
-@{input=@(AceRows $raw);prePersist=@(AceRows $prePersist);parent=(ReadAcl $p $true);child=(ReadAcl $child $true);directFile=(ReadAcl $directFile $false);nestedFile=(ReadAcl $nestedFile $false)} | ConvertTo-Json -Depth 12 -Compress`;
+[Console]::Error.WriteLine('stage: fixture-files-written')
+$result=@{input=@(AceRows $raw);prePersist=@(AceRows $prePersist);parent=(ReadAcl $p $true);child=(ReadAcl $child $true);directFile=(ReadAcl $directFile $false);nestedFile=(ReadAcl $nestedFile $false)}
+[Console]::Out.WriteLine($json.Serialize($result))`;
 const cases = [{ name: "owner-only-control", mask: 0, flags: 0 }];
 for (const [label, mask] of [
   ["write", 0x40000000],
