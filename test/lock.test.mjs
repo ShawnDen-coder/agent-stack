@@ -4503,3 +4503,207 @@ test("recovery preserves a modified staged uv file and its published entry", {
   );
   assert.equal(await readFile(f.marker, "utf8"), "x");
 });
+test("root review: managed receipt must match current asset digest", async (t) => {
+  const f = await uvInstallFixture(t);
+  const installed = runUvSetup(f, [
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+  ]);
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const file = join(f.dir, "stack/stack.lock.json");
+  const lock = JSON.parse(await readFile(file, "utf8"));
+  const previous = lock.assets[0].digest.value;
+  const bindingPath = join(f.home, ".agent-stack/binding.json");
+  const bindingBefore = await readFile(bindingPath);
+  const entryBefore = await readFile(join(f.bin, "uv"));
+  lock.assets[0].digest.value =
+    previous === "c".repeat(64) ? "d".repeat(64) : "c".repeat(64);
+  await writeFile(file, JSON.stringify(lock));
+  const repeated = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.notEqual(
+    repeated.status,
+    0,
+    "managed install must not claim success for a different archive digest",
+  );
+  assert.deepEqual(await readFile(bindingPath), bindingBefore);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), entryBefore);
+  assert.equal(await readFile(f.marker, "utf8"), "x");
+  lock.assets[0].digest.value = previous;
+  await writeFile(file, JSON.stringify(lock));
+  const legacy = JSON.parse(bindingBefore);
+  delete legacy.uv.asset;
+  await writeFile(bindingPath, JSON.stringify(legacy));
+  const legacyResult = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.notEqual(legacyResult.status, 0, legacyResult.stdout);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), entryBefore);
+});
+
+test("root review: reject a newly shadowing PATH executable before execution", async (t) => {
+  const { mkdir, chmod, appendFile } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  const shadow = join(f.dir, "new-first-path");
+  await mkdir(shadow);
+  for (const name of ["uv", "uvx"]) {
+    await writeFile(
+      join(f.tools, name),
+      `#!${process.execPath}\nconsole.log('${name} 0.13.8')\n`,
+    );
+    await chmod(join(f.tools, name), 0o755);
+  }
+  const marker = join(f.dir, "unconfirmed-execution");
+  const replacement = `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'executed');console.log('uv 0.13.8')\n`;
+  await appendFile(
+    f.preload,
+    `\n{const previousExec=cp.execFile;let observedUv=0;cp.execFile=(file,args,opts,cb)=>{if(file===${JSON.stringify(join(f.tools, "uv"))}&&args[0]==='--version'&&++observedUv===2){fs.writeFileSync(${JSON.stringify(join(shadow, "uv"))},${JSON.stringify(replacement)});fs.chmodSync(${JSON.stringify(join(shadow, "uv"))},0o755);}return previousExec(file,args,opts,cb)};syncBuiltinESMExports();}\n`,
+  );
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid", PATH: `${shadow}:${f.bin}:${f.tools}` },
+  );
+  const executed = await readFile(marker, "utf8").then(
+    () => true,
+    () => false,
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).error, /entries changed/);
+  await assert.rejects(readFile(join(f.home, ".agent-stack/binding.json")), {
+    code: "ENOENT",
+  });
+  assert.equal(
+    executed,
+    false,
+    "new first PATH entry was not part of confirmed plan",
+  );
+});
+
+test("root review: concurrent stale lock recovery must not remove a live owner", {
+  timeout: 30000,
+}, async (t) => {
+  const { appendFile } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  const lockPath = join(f.home, ".agent-stack/operation.lock");
+  const finished = spawnSync(process.execPath, ["-e", ""], {
+    encoding: "utf8",
+  });
+  assert.throws(() => process.kill(finished.pid, 0), { code: "ESRCH" });
+  await writeFile(
+    lockPath,
+    JSON.stringify({ pid: finished.pid, stage: null, temporary: null }),
+  );
+  await appendFile(
+    f.preload,
+    `\n{const previousUnlink=fs.promises.unlink;let intercepted=false;fs.promises.unlink=async(p)=>{if(!intercepted&&p===${JSON.stringify(lockPath)}){intercepted=true;fs.writeFileSync(process.env.REVIEW_AT_UNLINK,'waiting');while(!fs.existsSync(process.env.REVIEW_GATE))await new Promise(r=>setTimeout(r,10));}return previousUnlink(p)};const previousFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{fs.writeFileSync(process.env.REVIEW_FETCH,'started');return previousFetch(...args)};syncBuiltinESMExports();}\n`,
+  );
+  const children = [];
+  t.after(async () => {
+    for (const p of children) {
+      if (p.exitCode === null && p.signalCode === null) p.kill("SIGINT");
+    }
+    await Promise.all(
+      children.map((p) =>
+        p.exitCode !== null || p.signalCode !== null
+          ? undefined
+          : new Promise((resolve) => {
+              p.once("close", resolve);
+              setTimeout(() => {
+                p.kill("SIGKILL");
+              }, 2000).unref();
+            }),
+      ),
+    );
+  });
+  const pathExists = async (p) =>
+    readFile(p).then(
+      () => true,
+      () => false,
+    );
+  const waitFor = async (fn, label) => {
+    const until = Date.now() + 8000;
+    while (Date.now() < until) {
+      if (await fn()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw Error("waiting for " + label);
+  };
+  const start = (name) => {
+    const state = {
+      at: join(f.dir, name + ".at-unlink"),
+      gate: join(f.dir, name + ".gate"),
+      fetch: join(f.dir, name + ".fetch"),
+    };
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        f.preload,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "uv-only",
+        "--yes",
+        "--json",
+      ],
+      {
+        env: {
+          HOME: f.home,
+          PATH: `${f.bin}:${f.tools}`,
+          NO_COLOR: "1",
+          FETCH_MODE: "stall",
+          REVIEW_AT_UNLINK: state.at,
+          REVIEW_GATE: state.gate,
+          REVIEW_FETCH: state.fetch,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    child.stdout.resume();
+    child.stderr.resume();
+    children.push(child);
+    return { ...state, child };
+  };
+  const a = start("A");
+  await waitFor(() => pathExists(a.at), "A stale lock check");
+  const b = start("B");
+  await waitFor(
+    () => b.child.exitCode !== null || b.child.signalCode !== null,
+    "B rejected",
+  );
+  assert.notEqual(b.child.exitCode, 0);
+  assert.equal(await pathExists(b.fetch), false);
+  await writeFile(a.gate, "release");
+  await waitFor(() => pathExists(a.fetch), "A fetch");
+  const owner = JSON.parse(await readFile(lockPath, "utf8")).pid;
+  assert.equal(owner, a.child.pid);
+  assert.equal(await pathExists(b.fetch), false);
+});
+
+test("setup rejects a newly shadowing entry after publication without executing it", async (t) => {
+  const { mkdir, appendFile } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  const shadow = join(f.dir, "first-path"),
+    marker = join(f.dir, "unexpected-execution");
+  await mkdir(shadow);
+  const replacement = `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'executed');console.log('uv 0.13.8')\n`;
+  await appendFile(
+    f.preload,
+    `\n{const prior=fs.promises.link;fs.promises.link=async(a,b)=>{await prior(a,b);if(b===${JSON.stringify(join(f.bin, "uvx"))}){fs.writeFileSync(${JSON.stringify(join(shadow, "uv"))},${JSON.stringify(replacement)});fs.chmodSync(${JSON.stringify(join(shadow, "uv"))},0o755)}};syncBuiltinESMExports();}\n`,
+  );
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { PATH: `${shadow}:${f.bin}:${f.tools}` },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).error, /not the first matching PATH/);
+  await assert.rejects(readFile(marker), { code: "ENOENT" });
+  await assert.rejects(readFile(join(f.home, ".agent-stack/binding.json")), {
+    code: "ENOENT",
+  });
+  await assert.rejects(readFile(join(f.bin, "uv")), { code: "ENOENT" });
+});

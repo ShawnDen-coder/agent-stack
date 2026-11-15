@@ -17,7 +17,7 @@ import {
   recheckSetupBaseline,
   setupBaseline,
 } from "../adapters/setup-baseline.js";
-import { observe } from "../adapters/toolchain.js";
+import { findExecutable, observe } from "../adapters/toolchain.js";
 import {
   applyUv,
   bindExternalUv,
@@ -232,6 +232,23 @@ export function createSetupCommand(): Command {
         const uvVersion = lock.components.find(
           (item) => item.component === "uv",
         )?.version;
+        const lockedUvAsset = lock.assets.find(
+          (asset) =>
+            asset.component === "uv" &&
+            asset.target === target &&
+            asset.artifact.type === "uv",
+        );
+        const managedAsset =
+          lockedUvAsset?.artifact.type === "uv" &&
+          lockedUvAsset.digest.algorithm === "sha256"
+            ? {
+                name: lockedUvAsset.artifact.assetName,
+                url: lockedUvAsset.url,
+                sha256: lockedUvAsset.digest.value,
+                releaseId: lockedUvAsset.artifact.releaseId,
+                assetId: lockedUvAsset.artifact.assetId,
+              }
+            : undefined;
         const uv = checks.find((item) => item.name === "uv"),
           uvx = checks.find((item) => item.name === "uvx");
         let uvMode: "install" | "reuse" | "managed" | undefined;
@@ -246,7 +263,16 @@ export function createSetupCommand(): Command {
             );
           if (!home) uvBlockers.push("HOME is required for uv setup");
           if (binding?.uv.mode === "managed" && home && uvVersion) {
-            if (await matchesManagedUv(home, binding, uvVersion, target)) {
+            if (
+              managedAsset &&
+              (await matchesManagedUv(
+                home,
+                binding,
+                uvVersion,
+                target,
+                managedAsset,
+              ))
+            ) {
               const expectedBin = join(resolve(home), ".agent-stack", "bin");
               if (
                 uv?.path === join(expectedBin, "uv") &&
@@ -498,7 +524,7 @@ export function createSetupCommand(): Command {
         const selected = plan.components.find(
           (item) => item.component === "uv",
         )?.lockedAsset;
-        if (selected?.format !== "tar.gz")
+        if (selected?.format !== "tar.gz" || !managedAsset)
           throw new Error("Unsupported uv target asset");
         const verifyInput = async () => {
           await recheck();
@@ -520,6 +546,11 @@ export function createSetupCommand(): Command {
           await verifyInput();
           if (!uv.path || !uvx.path) throw new Error("Missing uv entry path");
           if (
+            (await findExecutable("uv")) !== uv.path ||
+            (await findExecutable("uvx")) !== uvx.path
+          )
+            throw new Error("Existing uv entries changed after planning");
+          if (
             (await uvEntryFingerprint(uv.path)) !== uvFingerprint ||
             (await uvEntryFingerprint(uvx.path)) !== uvxFingerprint
           )
@@ -528,22 +559,23 @@ export function createSetupCommand(): Command {
             verifyObservedUv(uv.path, "uv", uvVersion, controller.signal),
             verifyObservedUv(uvx.path, "uvx", uvVersion, controller.signal),
           ]);
-          const currentUv = await observe("uv", controller.signal),
-            currentUvx = await observe("uvx", controller.signal);
+          const currentUv = await findExecutable("uv"),
+            currentUvx = await findExecutable("uvx");
           if (
-            currentUv.path !== uv.path ||
-            currentUvx.path !== uvx.path ||
-            currentUv.version !== uv.version ||
-            currentUvx.version !== uvx.version ||
-            currentUv.failure ||
-            currentUvx.failure ||
-            !currentUv.path ||
-            !currentUvx.path ||
-            (await uvEntryFingerprint(currentUv.path)) !== uvFingerprint ||
-            (await uvEntryFingerprint(currentUvx.path)) !== uvxFingerprint ||
+            currentUv !== uv.path ||
+            currentUvx !== uvx.path ||
+            (await uvEntryFingerprint(uv.path)) !== uvFingerprint ||
+            (await uvEntryFingerprint(uvx.path)) !== uvxFingerprint ||
             (uvMode === "managed" &&
               binding &&
-              !(await matchesManagedUv(home, binding, uvVersion, target)))
+              (!managedAsset ||
+                !(await matchesManagedUv(
+                  home,
+                  binding,
+                  uvVersion,
+                  target,
+                  managedAsset,
+                ))))
           )
             throw new Error("Existing uv entries changed after planning");
         };
@@ -591,19 +623,9 @@ export function createSetupCommand(): Command {
         else
           result = await applyUv({
             checkReachable: async () => {
-              const a = assess(
-                await observe("uv", controller.signal),
-                `=${uvVersion}`,
-              );
-              const b = assess(
-                await observe("uvx", controller.signal),
-                `=${uvVersion}`,
-              );
               if (
-                a.status !== "ok" ||
-                b.status !== "ok" ||
-                a.path !== join(uvBin ?? "", "uv") ||
-                b.path !== join(uvBin ?? "", "uvx")
+                (await findExecutable("uv")) !== join(uvBin ?? "", "uv") ||
+                (await findExecutable("uvx")) !== join(uvBin ?? "", "uvx")
               )
                 throw new Error(
                   "Published uv entries are not the first matching PATH entries",
@@ -616,7 +638,7 @@ export function createSetupCommand(): Command {
             lock: path,
             version: uvVersion,
             target,
-            asset: selected,
+            asset: managedAsset,
             signal: controller.signal,
             recheck: verifyInput,
           });

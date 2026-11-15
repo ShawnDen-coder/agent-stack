@@ -33,6 +33,15 @@ const bindingSchema = z
       directory: z.string().nullable(),
       uvHash: z.string().nullable(),
       uvxHash: z.string().nullable(),
+      asset: z
+        .strictObject({
+          name: z.string(),
+          url: z.string(),
+          sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          releaseId: z.number().int().positive(),
+          assetId: z.number().int().positive(),
+        })
+        .optional(),
     }),
   })
   .refine((binding) =>
@@ -392,7 +401,35 @@ async function recover(root: string, bin: string, home: string) {
   if (!uvOwned || !uvxOwned)
     throw new Error("Conflicting uv entry was preserved during recovery");
 }
-async function acquire(root: string) {
+type Operation = {
+  tempIntent(name: string): Promise<void>;
+  tempIdentity(identity: z.infer<typeof identitySchema>): Promise<void>;
+  tempClear(): Promise<void>;
+  stageIntent(name: string): Promise<void>;
+  stage(name: string, identity: z.infer<typeof identitySchema>): Promise<void>;
+  file(name: string, identity: StagedFile | null): Promise<void>;
+  release(committed?: boolean): Promise<void>;
+};
+
+async function acquire(root: string): Promise<Operation> {
+  const guard = join(root, "operation.guard");
+  try {
+    await mkdir(guard, { mode: 0o700 });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST")
+      throw new Error(
+        "Another setup operation is acquiring the lock; if interrupted, inspect operation.guard for manual recovery",
+      );
+    throw error;
+  }
+  try {
+    return await acquireGuarded(root);
+  } finally {
+    await rmdir(guard);
+  }
+}
+
+async function acquireGuarded(root: string): Promise<Operation> {
   const path = join(root, "operation.lock");
   let owner: Owner = { pid: process.pid, stage: null, temporary: null };
   let raw = JSON.stringify(owner);
@@ -475,7 +512,7 @@ async function acquire(root: string) {
     )
       throw new Error("Operation lock changed");
     await unlink(path);
-    return acquire(root);
+    return acquireGuarded(root);
   }
   const created = await inode(path);
   const update = async (next: Owner) => {
@@ -576,7 +613,13 @@ export async function applyUv(input: {
   lock: string;
   version: string;
   target: string;
-  asset: { name: string; url: string; sha256: string };
+  asset: {
+    name: string;
+    url: string;
+    sha256: string;
+    releaseId: number;
+    assetId: number;
+  };
   signal: AbortSignal;
   recheck: () => Promise<void>;
   checkReachable: () => Promise<void>;
@@ -782,6 +825,7 @@ export async function applyUv(input: {
         directory: stageName,
         uvHash: hash(uv),
         uvxHash: hash(uvx),
+        asset: input.asset,
       },
     });
     const bindingPath = join(root, "binding.json");
@@ -874,11 +918,24 @@ export async function matchesManagedUv(
   binding: UvBinding,
   version: string,
   target: string,
+  asset: {
+    name: string;
+    url: string;
+    sha256: string;
+    releaseId: number;
+    assetId: number;
+  },
 ): Promise<boolean> {
   if (
     binding.uv.mode !== "managed" ||
     binding.uv.version !== version ||
     binding.uv.target !== target ||
+    !binding.uv.asset ||
+    binding.uv.asset.name !== asset.name ||
+    binding.uv.asset.url !== asset.url ||
+    binding.uv.asset.sha256 !== asset.sha256 ||
+    binding.uv.asset.releaseId !== asset.releaseId ||
+    binding.uv.asset.assetId !== asset.assetId ||
     !binding.uv.directory ||
     !/^uv-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/.test(
       binding.uv.directory,
