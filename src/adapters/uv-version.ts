@@ -27,6 +27,10 @@ export async function verifyUvVersion(
         env: {
           PATH: "",
           HOME: home,
+          USERPROFILE: home,
+          ...(process.env.SystemRoot
+            ? { SystemRoot: process.env.SystemRoot }
+            : {}),
           XDG_CONFIG_HOME: home,
           XDG_CACHE_HOME: home,
           UV_NO_CONFIG: "1",

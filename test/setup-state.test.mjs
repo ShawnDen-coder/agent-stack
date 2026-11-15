@@ -95,3 +95,76 @@ test("v1 state normalizes without changing disk or inventing asset evidence", as
   await writeFile(path, JSON.stringify({ ...state, unexpected: true }));
   await assert.rejects(readSetupState(home), /Invalid local setup state/);
 });
+
+test("Windows setup context falls back to USERPROFILE only when HOME is absent", async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  const home = await mkdtemp(join(tmpdir(), "setup-win-home-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const moduleUrl = new URL("../dist/adapters/setup-state.js", import.meta.url)
+    .href;
+  const source = `import 'node:path';if(process.platform!=='win32')Object.defineProperty(process,'platform',{value:'win32'});const {localSetupHome}=await import(${JSON.stringify(moduleUrl)});console.log(localSetupHome())`;
+  const env = {
+    USERPROFILE: home,
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  };
+  const fallback = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", source],
+    { encoding: "utf8", env, timeout: 10000 },
+  );
+  assert.equal(fallback.status, 0, fallback.stderr);
+  assert.equal(fallback.stdout.trim(), home);
+  const explicit = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", source],
+    {
+      encoding: "utf8",
+      env: { ...env, HOME: join(home, "explicit") },
+      timeout: 10000,
+    },
+  );
+  assert.equal(explicit.status, 0, explicit.stderr);
+  assert.equal(explicit.stdout.trim(), join(home, "explicit"));
+});
+
+test("managed state and hashed files reject symlink paths", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { symlink } = await import("node:fs/promises");
+  const { boundedFileHash, inode, optionalBytes } = await import(
+    "../dist/adapters/managed-operation.js"
+  );
+  const dir = await mkdtemp(join(tmpdir(), "setup-symlink-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const target = join(dir, "target"),
+    link = join(dir, "link");
+  await writeFile(target, "contents");
+  const identity = await inode(target);
+  await symlink(target, link);
+  await assert.rejects(optionalBytes(link), /Invalid local setup state/);
+  await assert.rejects(boundedFileHash(link, identity), /ownership/);
+});
+
+test("state disappearing between identity check and open fails closed", async (t) => {
+  const fs = await import("node:fs");
+  const { syncBuiltinESMExports } = await import("node:module");
+  const { optionalBytes } = await import(
+    "../dist/adapters/managed-operation.js"
+  );
+  const dir = await mkdtemp(join(tmpdir(), "setup-disappear-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "binding.json");
+  await writeFile(path, "{}");
+  const original = fs.promises.open;
+  fs.promises.open = async (candidate, ...args) => {
+    if (candidate === path) await rm(path);
+    return original(candidate, ...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(optionalBytes(path), /Invalid local setup state/);
+  } finally {
+    fs.promises.open = original;
+    syncBuiltinESMExports();
+  }
+});

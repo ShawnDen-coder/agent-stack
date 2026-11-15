@@ -1,7 +1,8 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { type BigIntStats, constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rmdir, unlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { z } from "zod";
 
 export const hash = (value: Buffer) =>
@@ -16,19 +17,109 @@ export function decodeState<T>(schema: z.ZodType<T>, raw: string): T {
   }
 }
 
+// Windows mode bits do not distinguish owner/group/other. Inspect the
+// directory DACL directly and fail closed on untrusted write-capable ACEs.
+async function windowsDirectorySecure(path: string): Promise<boolean> {
+  const systemRoot = process.env.SystemRoot;
+  if (!systemRoot || !isAbsolute(systemRoot)) return false;
+  const program = join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const script = `$ErrorActionPreference='Stop'
+$identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+$user=$identity.User.Value
+$acl=([IO.DirectoryInfo]::new($env:AGENT_STACK_DIR)).GetAccessControl([Security.AccessControl.AccessControlSections]'Owner, Access')
+$descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(),0)
+if ($null -eq $descriptor.DiscretionaryAcl) { exit 5 }
+foreach($ace in $descriptor.DiscretionaryAcl) {
+ if (-not ($ace -is [Security.AccessControl.CommonAce]) -or $ace.IsCallback -or
+     ($ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -and $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessDenied)) { exit 5 }
+}
+$owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+$trusted=@($user,'S-1-5-18','S-1-5-32-544','S-1-3-0','S-1-3-4')
+if ($owner -ne $user -and $owner -ne 'S-1-5-32-544') { exit 3 }
+foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+ if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+     (([long]$rule.FileSystemRights -band 0xD0156) -ne 0) -and
+     $rule.IdentityReference.Value -notin $trusted) { exit 4 }
+}
+[Console]::Out.WriteLine('safe')`;
+  return await new Promise<boolean>((done) => {
+    let closed = false;
+    let result: boolean | undefined;
+    const finish = () => {
+      if (closed && result !== undefined) done(result);
+    };
+    const child = execFile(
+      program,
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ],
+      {
+        cwd: path,
+        env: { SystemRoot: systemRoot, AGENT_STACK_DIR: path },
+        timeout: 5000,
+        maxBuffer: 4096,
+        killSignal: "SIGKILL",
+        windowsHide: true,
+        encoding: "utf8",
+      },
+      (error, stdout) => {
+        result = !error && stdout.trim() === "safe";
+        finish();
+      },
+    );
+    child.stdin?.end();
+    child.once("close", () => {
+      closed = true;
+      finish();
+    });
+  });
+}
 export async function safeDir(path: string) {
-  const info = await lstat(path);
-  if (
-    !info.isDirectory() ||
-    info.isSymbolicLink() ||
-    (info.mode & 0o022) !== 0 ||
-    (process.getuid && info.uid !== process.getuid())
+  const info = await lstat(path, { bigint: true });
+  if (!info.isDirectory() || info.isSymbolicLink())
+    throw new Error("Managed directory has unsafe ownership or permissions");
+  if (process.platform === "win32") {
+    if (!(await windowsDirectorySecure(path)))
+      throw new Error("Managed directory has unsafe ownership or permissions");
+  } else if (
+    (info.mode & 0o022n) !== 0n ||
+    (process.getuid && info.uid !== BigInt(process.getuid()))
   )
     throw new Error("Managed directory has unsafe ownership or permissions");
-  if ((await realpath(path)) !== resolve(path))
+  const canonical = await realpath(path);
+  const resolved = resolve(path);
+  if (canonical !== resolved)
     throw new Error("Managed directory must not traverse symlinks");
+  const after = await lstat(path, { bigint: true });
+  if (
+    !after.isDirectory() ||
+    after.isSymbolicLink() ||
+    after.dev !== info.dev ||
+    after.ino !== info.ino ||
+    after.ino === 0n
+  )
+    throw new Error("Managed directory changed during inspection");
 }
 export async function optionalBytes(path: string) {
+  let entry: BigIntStats;
+  try {
+    entry = await lstat(path, { bigint: true });
+  } catch (error) {
+    if (missing(error)) return null;
+    throw error;
+  }
+  if (!entry.isFile() || entry.isSymbolicLink() || entry.ino === 0n)
+    throw new Error("Invalid local setup state");
   let file: Awaited<ReturnType<typeof open>>;
   try {
     file = await open(
@@ -36,12 +127,17 @@ export async function optionalBytes(path: string) {
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
   } catch (error) {
-    if (missing(error)) return null;
+    if (missing(error)) throw new Error("Invalid local setup state");
     throw error;
   }
   try {
     const before = await file.stat({ bigint: true });
-    if (!before.isFile() || before.size > 65536n)
+    if (
+      !before.isFile() ||
+      before.size > 65536n ||
+      before.dev !== entry.dev ||
+      before.ino !== entry.ino
+    )
       throw new Error("Invalid local setup state");
     const buffer = Buffer.alloc(65537);
     let length = 0;
@@ -56,7 +152,12 @@ export async function optionalBytes(path: string) {
       length += bytesRead;
     }
     const after = await file.stat({ bigint: true });
+    const pathAfter = await lstat(path, { bigint: true });
     if (
+      !pathAfter.isFile() ||
+      pathAfter.isSymbolicLink() ||
+      pathAfter.dev !== before.dev ||
+      pathAfter.ino !== before.ino ||
       length > 65536 ||
       after.dev !== before.dev ||
       after.ino !== before.ino ||
@@ -100,6 +201,9 @@ export async function boundedFileHash(
   path: string,
   expected: { dev: string; ino: string },
 ) {
+  const pathBefore = await inode(path);
+  if (pathBefore.dev !== expected.dev || pathBefore.ino !== expected.ino)
+    throw new Error("Managed file changed or exceeds size limit");
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const before = await file.stat({ bigint: true });
@@ -122,7 +226,10 @@ export async function boundedFileHash(
       digest.update(buffer.subarray(0, bytesRead));
     }
     const after = await file.stat({ bigint: true });
+    const pathAfter = await inode(path);
     if (
+      pathAfter.dev !== expected.dev ||
+      pathAfter.ino !== expected.ino ||
       after.size !== BigInt(total) ||
       after.dev !== before.dev ||
       after.ino !== before.ino ||

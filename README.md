@@ -33,4 +33,4 @@ pnpm cli validate --repo .
 
 `setup --profile coding --dry-run` 可离线预览已有共享锁的本机计划；完整 coding 的安装与配置应用尚未实现，必需步骤缺失时返回 1。需明确锁覆盖的原生目标；支持检测原生 macOS arm64/x64 和 Windows x64，未知或仿真宿主阻塞。
 
-在原生 macOS arm64/x64，`setup` 可按完整锁安装或复用能力完整的 uv-only profile；预览不联网，执行前需确认或显式 `--yes`。新安装的受管入口位于 `$HOME/.agent-stack/bin`，须预先创建并加入 PATH；匹配的外部入口可只读复用。原生 macOS Herdr-only 可按锁安装或复用匹配的已有入口；外部入口归属为 unknown。它不代表 coding 已配置；Windows、Linux/WSL、仿真和其他部件仍不能应用。详见 [Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-macos-install/docs/quickstart.md)。
+在原生 macOS arm64/x64，`setup` 可按完整锁安装或复用能力完整的 uv-only profile；预览不联网，执行前需确认或显式 `--yes`。新安装的受管入口位于 `$HOME/.agent-stack/bin`，须预先创建并加入 PATH；匹配的外部入口可只读复用。原生 macOS Herdr-only 可按锁安装或复用匹配的已有入口；外部入口归属为 unknown。Windows x64 的 Herdr-only 锁定 ZIP 安装与 external 复用已接入实现，原生 Windows CI 和 IPC 验收待本候选验证；完整 coding、Linux/WSL、仿真和其他部件仍不能应用。详见 [Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-macos-install/docs/quickstart.md)。

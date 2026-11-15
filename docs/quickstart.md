@@ -152,4 +152,4 @@ pnpm cli setup --repo . --profile herdr-only --lock ./herdr-only.lock.json
 
 脚本执行可加 `--yes`。安装核对锁中的 SHA-256、Mach-O 架构及版本，发布 Herdr 受管入口和 v2 回执；匹配的已有原生入口可 external 复用，来源仍为 unknown。重复执行会复核文件与锁，不重新下载匹配的受管安装。下载、确认后漂移或恢复冲突会失败并保留需要人工核查的证据；`--yes` 不覆盖未知入口或本地修改。
 
-此 profile 只安装 workspace 工具，不启用 Pi 集成或 coding 配置。setup 不启动、停止或迁移用户的 Herdr server，也不导入会话或认证。Windows ZIP 安装尚未实现；未知、仿真宿主或锁中缺少当前目标时继续阻塞。
+此 profile 只安装 workspace 工具，不启用 Pi 集成或 coding 配置。setup 不启动、停止或迁移用户的 Herdr server，也不导入会话或认证。Windows x64 ZIP 整包安装与 external 复用已接入候选，仍待该候选的原生 Windows CI 和 IPC 验收；未知、仿真宿主或锁中缺少当前目标时继续阻塞。 setup 仍要求可验证的 npm 入口；Node 自带动态 prefix 的 `npm.cmd` 按现有只读探测规则属于未核对入口，需使用可静态验证的标准 cmd-shim 等受支持入口。
