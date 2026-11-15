@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import stringWidth from "fast-string-width";
 import { create as createTar } from "tar";
@@ -77,7 +77,15 @@ function run(
 ) {
   return spawnSync(
     process.execPath,
-    ["--import", preload, cli, "lock", "--repo", dir, ...args],
+    [
+      "--import",
+      pathToFileURL(preload).href,
+      cli,
+      "lock",
+      "--repo",
+      dir,
+      ...args,
+    ],
     { encoding: "utf8", timeout: 12000 },
   );
 }
@@ -427,7 +435,7 @@ test("lock accepts root shared options and requires profile when stdin is not a 
     process.execPath,
     [
       "--import",
-      preload,
+      pathToFileURL(preload).href,
       cli,
       "--repo",
       dir,
@@ -1868,7 +1876,7 @@ test("fresh lock rejects dangling symlinks and only one concurrent writer publis
     new Promise((resolve, reject) => {
       const proc = spawn(process.execPath, [
         "--import",
-        preload,
+        pathToFileURL(preload).href,
         cli,
         "lock",
         "--repo",
@@ -1905,7 +1913,7 @@ test("fresh creation aborts recheck and leaves no published or temporary file", 
   await writeFile(preload, body);
   const proc = spawn(process.execPath, [
     "--import",
-    preload,
+    pathToFileURL(preload).href,
     cli,
     "lock",
     "--repo",
@@ -2450,7 +2458,7 @@ function validateOffline(f, args = []) {
     process.execPath,
     [
       "--import",
-      f.offline,
+      pathToFileURL(f.offline).href,
       cli,
       "validate",
       "--repo",
@@ -2715,7 +2723,7 @@ test("validate lock uses the locked Node assumption and root shared options", as
     process.execPath,
     [
       "--import",
-      f.offline,
+      pathToFileURL(f.offline).href,
       cli,
       "--repo",
       f.dir,
@@ -2900,19 +2908,23 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   await mkdir(join(f.dir, "home"));
   await mkdir(join(f.dir, "tmp"));
   const runSetup = (args, env = {}) =>
-    spawnSync(process.execPath, ["--import", preload, cli, ...args], {
-      encoding: "utf8",
-      timeout: 12000,
-      cwd: f.dir,
-      env: {
-        PATH: "",
-        NO_COLOR: "1",
-        HOME: join(f.dir, "home"),
-        USERPROFILE: join(f.dir, "home"),
-        TMPDIR: join(f.dir, "tmp"),
-        ...env,
+    spawnSync(
+      process.execPath,
+      ["--import", pathToFileURL(preload).href, cli, ...args],
+      {
+        encoding: "utf8",
+        timeout: 12000,
+        cwd: f.dir,
+        env: {
+          PATH: "",
+          NO_COLOR: "1",
+          HOME: join(f.dir, "home"),
+          USERPROFILE: join(f.dir, "home"),
+          TMPDIR: join(f.dir, "tmp"),
+          ...env,
+        },
       },
-    });
+    );
   const originalLock = await readFile(f.path, "utf8");
   const differentNode = JSON.parse(originalLock);
   differentNode.node = "24.0.0";
@@ -3069,7 +3081,7 @@ test("setup reports the Windows herdr zip from the validated lock", async (t) =>
     process.execPath,
     [
       "--import",
-      preload,
+      pathToFileURL(preload).href,
       cli,
       "setup",
       "--repo",
@@ -3151,7 +3163,7 @@ test("setup rejects missing or invalid herdr lock assets before host inspection"
       process.execPath,
       [
         "--import",
-        f.offline,
+        pathToFileURL(f.offline).href,
         cli,
         "setup",
         "--repo",
@@ -3189,7 +3201,14 @@ globalThis.fetch=()=>{throw Error('unexpected network')};`,
   const run = (args) =>
     spawnSync(
       process.execPath,
-      ["--import", preload, cli, "setup", ...args, "--json"],
+      [
+        "--import",
+        pathToFileURL(preload).href,
+        cli,
+        "setup",
+        ...args,
+        "--json",
+      ],
       { encoding: "utf8", timeout: 12000, env: { PATH: "", NO_COLOR: "1" } },
     );
   for (const options of [
@@ -3250,7 +3269,7 @@ cp.execFile=(file,args,opts,cb)=>{const child=new EventEmitter();queueMicrotask(
       process.execPath,
       [
         "--import",
-        preload,
+        pathToFileURL(preload).href,
         cli,
         "setup",
         "--repo",
@@ -3380,7 +3399,7 @@ cp.execFile=(file,args,opts,cb)=>{if(file !== '/usr/bin/arch' || args.join(' ') 
       process.execPath,
       [
         "--import",
-        preload,
+        pathToFileURL(preload).href,
         cli,
         "setup",
         "--repo",
@@ -3436,7 +3455,7 @@ test("setup distinguishes matched metadata, unverified entry, mismatched version
     process.execPath,
     [
       "--import",
-      preload,
+      pathToFileURL(preload).href,
       cli,
       "setup",
       "--repo",
@@ -3467,7 +3486,7 @@ test("setup observes the real native Windows x64 CI process", {
     process.execPath,
     [
       "--import",
-      f.offline,
+      pathToFileURL(f.offline).href,
       cli,
       "setup",
       "--repo",
@@ -3509,7 +3528,7 @@ const original=cp.execFile;cp.execFile=(_file,_args,opts,callback)=>{const child
       process.execPath,
       [
         "--import",
-        preload,
+        pathToFileURL(preload).href,
         cli,
         "setup",
         "--repo",
@@ -3624,7 +3643,7 @@ test("setup previews the locked uv asset for a capability-complete uv-only profi
     process.execPath,
     [
       "--import",
-      offline,
+      pathToFileURL(offline).href,
       cli,
       "setup",
       "--repo",
@@ -3702,7 +3721,7 @@ test("Herdr-only setup reuses a native entry and records a v2 snapshot", {
       process.execPath,
       [
         "--import",
-        preload,
+        pathToFileURL(preload).href,
         cli,
         "setup",
         "--repo",
@@ -3836,7 +3855,14 @@ async function uvInstallFixture(t, variant = "normal", arch = "x64") {
 function runUvSetup(f, args, extra = {}) {
   return spawnSync(
     process.execPath,
-    ["--import", f.preload, cli, "setup", ...args, "--json"],
+    [
+      "--import",
+      pathToFileURL(f.preload).href,
+      cli,
+      "setup",
+      ...args,
+      "--json",
+    ],
     {
       encoding: "utf8",
       timeout: 20000,
@@ -4032,9 +4058,9 @@ for (const corruption of ["empty", "invalid-with-temp"]) {
       process.execPath,
       [
         "--import",
-        f.preload,
+        pathToFileURL(f.preload).href,
         "--import",
-        pause,
+        pathToFileURL(pause).href,
         cli,
         "setup",
         ...args,
@@ -4470,7 +4496,7 @@ test("setup serializes competing uv installations", {
   const f = await uvInstallFixture(t);
   const args = [
     "--import",
-    f.preload,
+    pathToFileURL(f.preload).href,
     cli,
     "setup",
     "--repo",
@@ -4599,7 +4625,7 @@ test("setup interruption during download removes its own staging and lock", {
   const f = await uvInstallFixture(t),
     args = [
       "--import",
-      f.preload,
+      pathToFileURL(f.preload).href,
       cli,
       "setup",
       "--repo",
@@ -4653,7 +4679,7 @@ test("setup recovers a stale download stage after an interrupted process", {
   const f = await uvInstallFixture(t),
     args = [
       "--import",
-      f.preload,
+      pathToFileURL(f.preload).href,
       cli,
       "setup",
       "--repo",
@@ -4842,7 +4868,7 @@ test("setup refuses an unsupported Windows uv target before downloading", {
     process.execPath,
     [
       "--import",
-      win,
+      pathToFileURL(win).href,
       cli,
       "setup",
       "--repo",
@@ -4895,7 +4921,7 @@ test("setup interruption during staged version verification reaps the child", {
   const f = await uvInstallFixture(t, "version-stall"),
     args = [
       "--import",
-      f.preload,
+      pathToFileURL(f.preload).href,
       cli,
       "setup",
       "--repo",
@@ -5166,7 +5192,7 @@ test("setup applies an explicit relative candidate lock and remembers it", {
     process.execPath,
     [
       "--import",
-      f.preload,
+      pathToFileURL(f.preload).href,
       cli,
       "setup",
       "--repo",
@@ -5368,7 +5394,7 @@ test("root review: concurrent stale lock recovery must not remove a live owner",
       process.execPath,
       [
         "--import",
-        f.preload,
+        pathToFileURL(f.preload).href,
         cli,
         "setup",
         "--repo",
