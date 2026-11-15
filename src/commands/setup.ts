@@ -437,6 +437,24 @@ export function createSetupCommand(): Command {
                 (uvAsset.format !== "tar.gz" && uvAsset.format !== "zip"))
             )
               throw new Error("Missing validated uv asset for this target");
+            const herdrAsset =
+              item.component === "herdr"
+                ? lock.assets.find(
+                    (asset) =>
+                      asset.component === "herdr" &&
+                      asset.target === target &&
+                      asset.artifact.type === "herdr",
+                  )
+                : undefined;
+            if (
+              item.component === "herdr" &&
+              (herdrAsset?.artifact.type !== "herdr" ||
+                herdrAsset.digest.algorithm !== "sha256" ||
+                herdrAsset.format !==
+                  (target === "win32-x64" ? "zip" : "binary"))
+            )
+              throw new Error("Missing validated herdr asset for this target");
+            const selectedAsset = uvAsset ?? herdrAsset;
             return {
               component: item.component,
               lockedVersion: item.version,
@@ -445,15 +463,17 @@ export function createSetupCommand(): Command {
                 item.component === "uv" && uvMode === "managed"
                   ? "managed"
                   : "unknown",
-              ...(uvAsset && uvAsset.artifact.type === "uv"
+              ...(selectedAsset &&
+              (selectedAsset.artifact.type === "uv" ||
+                selectedAsset.artifact.type === "herdr")
                 ? {
                     lockedAsset: {
-                      target: uvAsset.target,
-                      name: uvAsset.artifact.assetName,
-                      url: uvAsset.url,
-                      format: uvAsset.format,
-                      sha256: uvAsset.digest.value,
-                      digestSource: uvAsset.digestSource,
+                      target: selectedAsset.target,
+                      name: selectedAsset.artifact.assetName,
+                      url: selectedAsset.url,
+                      format: selectedAsset.format,
+                      sha256: selectedAsset.digest.value,
+                      digestSource: selectedAsset.digestSource,
                     },
                   }
                 : {}),

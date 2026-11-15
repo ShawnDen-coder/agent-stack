@@ -2934,6 +2934,54 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   assert.equal(plan.host.target, "darwin-arm64");
   assert.equal(plan.lock.node, "24.0.0");
   assert.equal(plan.components.length, 4);
+  const expectedHerdr = f.lock.assets.find(
+    (asset) => asset.component === "herdr" && asset.target === "darwin-arm64",
+  );
+  const expectedUv = f.lock.assets.find(
+    (asset) => asset.component === "uv" && asset.target === "darwin-arm64",
+  );
+  for (const expected of [expectedHerdr, expectedUv]) {
+    assert.deepEqual(
+      plan.components.find((item) => item.component === expected.component)
+        .lockedAsset,
+      {
+        target: expected.target,
+        name: expected.artifact.assetName,
+        url: expected.url,
+        format: expected.format,
+        sha256: expected.digest.value,
+        digestSource: expected.digestSource,
+      },
+    );
+  }
+  assert.equal(expectedHerdr.format, "binary");
+  assert.match(plan.scope, /expected metadata until downloaded and checked/);
+  assert.ok(
+    plan.blockers.includes(
+      "Installation adapters are not implemented for the complete profile",
+    ),
+  );
+  assert.ok(
+    plan.blockers.includes(
+      "Required resources and integrations are not applied",
+    ),
+  );
+  const human = runSetup([
+    "setup",
+    "--repo",
+    f.dir,
+    "--profile",
+    "coding",
+    "--dry-run",
+  ]);
+  const humanText = stripVTControlCharacters(human.stdout).replace(/\s+/g, "");
+  for (const value of [
+    expectedHerdr.artifact.assetName,
+    expectedHerdr.url,
+    expectedHerdr.digest.value,
+    expectedHerdr.digestSource,
+  ])
+    assert.ok(humanText.includes(value.replace(/\s+/g, "")), value);
   assert.ok(
     plan.components.every(
       (item) =>
@@ -3005,6 +3053,126 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   );
   assert.deepEqual(await readdir(join(f.dir, "home")), []);
   assert.deepEqual(await readdir(join(f.dir, "tmp")), []);
+});
+
+test("setup reports the Windows herdr zip from the validated lock", async (t) => {
+  const f = await freshForValidation(t);
+  const home = join(f.dir, "home");
+  await import("node:fs/promises").then(({ mkdir }) => mkdir(home));
+  const preload = join(f.dir, "windows-plan.mjs");
+  await writeFile(
+    preload,
+    `import os from 'node:os';import cp from 'node:child_process';import {EventEmitter} from 'node:events';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'win32'});Object.defineProperty(process,'arch',{value:'x64'});os.machine=()=> 'x86_64';cp.execFile=(file,args,opts,callback)=>{const child=new EventEmitter();queueMicrotask(()=>{callback(null,'0,34404','');child.emit('close',0)});return child};syncBuiltinESMExports();globalThis.fetch=()=>{throw Error('network forbidden')};`,
+  );
+  const before = await snapshot(f.dir);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ],
+    {
+      cwd: f.dir,
+      encoding: "utf8",
+      timeout: 12000,
+      env: {
+        PATH: "",
+        NO_COLOR: "1",
+        HOME: home,
+        USERPROFILE: home,
+        SystemRoot: home,
+        TEMP: home,
+        TMP: home,
+      },
+    },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const plan = JSON.parse(result.stdout);
+  const asset = f.lock.assets.find(
+    (entry) => entry.component === "herdr" && entry.target === "win32-x64",
+  );
+  assert.deepEqual(
+    plan.components.find((item) => item.component === "herdr").lockedAsset,
+    {
+      target: asset.target,
+      name: asset.artifact.assetName,
+      url: asset.url,
+      format: "zip",
+      sha256: asset.digest.value,
+      digestSource: asset.digestSource,
+    },
+  );
+  assert.ok(
+    plan.blockers.includes(
+      "Installation adapters are not implemented for the complete profile",
+    ),
+  );
+  assert.deepEqual(await snapshot(f.dir), before);
+  assert.deepEqual(await readdir(home), []);
+});
+
+test("setup rejects missing or invalid herdr lock assets before host inspection", async (t) => {
+  const f = await freshForValidation(t);
+  const home = join(f.dir, "home");
+  await import("node:fs/promises").then(({ mkdir }) => mkdir(home));
+  for (const change of [
+    (lock) => {
+      lock.assets = lock.assets.filter(
+        (asset) =>
+          !(asset.component === "herdr" && asset.target === "darwin-arm64"),
+      );
+    },
+    (lock) => {
+      lock.assets.find(
+        (asset) =>
+          asset.component === "herdr" && asset.target === "darwin-arm64",
+      ).artifact.assetName = "wrong";
+    },
+    (lock) => {
+      lock.assets.find(
+        (asset) =>
+          asset.component === "herdr" && asset.target === "darwin-arm64",
+      ).format = "zip";
+    },
+  ]) {
+    const lock = structuredClone(f.lock);
+    change(lock);
+    await writeFile(f.path, JSON.stringify(lock));
+    const before = await snapshot(f.dir);
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        f.offline,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "coding",
+        "--dry-run",
+        "--json",
+      ],
+      {
+        cwd: f.dir,
+        encoding: "utf8",
+        timeout: 12000,
+        env: { PATH: "", NO_COLOR: "1", HOME: home, USERPROFILE: home },
+      },
+    );
+    assert.equal(result.status, 1);
+    assert.notEqual(JSON.parse(result.stdout).kind, "setup-plan");
+    assert.deepEqual(await snapshot(f.dir), before);
+    assert.deepEqual(await readdir(home), []);
+  }
 });
 
 test("setup validates usage and locked inputs before probing the host", async (t) => {

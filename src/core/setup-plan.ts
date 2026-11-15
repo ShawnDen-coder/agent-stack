@@ -82,7 +82,7 @@ export const setupPlanSchema = z.object({
           target: z.string(),
           name: z.string(),
           url: z.url(),
-          format: z.enum(["tar.gz", "zip"]),
+          format: z.enum(["tar.gz", "zip", "binary"]),
           sha256: z.string(),
           digestSource: z.url(),
         })

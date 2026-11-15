@@ -55,3 +55,5 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 依次实施 Herdr 三目标安装及隔离协议验收、Pi npm staging 与 pnpm native 和 Windows uv、原生配置与 pi-herdr 资源、doctor 应用核验及 `run coding`；Otty 为独立可选桌面层，Rex 维持实验组合。每片独立提交并评审。平台未实测时如实标注；Actions 的资产与隔离协议测试不能代替 VM/实机终端、ConPTY、GUI 和恢复验收。
 
 参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。
+
+当前 setup 已在计划中显示锁定的 Herdr 目标资产；这只是离线锁元数据，尚未下载或安装。Herdr 安装、归属与恢复仍待后续分片。

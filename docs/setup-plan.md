@@ -78,3 +78,5 @@
 迁移必须识别现有 uv v1 绑定和未完成 journal，先按现有规则恢复或阻塞，再保留 uv 资产证据与外部复用的有限证据；不能凭旧记录推断其他部件或资源已应用。新状态的原子发布、并发和恢复不得削弱现有 uv 保证；失败不得更新完整成功的默认绑定，未知归属和本地漂移保留并报告。profile 切换、资源移除和 checkout 迁移需在真实资源 adapter 中定义三方比较及恢复，不能删除未知内容。具体 schema 随 Herdr 实际消费者实现，不预建空框架。
 
 固定版本调研见 [Herdr](herdr-research.md)、[Pi](pi-research.md) 和 [Otty](otty-research.md)；调研版本是证据快照，安装仍以共享锁为准。Otty 仅有官方在线文档证据，Windows 发行支持尚未确认。
+
+当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。Herdr 安装、部件状态及恢复仍未实现，完整 coding 继续阻塞。
