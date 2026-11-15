@@ -35,6 +35,8 @@ jobs:
       - run: pnpm build
       - name: Exercise controlled Windows bundle and ACL boundaries
         run: node --test test/herdr-windows-archive.test.mjs test/windows-managed-acl.test.mjs
+      - name: Inspect generic ACL inheritance on NTFS
+        run: node scripts/probe-windows-generic-acl.mjs dist/adapters/managed-operation.js
       - name: Install packed CLI in isolation
         shell: pwsh
         run: |
