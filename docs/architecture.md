@@ -133,6 +133,9 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 ## 参考来源
 
 - [Pi 配置与 packages](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/docs)：使用原生资源与配置机制。
+- [Pi 调研](pi-research.md)：固定版本的目录、认证、会话、trust 与资源加载，以及启动和安装验收边界。
 - [herdr 集成](https://herdr.dev/tui/docs/integrations/)：Pi 状态报告的声明来源。
+- [Herdr 调研](herdr-research.md)：固定版本的特性、配置与状态目录、启动流程及安装验收边界。
+- [Otty 调研](otty-research.md)：官方文档中的原生配置、App/CLI 启动、shell/Agent 集成副作用与待核对项。
 - [Rex Agent 支持](https://www.superlogical.com/rex/docs/automate/agent-skill)：Pi skill 与 hook 的支持范围不同。
 - [Rex 安装](https://www.superlogical.com/rex/docs/installation)、[Otty 安装](https://docs.otty.sh/getting-started/installation)：客户端、服务端与平台范围需要分别核对。

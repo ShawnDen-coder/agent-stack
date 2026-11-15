@@ -2,6 +2,12 @@
 
 状态：方案已通过根会话审查；当前仅实现 `setup --dry-run` 只读预览，计划执行和安装尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
 
+[Herdr 调研](herdr-research.md)记录 `v0.9.5` 的固定源码证据：配置/状态/安装目录的区别、client/server 启动、Pi 扩展及 macOS/Windows 安装边界。它是安装片的输入，不代表安装或集成已验收。
+
+[Otty 调研](otty-research.md)记录桌面 App、CLI、配置本机覆盖及 shell/Agent 集成的边界；现有 profile 未选择 Otty，本轮不扩大 setup 的必需部件或平台支持。
+
+[Pi 调研](pi-research.md)记录 `v1.5.2` 的固定源码证据：配置/认证/会话目录、启动和 trust 顺序、skills/extensions 加载，以及 macOS/Windows 的 shell 与安装验收边界。`--help` 会加载扩展，不能替代只读观察；安装和集成仍需运行证据。
+
 ## 推荐路径与成功条件
 
 推荐一个公开入口 `setup --repo <root> --profile coding [--lock <file>] [--dry-run] [--yes] [--json]`，复用现有 Commander、呈现、声明读取和锁校验。选定仓库/profile/锁后：**完整离线校验锁 → 检查前置条件与本机 → 生成整份本机计划 → 确认 → 按锁安装和对齐资源 → 检查结果 → 最后登记默认绑定与归属**。普通 setup 不查频道、不重选版本、不修改共享锁。缺失任何必需组件、资源、集成或 adapter 时整份计划阻塞；不能删除 `agent-status` 或忽略 `pi-herdr` 宣称成功。
