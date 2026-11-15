@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -47,4 +47,37 @@ test("state replacement recheck compares file identity and raw bytes", async (t)
     assertFileUnchanged(path, identity, original),
     /Binding changed/,
   );
+});
+
+test("v1 state normalizes without changing disk or inventing asset evidence", async (t) => {
+  const { readSetupState } = await import("../dist/adapters/setup-state.js");
+  const home = await mkdtemp(join(tmpdir(), "setup-legacy-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, ".agent-stack"));
+  const path = join(home, ".agent-stack", "binding.json");
+  const v1 = {
+    schemaVersion: 1,
+    repo: home,
+    profile: "uv-only",
+    lock: join(home, "lock"),
+    uv: {
+      version: "0.13.8",
+      target: "darwin-x64",
+      mode: "external",
+      directory: null,
+      uvHash: null,
+      uvxHash: null,
+    },
+  };
+  const raw = JSON.stringify(v1);
+  await writeFile(path, raw);
+  const state = await readSetupState(home);
+  assert.equal(state.schemaVersion, 2);
+  assert.deepEqual(state.installations.uv, v1.uv);
+  assert.equal(state.installations.uv.asset, undefined);
+  assert.equal(await readFile(path, "utf8"), raw);
+  await writeFile(path, JSON.stringify({ ...state, defaultBinding: null }));
+  assert.deepEqual((await readSetupState(home)).installations.uv, v1.uv);
+  await writeFile(path, JSON.stringify({ ...state, unexpected: true }));
+  await assert.rejects(readSetupState(home), /Invalid local setup state/);
 });

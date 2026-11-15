@@ -59,3 +59,5 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 当前 setup 已在计划中显示锁定的 Herdr 目标资产；这只是离线锁元数据，尚未下载或安装。Herdr 安装、归属与恢复仍待后续分片。
 
 本片提取现有 uv 消费的状态读取及受管文件保护边界，保留 v1 存储和恢复协议；不引入 v2 状态，Herdr 安装仍待实现。
+
+当前支持原生 macOS Herdr-only 对匹配的既有入口做 external 复用并记录 v2 状态；Herdr managed 安装、Windows 执行与完整 coding 闭环仍未实现。原生路径契约的 3 项 TODO 保持待实现。

@@ -17,10 +17,11 @@ import {
   recheckSetupBaseline,
   setupBaseline,
 } from "../adapters/setup-baseline.js";
-import { readSetupState, type UvBinding } from "../adapters/setup-state.js";
+import { readSetupState, type SetupState } from "../adapters/setup-state.js";
 import { findExecutable, observe } from "../adapters/toolchain.js";
 import {
   applyUv,
+  bindExternalHerdr,
   bindExternalUv,
   hasPendingUv,
   inspectUvPath,
@@ -79,18 +80,20 @@ export function createSetupCommand(): Command {
       if (!options.dryRun && !options.yes && json)
         command.error("error: --yes is required in JSON mode");
       const home = process.env.HOME;
-      let binding: UvBinding | null;
+      let state: SetupState | null;
       try {
-        binding = await readSetupState(home);
+        state = await readSetupState(home);
       } catch (error) {
         failure(error instanceof Error ? error.message : String(error), json);
         process.exitCode = 1;
         return;
       }
+      const context = state?.defaultBinding ?? null;
+      const binding = state?.installations.uv ?? null;
       const repo = resolve(
-        options.repo ?? process.env.AGENT_STACK_REPO ?? binding?.repo ?? ".",
+        options.repo ?? process.env.AGENT_STACK_REPO ?? context?.repo ?? ".",
       );
-      const bound = binding?.repo === repo ? binding : null;
+      const bound = context?.repo === repo ? context : null;
       const selectedProfile =
         options.profile ?? process.env.AGENT_STACK_PROFILE ?? bound?.profile;
       if (!selectedProfile && json)
@@ -142,6 +145,11 @@ export function createSetupCommand(): Command {
           profile.components.length === 1 &&
           profile.components[0]?.component === "uv" &&
           profile.integrations.length === 0;
+        const herdrOnly =
+          profile.components.length === 1 &&
+          profile.components[0]?.component === "herdr" &&
+          profile.integrations.length === 0 &&
+          profile.requires.includes("workspace");
         const componentIds = profile.components.map((item) => item.component);
         const baseline = await setupBaseline(
           repo,
@@ -162,7 +170,7 @@ export function createSetupCommand(): Command {
           );
         if (
           JSON.stringify(await readLock(path)) !== JSON.stringify(raw) ||
-          JSON.stringify(await readSetupState(home)) !== JSON.stringify(binding)
+          JSON.stringify(await readSetupState(home)) !== JSON.stringify(state)
         )
           throw new Error("Setup inputs changed during planning");
         await recheck();
@@ -261,7 +269,7 @@ export function createSetupCommand(): Command {
               "uv installation is only supported on native macOS",
             );
           if (!home) uvBlockers.push("HOME is required for uv setup");
-          if (binding?.uv.mode === "managed" && home && uvVersion) {
+          if (binding?.mode === "managed" && home && uvVersion) {
             if (
               managedAsset &&
               (await matchesManagedUv(
@@ -344,8 +352,33 @@ export function createSetupCommand(): Command {
               "Existing uv or uvx entry is missing, unverified, or conflicts with the lock",
             );
         }
+        const herdr = checks.find((item) => item.name === "herdr");
+        const herdrVersion = lock.components.find(
+          (item) => item.component === "herdr",
+        )?.version;
+        let herdrFingerprint: string | undefined;
+        if (herdrOnly) {
+          if (process.platform !== "darwin")
+            uvBlockers.push("Herdr reuse is only supported on native macOS");
+          if (!home) uvBlockers.push("HOME is required for Herdr setup");
+          if (!herdr?.path || herdr.status !== "ok" || !herdrVersion)
+            uvBlockers.push(
+              "Existing Herdr entry is missing, unverified, or conflicts with the lock",
+            );
+          else {
+            try {
+              herdrFingerprint = await uvEntryFingerprint(herdr.path);
+            } catch {
+              uvBlockers.push("Cannot verify existing Herdr entry identity");
+            }
+          }
+          if (home && (await hasPendingUv(home)))
+            uvBlockers.push(
+              "Pending uv operation requires recovery before Herdr setup",
+            );
+        }
         let rootIdentity: string | null = null;
-        if (uvOnly && home) {
+        if ((uvOnly || herdrOnly) && home) {
           try {
             rootIdentity = await uvRootIdentity(home);
           } catch {
@@ -366,7 +399,7 @@ export function createSetupCommand(): Command {
             uvBlockers.push("Cannot verify existing uv entry identities");
           }
         }
-        if (uvOnly && pendingUv && binding?.uv.mode === "external")
+        if (uvOnly && pendingUv && binding?.mode === "external")
           uvBlockers.push(
             "Pending uv operation conflicts with the existing external binding; inspect it before retrying",
           );
@@ -490,11 +523,13 @@ export function createSetupCommand(): Command {
               }
             : {}),
           integrations: profile.integrations,
-          resources: profile.components.some(
-            (item) => item.component === "pi" || item.component === "herdr",
-          )
-            ? ["configuration", "skills", "agent resources"]
-            : [],
+          resources:
+            !herdrOnly &&
+            profile.components.some(
+              (item) => item.component === "pi" || item.component === "herdr",
+            )
+              ? ["configuration", "skills", "agent resources"]
+              : [],
           blockers: [
             ...[
               node,
@@ -505,7 +540,7 @@ export function createSetupCommand(): Command {
               .filter((item) => item.status !== "ok")
               .map((item) => `${item.name}: ${item.status}`),
             ...uvBlockers,
-            ...(!uvOnly
+            ...(!uvOnly && !herdrOnly
               ? [
                   "Installation adapters are not implemented for the complete profile",
                 ]
@@ -513,9 +548,11 @@ export function createSetupCommand(): Command {
             ...(lock.components.some((item) => item.source.type === "npm")
               ? ["Package-level Node engines are not checked"]
               : []),
-            ...(profile.components.some(
-              (item) => item.component === "pi" || item.component === "herdr",
-            ) || profile.integrations.length
+            ...((!herdrOnly &&
+              profile.components.some(
+                (item) => item.component === "pi" || item.component === "herdr",
+              )) ||
+            profile.integrations.length
               ? ["Required resources and integrations are not applied"]
               : []),
           ],
@@ -537,6 +574,63 @@ export function createSetupCommand(): Command {
             process.exitCode = 130;
             return;
           }
+        }
+        if (herdrOnly) {
+          if (!home || !herdr?.path || !herdrVersion || !herdrFingerprint)
+            throw new Error("Incomplete Herdr setup plan");
+          const entry = herdr.path,
+            fingerprint = herdrFingerprint;
+          const verifyHerdr = async () => {
+            await recheck();
+            if (controller.signal.aborted) throw new Error("Cancelled");
+            if (
+              (await findExecutable("herdr")) !== entry ||
+              (await uvEntryFingerprint(entry)) !== fingerprint
+            )
+              throw new Error("Existing Herdr entry changed after planning");
+            const observation = assess(
+              await observe("herdr", controller.signal),
+              `=${herdrVersion}`,
+            );
+            if (
+              observation.status !== "ok" ||
+              observation.path !== entry ||
+              (await uvEntryFingerprint(entry)) !== fingerprint
+            )
+              throw new Error("Existing Herdr entry changed after planning");
+          };
+          const result = await bindExternalHerdr({
+            home,
+            repo,
+            profile: profileId,
+            lock: path,
+            version: herdrVersion,
+            target,
+            path: entry,
+            fingerprint,
+            rootIdentity,
+            signal: controller.signal,
+            recheck: verifyHerdr,
+          });
+          if (json)
+            console.log(
+              JSON.stringify(
+                {
+                  kind: "setup-complete",
+                  profile: profileId,
+                  mode: "reuse",
+                  plan,
+                  binding: result,
+                },
+                null,
+                2,
+              ),
+            );
+          else
+            console.log(
+              "[OK] Existing Herdr was reused; ownership remains unknown.",
+            );
+          return;
         }
         if (!home || !uvMode || !uvVersion || !uv || !uvx)
           throw new Error("Incomplete uv setup plan");
@@ -598,7 +692,7 @@ export function createSetupCommand(): Command {
           )
             throw new Error("Existing uv entries changed after planning");
         };
-        let result: UvBinding | null;
+        let result: SetupState | null;
         if (uvMode === "managed") {
           await verifyExternal();
           if (pendingUv)
@@ -610,9 +704,9 @@ export function createSetupCommand(): Command {
             );
           if (
             binding &&
-            (binding.repo !== repo ||
-              binding.profile !== profileId ||
-              binding.lock !== path)
+            (context?.repo !== repo ||
+              context?.profile !== profileId ||
+              context?.lock !== path)
           )
             result = await bindExternalUv({
               home,
@@ -626,7 +720,7 @@ export function createSetupCommand(): Command {
               signal: controller.signal,
               recheck: verifyExternal,
             });
-          else result = binding;
+          else result = state;
         } else if (uvMode === "reuse")
           result = await bindExternalUv({
             home,

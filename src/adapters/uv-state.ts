@@ -29,9 +29,11 @@ import {
   withOperationGuard,
 } from "./managed-operation.js";
 import {
-  bindingSchema,
+  decodeSetupState,
   readSetupState,
-  type UvBinding,
+  type SetupState,
+  setupStateSchema,
+  type UvReceipt,
 } from "./setup-state.js";
 import { readUvArchive } from "./uv-archive.js";
 import { downloadUv } from "./uv-download.js";
@@ -71,7 +73,34 @@ const pendingSchema = z
         pending.bindingDev !== null &&
         pending.bindingIno !== null),
   );
-type Pending = z.infer<typeof pendingSchema>;
+const pendingV2Schema = z
+  .strictObject({
+    ...pendingSchema.shape,
+    schemaVersion: z.literal(2),
+    kind: z.literal("uv-install"),
+    beforeHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    beforeIdentity: z
+      .strictObject({ dev: z.string(), ino: z.string() })
+      .nullable(),
+    afterHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .refine((x) => (x.beforeHash === null) === (x.beforeIdentity === null))
+  .refine((x) => x.beforeHash !== x.afterHash)
+  .refine(
+    (x) =>
+      (x.bindingTmp === null &&
+        x.bindingDev === null &&
+        x.bindingIno === null) ||
+      (x.bindingTmp !== null &&
+        x.bindingDev === null &&
+        x.bindingIno === null) ||
+      (x.bindingTmp !== null && x.bindingDev !== null && x.bindingIno !== null),
+  );
+const anyPendingSchema = z.union([pendingSchema, pendingV2Schema]);
+type Pending = z.infer<typeof anyPendingSchema>;
 const identitySchema = z.strictObject({ dev: z.string(), ino: z.string() });
 const stagedFileSchema = identitySchema.extend({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -154,7 +183,7 @@ async function createOwned(
     await file.close();
   }
 }
-async function recover(root: string, bin: string, home: string) {
+async function recover(root: string, bin: string) {
   const path = join(root, "pending.json");
   const raw = await optional(path);
   if (!raw) return;
@@ -164,7 +193,30 @@ async function recover(root: string, bin: string, home: string) {
       throw new Error("Recovery journal changed; manual review required");
     await removeOwned(path, journalIdentity.dev, journalIdentity.ino);
   };
-  const pending = decodeState(pendingSchema, raw);
+  const pending = decodeState(anyPendingSchema, raw);
+  const statePath = join(root, "binding.json");
+  const stateBytes = await optionalBytes(statePath);
+  const stateIdentity = stateBytes === null ? null : await inode(statePath);
+  const state =
+    stateBytes === null ? null : decodeSetupState(stateBytes.toString("utf8"));
+  const stateHash = stateBytes === null ? null : hash(stateBytes);
+  const receipt = state?.installations.uv;
+  const committed =
+    pending.schemaVersion === 2
+      ? stateHash === pending.afterHash
+      : receipt?.mode === "managed" && receipt.directory === pending.stage;
+  if (pending.schemaVersion === 2) {
+    if (!committed && stateHash !== pending.beforeHash)
+      throw new Error("Setup state changed; manual recovery required");
+    if (
+      !committed &&
+      stateBytes !== null &&
+      (!pending.beforeIdentity ||
+        stateIdentity?.dev !== pending.beforeIdentity.dev ||
+        stateIdentity?.ino !== pending.beforeIdentity.ino)
+    )
+      throw new Error("Setup state identity changed; manual recovery required");
+  }
   const stage = join(root, pending.stage);
   const stageIdentity = await directoryInode(stage);
   if (
@@ -172,34 +224,6 @@ async function recover(root: string, bin: string, home: string) {
     stageIdentity.ino !== pending.stageIno
   )
     throw new Error("Staging directory changed; manual recovery required");
-  if (pending.bindingTmp) {
-    if (!pending.bindingDev || !pending.bindingIno)
-      throw new Error("Incomplete binding ownership; manual recovery required");
-    await removeOwned(
-      join(root, pending.bindingTmp),
-      pending.bindingDev,
-      pending.bindingIno,
-    );
-  }
-  const binding = await readSetupState(home);
-  if (
-    binding?.uv.mode === "managed" &&
-    binding.uv.directory === pending.stage
-  ) {
-    const a = await inode(join(bin, "uv"));
-    const b = await inode(join(bin, "uvx"));
-    if (
-      a.dev !== pending.uvDev ||
-      a.ino !== pending.uvIno ||
-      b.dev !== pending.uvxDev ||
-      b.ino !== pending.uvxIno ||
-      (await boundedFileHash(join(bin, "uv"), a)) !== binding.uv.uvHash ||
-      (await boundedFileHash(join(bin, "uvx"), b)) !== binding.uv.uvxHash
-    )
-      throw new Error("Published uv entries changed; manual recovery required");
-    await removeJournal();
-    return;
-  }
   const sourceUv = { dev: pending.uvDev, ino: pending.uvIno },
     sourceUvx = { dev: pending.uvxDev, ino: pending.uvxIno };
   if (
@@ -207,6 +231,75 @@ async function recover(root: string, bin: string, home: string) {
     (await boundedFileHash(join(stage, "uvx"), sourceUvx)) !== pending.uvxHash
   )
     throw new Error("Staged uv entries changed; manual recovery required");
+  if (committed) {
+    if (
+      receipt?.mode !== "managed" ||
+      receipt.directory !== pending.stage ||
+      receipt.uvHash !== pending.uvHash ||
+      receipt.uvxHash !== pending.uvxHash ||
+      (await boundedFileHash(join(bin, "uv"), sourceUv)) !== pending.uvHash ||
+      (await boundedFileHash(join(bin, "uvx"), sourceUvx)) !== pending.uvxHash
+    )
+      throw new Error("Published uv entries changed; manual recovery required");
+  }
+  if (!committed && pending.schemaVersion === 2) {
+    const entries = (await readdir(stage)).sort();
+    if (entries.length !== 2 || entries[0] !== "uv" || entries[1] !== "uvx")
+      throw new Error("Unexpected staging file; manual recovery required");
+    for (const [name, expected] of [
+      ["uv", sourceUv],
+      ["uvx", sourceUvx],
+    ] as const) {
+      const entryPath = join(bin, name);
+      if (!(await uvEntryAbsent(entryPath))) {
+        const actual = await inode(entryPath);
+        if (actual.dev !== expected.dev || actual.ino !== expected.ino)
+          throw new Error(
+            "Conflicting uv entry preserved; manual recovery required",
+          );
+      }
+    }
+  }
+  if (
+    pending.bindingTmp &&
+    !(await uvEntryAbsent(join(root, pending.bindingTmp)))
+  ) {
+    if (!pending.bindingDev || !pending.bindingIno)
+      throw new Error(
+        "Temporary binding ownership is incomplete; manual recovery required",
+      );
+    const temp = await inode(join(root, pending.bindingTmp));
+    if (temp.dev !== pending.bindingDev || temp.ino !== pending.bindingIno)
+      throw new Error("Temporary binding changed; manual recovery required");
+  }
+  const currentState = await optionalBytes(statePath);
+  if (
+    (stateBytes === null) !== (currentState === null) ||
+    (stateBytes !== null &&
+      currentState !== null &&
+      !stateBytes.equals(currentState))
+  )
+    throw new Error("Setup state changed; manual recovery required");
+  if (stateIdentity && stateBytes)
+    await assertFileUnchanged(statePath, stateIdentity, stateBytes);
+  if ((await optional(path)) !== raw)
+    throw new Error("Recovery journal changed; manual review required");
+  const journalNow = await inode(path);
+  if (
+    journalNow.dev !== journalIdentity.dev ||
+    journalNow.ino !== journalIdentity.ino
+  )
+    throw new Error("Recovery journal changed; manual review required");
+  if (pending.bindingTmp && pending.bindingDev && pending.bindingIno)
+    await removeOwned(
+      join(root, pending.bindingTmp),
+      pending.bindingDev,
+      pending.bindingIno,
+    );
+  if (committed) {
+    await removeJournal();
+    return;
+  }
   const uvOwned = await removeIfOwned(
     join(bin, "uv"),
     pending.uvDev,
@@ -290,8 +383,8 @@ async function acquireGuarded(root: string): Promise<Operation> {
       const binding = await readSetupState(dirname(root));
       if (
         !(
-          binding?.uv.mode === "managed" &&
-          binding.uv.directory === old.stage.name
+          binding?.installations.uv?.mode === "managed" &&
+          binding.installations.uv.directory === old.stage.name
         )
       ) {
         const stage = join(root, old.stage.name);
@@ -447,7 +540,7 @@ export async function applyUv(input: {
       return;
     }
     try {
-      if (pending && journalCreated) await recover(root, bin, input.home);
+      if (pending && journalCreated) await recover(root, bin);
       else if (stage && stageIdentity)
         await cleanupStage(stage, stageIdentity, created);
       else if (stage && !(await uvEntryAbsent(stage)))
@@ -465,7 +558,7 @@ export async function applyUv(input: {
     await operation.release();
   };
   try {
-    await recover(root, bin, input.home);
+    await recover(root, bin);
     await input.recheck();
     if (
       !(await uvEntryAbsent(join(bin, "uv"))) ||
@@ -555,8 +648,42 @@ export async function applyUv(input: {
       (await boundedFileHash(join(stage, "uvx"), b)) !== hash(uvx)
     )
       throw new Error("Staged uv entries changed during verification");
+    const beforeBytes = await optionalBytes(join(root, "binding.json"));
+    const beforeIdentity =
+      beforeBytes === null ? null : await inode(join(root, "binding.json"));
+    const oldState =
+      beforeBytes === null
+        ? null
+        : decodeSetupState(beforeBytes.toString("utf8"));
+    if (oldState?.installations.uv)
+      throw new Error("Existing uv receipt requires review");
+    const binding = setupStateSchema.parse({
+      schemaVersion: 2,
+      defaultBinding: {
+        repo: input.repo,
+        profile: input.profile,
+        lock: input.lock,
+      },
+      installations: {
+        ...oldState?.installations,
+        uv: {
+          version: input.version,
+          target: input.target,
+          mode: "managed",
+          directory: stageName,
+          uvHash: hash(uv),
+          uvxHash: hash(uvx),
+          asset: input.asset,
+        },
+      },
+    });
+    const bindingBytes = Buffer.from(JSON.stringify(binding));
     pending = {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      kind: "uv-install",
+      beforeHash: beforeBytes === null ? null : hash(beforeBytes),
+      beforeIdentity,
+      afterHash: hash(bindingBytes),
       stage: stageName,
       uvDev: a.dev,
       uvIno: a.ino,
@@ -622,41 +749,12 @@ export async function applyUv(input: {
     )
       throw new Error("Published uv entries changed during verification");
     if (input.signal.aborted) throw new Error("Cancelled");
-    const binding = bindingSchema.parse({
-      schemaVersion: 1,
-      repo: input.repo,
-      profile: input.profile,
-      lock: input.lock,
-      uv: {
-        version: input.version,
-        target: input.target,
-        mode: "managed",
-        directory: stageName,
-        uvHash: hash(uv),
-        uvxHash: hash(uvx),
-        asset: input.asset,
-      },
-    });
     const bindingPath = join(root, "binding.json");
-    if (await optional(bindingPath))
-      throw new Error(
-        "Existing binding requires review; refusing to replace it",
-      );
     if (!pending) throw new Error("Missing recovery journal");
     const tmpName = `binding-${stageName}.tmp`;
     const tmp = join(root, tmpName);
-    const file = await open(tmp, "wx", 0o600);
-    const tmpInfo = await file.stat({ bigint: true });
-    let tmpCleanupError: unknown;
-    try {
-      const previousJournal = JSON.stringify(pending);
-      const nextPending = {
-        ...pending,
-        bindingTmp: tmpName,
-        bindingDev: String(tmpInfo.dev),
-        bindingIno: String(tmpInfo.ino),
-      };
-      if ((await optional(journalPath)) !== previousJournal)
+    const updateJournal = async (nextPending: Pending) => {
+      if ((await optional(journalPath)) !== JSON.stringify(pending))
         throw new Error("Recovery journal changed");
       const nextJournal = Buffer.from(JSON.stringify(nextPending));
       const journal = await open(
@@ -684,10 +782,25 @@ export async function applyUv(input: {
       } finally {
         await journal.close();
       }
-      await file.writeFile(JSON.stringify(binding));
+    };
+    await updateJournal({ ...pending, bindingTmp: tmpName });
+    const file = await open(tmp, "wx", 0o600);
+    const tmpInfo = await file.stat({ bigint: true });
+    let tmpCleanupError: unknown;
+    try {
+      await updateJournal({
+        ...pending,
+        bindingTmp: tmpName,
+        bindingDev: String(tmpInfo.dev),
+        bindingIno: String(tmpInfo.ino),
+      });
+      await file.writeFile(bindingBytes);
       await file.sync();
       await file.close();
-      await link(tmp, bindingPath);
+      if (beforeIdentity && beforeBytes) {
+        await assertFileUnchanged(bindingPath, beforeIdentity, beforeBytes);
+        await rename(tmp, bindingPath);
+      } else await link(tmp, bindingPath);
       published = true;
     } catch (error) {
       await file.close().catch(() => {});
@@ -724,7 +837,7 @@ export async function applyUv(input: {
 
 export async function matchesManagedUv(
   home: string,
-  binding: UvBinding,
+  binding: UvReceipt,
   version: string,
   target: string,
   asset: {
@@ -736,33 +849,33 @@ export async function matchesManagedUv(
   },
 ): Promise<boolean> {
   if (
-    binding.uv.mode !== "managed" ||
-    binding.uv.version !== version ||
-    binding.uv.target !== target ||
-    !binding.uv.asset ||
-    binding.uv.asset.name !== asset.name ||
-    binding.uv.asset.url !== asset.url ||
-    binding.uv.asset.sha256 !== asset.sha256 ||
-    binding.uv.asset.releaseId !== asset.releaseId ||
-    binding.uv.asset.assetId !== asset.assetId ||
-    !binding.uv.directory ||
+    binding.mode !== "managed" ||
+    binding.version !== version ||
+    binding.target !== target ||
+    !binding.asset ||
+    binding.asset.name !== asset.name ||
+    binding.asset.url !== asset.url ||
+    binding.asset.sha256 !== asset.sha256 ||
+    binding.asset.releaseId !== asset.releaseId ||
+    binding.asset.assetId !== asset.assetId ||
+    !binding.directory ||
     !/^uv-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/.test(
-      binding.uv.directory,
+      binding.directory,
     ) ||
-    !binding.uv.uvHash ||
-    !binding.uv.uvxHash
+    !binding.uvHash ||
+    !binding.uvxHash
   )
     return false;
   const root = join(resolve(home), ".agent-stack"),
     bin = join(root, "bin"),
-    stage = join(root, binding.uv.directory);
+    stage = join(root, binding.directory);
   try {
     await safeDir(root);
     await safeDir(bin);
     await safeDir(stage);
     for (const [name, expected] of [
-      ["uv", binding.uv.uvHash],
-      ["uvx", binding.uv.uvxHash],
+      ["uv", binding.uvHash],
+      ["uvx", binding.uvxHash],
     ] as const) {
       const source = await inode(join(stage, name)),
         entry = await inode(join(bin, name));
@@ -781,6 +894,67 @@ export async function matchesManagedUv(
   }
 }
 
+async function publishExternalState(input: {
+  root: string;
+  path: string;
+  existingBytes: Buffer | null;
+  binding: SetupState;
+  operation: Operation;
+  currentRoot: string;
+  signal: AbortSignal;
+  recheck: () => Promise<void>;
+  committed: () => void;
+  label: string;
+}) {
+  const { root, path, existingBytes, binding, operation, currentRoot } = input;
+  const previousIdentity =
+    existingBytes === null ? undefined : await inode(path);
+  const tmpName = `binding-${randomBytes(16).toString("hex")}.tmp`,
+    tmp = join(root, tmpName);
+  await operation.tempIntent(tmpName);
+  const file = await open(tmp, "wx", 0o600),
+    info = await file.stat({ bigint: true });
+  let published = false;
+  const cleanup = async () => {
+    try {
+      await removeOwned(tmp, String(info.dev), String(info.ino));
+      await operation.tempClear();
+    } catch (error) {
+      if (published)
+        throw new UvCommittedError(
+          `${input.label} binding was published; temporary state needs manual review`,
+        );
+      throw error;
+    }
+  };
+  try {
+    await operation.tempIdentity({
+      dev: String(info.dev),
+      ino: String(info.ino),
+    });
+    try {
+      await file.writeFile(JSON.stringify(binding));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await input.recheck();
+    const now = await directoryInode(root);
+    if (`${now.dev}:${now.ino}` !== currentRoot)
+      throw new Error("Setup state directory changed after planning");
+    if (input.signal.aborted) throw new Error("Cancelled");
+    if (previousIdentity && existingBytes) {
+      await assertFileUnchanged(path, previousIdentity, existingBytes);
+      await rename(tmp, path);
+    } else await link(tmp, path);
+    published = true;
+    input.committed();
+  } finally {
+    await file.close().catch(() => {});
+    await cleanup();
+  }
+}
+
 export async function bindExternalUv(input: {
   home: string;
   repo: string;
@@ -788,7 +962,7 @@ export async function bindExternalUv(input: {
   lock: string;
   version: string;
   target: string;
-  managed?: UvBinding;
+  managed?: UvReceipt;
   rootIdentity: string | null;
   signal: AbortSignal;
   recheck: () => Promise<void>;
@@ -819,83 +993,59 @@ export async function bindExternalUv(input: {
     try {
       await input.recheck();
       if (input.signal.aborted) throw new Error("Cancelled");
-      const binding = bindingSchema.parse({
-        schemaVersion: 1,
-        repo: input.repo,
-        profile: input.profile,
-        lock: input.lock,
-        uv: input.managed?.uv ?? {
-          version: input.version,
-          target: input.target,
-          mode: "external",
-          directory: null,
-          uvHash: null,
-          uvxHash: null,
-        },
-      });
       const path = join(root, "binding.json"),
-        existingBytes = await optionalBytes(path),
-        existing = existingBytes?.toString("utf8") ?? null;
-      let previousIdentity: { dev: string; ino: string } | undefined;
-      if (existing !== null) {
-        const old = decodeState(bindingSchema, existing);
-        if (JSON.stringify(old) === JSON.stringify(binding)) {
-          completed = true;
-          return old;
-        }
-        if (
-          old.uv.version !== input.version ||
-          old.uv.target !== input.target ||
-          old.uv.mode !== binding.uv.mode ||
-          (input.managed &&
-            JSON.stringify(old.uv) !== JSON.stringify(input.managed.uv))
-        )
-          throw new Error("Existing binding has different uv ownership");
-        previousIdentity = await inode(path);
-      }
-      const tmpName = `binding-${randomBytes(16).toString("hex")}.tmp`;
-      const tmp = join(root, tmpName);
-      await operation.tempIntent(tmpName);
-      const file = await open(tmp, "wx", 0o600);
-      const info = await file.stat({ bigint: true });
-      const cleanup = async () => {
-        try {
-          await removeOwned(tmp, String(info.dev), String(info.ino));
-          await operation.tempClear();
-        } catch (error) {
-          if (completed)
-            throw new UvCommittedError(
-              "External uv binding was published; temporary state needs manual review",
-            );
-          throw error;
-        }
+        existingBytes = await optionalBytes(path);
+      const old =
+        existingBytes === null
+          ? null
+          : decodeSetupState(existingBytes.toString("utf8"));
+      const receipt = input.managed ?? {
+        version: input.version,
+        target: input.target,
+        mode: "external" as const,
+        directory: null,
+        uvHash: null,
+        uvxHash: null,
       };
-      try {
-        await operation.tempIdentity({
-          dev: String(info.dev),
-          ino: String(info.ino),
-        });
-        try {
-          await file.writeFile(JSON.stringify(binding));
-          await file.sync();
-        } finally {
-          await file.close();
-        }
-        await input.recheck();
-        const rootNow = await directoryInode(root);
-        if (`${rootNow.dev}:${rootNow.ino}` !== currentRoot)
-          throw new Error("Setup state directory changed after planning");
-        if (input.signal.aborted) throw new Error("Cancelled");
-        if (previousIdentity) {
-          if (!existingBytes) throw new Error("Binding changed after planning");
-          await assertFileUnchanged(path, previousIdentity, existingBytes);
-          await rename(tmp, path);
-        } else await link(tmp, path);
+      if (
+        old?.installations.uv &&
+        (old.installations.uv.version !== input.version ||
+          old.installations.uv.target !== input.target ||
+          old.installations.uv.mode !== receipt.mode ||
+          (input.managed &&
+            JSON.stringify(old.installations.uv) !== JSON.stringify(receipt)))
+      )
+        throw new Error("Existing binding has different uv ownership");
+      const binding = setupStateSchema.parse({
+        schemaVersion: 2,
+        defaultBinding: {
+          repo: input.repo,
+          profile: input.profile,
+          lock: input.lock,
+        },
+        installations: { ...old?.installations, uv: receipt },
+      });
+      if (
+        existingBytes !== null &&
+        JSON.stringify(old) === JSON.stringify(binding)
+      ) {
         completed = true;
-      } finally {
-        await file.close().catch(() => {});
-        await cleanup();
+        return binding;
       }
+      await publishExternalState({
+        root,
+        path,
+        existingBytes,
+        binding,
+        operation,
+        currentRoot,
+        signal: input.signal,
+        recheck: input.recheck,
+        committed: () => {
+          completed = true;
+        },
+        label: "External uv",
+      });
       return binding;
     } finally {
       await operation.release(completed);
@@ -918,7 +1068,7 @@ export async function hasPendingUv(home: string): Promise<boolean> {
     join(resolve(home), ".agent-stack", "pending.json"),
   );
   if (raw === null) return false;
-  decodeState(pendingSchema, raw);
+  decodeState(anyPendingSchema, raw);
   return true;
 }
 export async function recoverPendingUv(
@@ -933,7 +1083,7 @@ export async function recoverPendingUv(
   try {
     await recheck();
     if (signal.aborted) throw new Error("Cancelled");
-    await recover(root, bin, home);
+    await recover(root, bin);
   } finally {
     await operation.release();
   }
@@ -972,5 +1122,119 @@ export async function uvRootIdentity(home: string): Promise<string | null> {
   } catch (error) {
     if (missing(error)) return null;
     throw error;
+  }
+}
+
+export async function bindExternalHerdr(input: {
+  home: string;
+  repo: string;
+  profile: string;
+  lock: string;
+  version: string;
+  target: string;
+  path: string;
+  fingerprint: string;
+  rootIdentity: string | null;
+  signal: AbortSignal;
+  recheck: () => Promise<void>;
+}) {
+  if (!isAbsolute(input.home))
+    throw new Error("HOME must be an absolute directory");
+  const root = join(resolve(input.home), ".agent-stack");
+  let createdRoot: { dev: string; ino: string } | undefined;
+  try {
+    await mkdir(root, { mode: 0o700 });
+    createdRoot = await directoryInode(root);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
+      throw error;
+  }
+  let completed = false;
+  try {
+    await safeDir(root);
+    const rootAtStart = await directoryInode(root);
+    const currentRoot = `${rootAtStart.dev}:${rootAtStart.ino}`;
+    if (
+      input.rootIdentity === null
+        ? !createdRoot
+        : currentRoot !== input.rootIdentity
+    )
+      throw new Error("Setup state directory changed after planning");
+    const operation = await acquire(root);
+    try {
+      if (await optional(join(root, "pending.json")))
+        throw new Error(
+          "Pending uv operation requires recovery before Herdr setup",
+        );
+      await input.recheck();
+      if (input.signal.aborted) throw new Error("Cancelled");
+      const path = join(root, "binding.json"),
+        existingBytes = await optionalBytes(path);
+      const old =
+        existingBytes === null
+          ? null
+          : decodeSetupState(existingBytes.toString("utf8"));
+      const binding = setupStateSchema.parse({
+        schemaVersion: 2,
+        defaultBinding: {
+          repo: input.repo,
+          profile: input.profile,
+          lock: input.lock,
+        },
+        installations: {
+          ...old?.installations,
+          herdr: {
+            mode: "external",
+            source: "unknown",
+            version: input.version,
+            target: input.target,
+            path: input.path,
+            fingerprint: input.fingerprint,
+          },
+        },
+      });
+      if (
+        old?.installations.herdr &&
+        JSON.stringify(old.installations.herdr) !==
+          JSON.stringify(binding.installations.herdr)
+      )
+        throw new Error(
+          "Existing Herdr entry changed; refusing to replace receipt",
+        );
+      if (
+        existingBytes !== null &&
+        JSON.stringify(old) === JSON.stringify(binding)
+      ) {
+        completed = true;
+        return binding;
+      }
+      await publishExternalState({
+        root,
+        path,
+        existingBytes,
+        binding,
+        operation,
+        currentRoot,
+        signal: input.signal,
+        recheck: input.recheck,
+        committed: () => {
+          completed = true;
+        },
+        label: "Herdr",
+      });
+      return binding;
+    } finally {
+      await operation.release(completed);
+    }
+  } finally {
+    if (!completed && createdRoot) {
+      const now = await directoryInode(root);
+      if (
+        now.dev === createdRoot.dev &&
+        now.ino === createdRoot.ino &&
+        (await readdir(root)).length === 0
+      )
+        await rmdir(root);
+    }
   }
 }
