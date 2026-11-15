@@ -108,7 +108,7 @@ export async function observeHost(signal?: AbortSignal) {
         {
           cwd: home,
           env,
-          // Windows PowerShell may need a cold .NET/C# compiler startup.
+          // Bound Windows PowerShell startup separately from the Unix probe.
           timeout: process.platform === "win32" ? 30000 : 3000,
           maxBuffer: 16384,
           killSignal: "SIGKILL",
