@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；原生 macOS 的 uv-only setup 已可按锁安装或复用，Herdr-only 可按锁安装或复用匹配的已有入口；Windows x64 Herdr-only 整包消费者已接入候选，尚待原生 CI；锁更新、离线解析、其他部件安装和配置应用尚未实现。
+Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；原生 macOS 的 uv-only setup 已可按锁安装或复用，Herdr-only 可按锁安装或复用匹配的已有入口；Windows x64 Herdr-only 已支持整包安装及 external 复用，并有原生 CI 证据；锁更新、离线解析、其他部件安装和配置应用尚未实现。
 
 ## 目录职责
 
@@ -35,7 +35,7 @@ agent-stack/
 
 自有的人编写声明采用 YAML 1.2：`stack/components/<id>.yaml`、`stack/profiles/<id>.yaml`、`stack/integrations/<id>.yaml`，接受 `.yml`，过渡期兼容 JSON。仓库现有声明已迁移，数据模型与能力要求不变。
 
-YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。只读候选报告对所选、已校验的规范数据输出声明摘要；首次锁可从完整元数据创建，`validate --lock` 可离线核对结构与声明；原生 macOS uv-only/Herdr-only 可按锁应用；Windows x64 Herdr-only 候选待原生 CI。锁更新和其他部件应用尚未实现。读取或锁定不自动重写作者文件。
+YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。只读候选报告对所选、已校验的规范数据输出声明摘要；首次锁可从完整元数据创建，`validate --lock` 可离线核对结构与声明；原生 macOS uv-only/Herdr-only 可按锁应用；Windows x64 Herdr-only 可按锁安装完整 ZIP 或复用匹配入口。锁更新和其他部件应用尚未实现。读取或锁定不自动重写作者文件。
 
 工具原生配置保持 JSON/TOML/YAML 等原格式；skills 保持标准 Markdown 与 YAML front matter。机器生成的 `stack/stack.lock.json`、执行计划和 CLI JSON 输出继续使用 JSON。人编写的声明与机器产物分别维护。完整示例和命令分工见 [CLI 行为审查稿](cli-behavior.md)。
 

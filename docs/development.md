@@ -20,7 +20,7 @@
 
 所有 npm 依赖使用确切版本，传递依赖由 `pnpm-lock.yaml` 锁定。开发 pnpm 版本由 `packageManager` 固定；这与 profile 中将来安装到用户环境的 pnpm 要求分别维护。
 
-人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS uv-only/Herdr-only 可按锁安装；Linux ABI、更新、离线解析及其他部件安装尚未实现。
+人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS uv-only/Herdr-only 与 Windows x64 Herdr-only 可按锁安装；Linux ABI、更新、离线解析及其他部件安装尚未实现。
 
 运行下限由 `package.json` 的 engines 定义，CI 使用 Node 24 和 26；支持周期见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 
@@ -72,9 +72,9 @@ npm pack --dry-run --ignore-scripts
 
 ## 多系统验证
 
-`Check` 覆盖 Linux/macOS/Windows × Node 24/26 六组组合，验证构建、定义校验和真实 CLI 边界及受控 fixture。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 Windows/WSL、GUI、交互式 TUI 或完整 coding 集成通过。
+`Check` 覆盖 Linux/macOS/Windows × Node 24/26 六组组合，验证构建、定义校验和真实 CLI 边界及受控 fixture。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。`Herdr Windows installation` 在 Windows x64、Node 24/26 上验证完整七文件 ZIP 安装、原生 ACL、幂等与隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 WSL、GUI、交互式 TUI 或完整 coding 集成通过。
 
-原生 smoke 的接口、固定 metadata 与 live 资产下载分工及验收边界见 [Herdr 原生验收](herdr-macos-smoke.md)。runner 标签与架构依据 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
+原生 smoke 的接口、固定 metadata 与 live 资产下载分工及验收边界见 [macOS 验收](herdr-macos-smoke.md)和 [Windows 验收](herdr-windows-smoke.md)。runner 标签与架构依据 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
 
 后续增加实际安装/应用时，需要分别验证 Windows 原生与 WSL，并覆盖已有工具、多个 PATH 候选、本地修改、重复应用、失败重试和恢复。不能把 Linux runner 等同于 WSL，也不能通过删除能力要求掩盖替换后的缺口。
 

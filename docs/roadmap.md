@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate` 及其共享锁离线校验、有限只读 `doctor`、首次新建共享锁的 `lock`、macOS uv-only/Herdr-only 按锁安装与复用，以及 v2 设备状态；其余能力不得在帮助或 README 中宣称可用。
+首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate` 及其共享锁离线校验、有限只读 `doctor`、首次新建共享锁的 `lock`、macOS uv-only/Herdr-only、Windows x64 Herdr-only 按锁安装与复用，以及 v2 设备状态；其余能力不得在帮助或 README 中宣称可用。
 
 ## 1. stack/ 目录迁移：根会话审查通过
 
@@ -30,7 +30,7 @@
 
 验收须在临时环境覆盖新机器、已有工具、重复执行、路径与本地修改冲突、失败恢复和锁不完整；只在临时测试环境安装或写入，不直接修改用户本机工具、PATH、凭证或原生配置。
 
-当前 macOS uv-only 支持按锁安装、external 复用、受管入口及本机恢复；Herdr-only 支持按锁安装单二进制，也可复用与锁定版本匹配的已有原生入口；external 回执保留 unknown 来源。状态严格读取 v1/v2，读取只做内存归一化，成功写入使用分开默认上下文与部件回执的 v2 快照；no-op 保留磁盘原文。uv/Herdr 两种应用顺序保留另一部件回执，旧 uv journal 保持兼容；新 journal 按 before/after/第三态恢复，空或损坏 journal 保留证据并阻塞。Herdr managed 安装核对锁定摘要、Mach-O 架构、版本和文件身份，并复用全局互斥；Windows x64 Herdr-only 整包安装与复用消费者已接入候选，原生 Windows CLI、IPC 和 ConPTY 仍待该候选 CI/实机证据；Windows 其他工具与完整 coding 仍未实现。
+当前 macOS uv-only 支持按锁安装、external 复用、受管入口及本机恢复；Herdr-only 支持按锁安装单二进制，也可复用与锁定版本匹配的已有原生入口；external 回执保留 unknown 来源。状态严格读取 v1/v2，读取只做内存归一化，成功写入使用分开默认上下文与部件回执的 v2 快照；no-op 保留磁盘原文。uv/Herdr 两种应用顺序保留另一部件回执，旧 uv journal 保持兼容；新 journal 按 before/after/第三态恢复，空或损坏 journal 保留证据并阻塞。Herdr managed 安装核对锁定摘要、Mach-O 架构、版本和文件身份，并复用全局互斥；Windows x64 Herdr-only 整包安装与复用已实现，Node 24/26 的原生 CI 已验证官方 ZIP 真实下载、七文件部署、无下载重跑和隔离 server/IPC/pane；GUI/TUI 与普通用户桌面体验仍待 VM/实机；Windows 其他工具与完整 coding 仍未实现。
 
 ## 5. doctor 与 run coding：待实现，setup 审查通过后开始
 
@@ -51,11 +51,11 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 setup 与 doctor 已对齐 repo/profile 的 option、env 和匹配本机绑定选择；doctor 仍只观察工具链，不核验应用结果。状态迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)，现有 uv 恢复保证继续适用。
 
 1. macOS Herdr managed 安装已实现，继续按目标记录真实发行物下载、原生安装与隔离 server/IPC 验收；x64 与 arm64 的证据分别维护。
-2. Windows x64 Herdr 整包安装：保留 ZIP 中 ConPTY、OpenConsole 等运行文件及目录关系，单独验收原生执行与恢复；不能只复制 `herdr.exe`。
+2. Windows x64 Herdr 整包安装已实现：保留 ZIP 中 ConPTY、OpenConsole 等七文件布局，已有原生 CLI、恢复与官方发行物运行验收；继续补 VM/实机的交互终端体验。
 3. Pi npm staging、pnpm native 与 Windows uv；随后应用原生配置与 pi-herdr 资源。
 4. doctor 应用核验及 `run coding`，完成 setup → doctor → run coding 闭环。Otty 保持独立可选桌面层，Rex 维持实验组合。
 
-每片独立提交并评审。GitHub Actions 的 Linux/macOS/Windows × Node 24/26 矩阵运行构建、CLI 和受控 fixture；另有 Herdr macOS x64/arm64 官方发行物实际下载、安装、幂等与隔离 server/IPC 任务。后续部件和 Windows 安装仍需随 adapter 增加实际任务。VM/实机补充交互终端、ConPTY 和 GUI 验收；Linux runner 不能作为 WSL 原生证据。报告分别标明 fixture、官方发行物和交互实测，不能互相替代。
+每片独立提交并评审。GitHub Actions 的 Linux/macOS/Windows × Node 24/26 矩阵运行构建、CLI 和受控 fixture；另有 Herdr macOS x64/arm64 和 Windows x64（Node 24/26）官方发行物实际下载、安装、幂等与隔离 server/IPC 任务。后续部件仍需随 adapter 增加实际任务。VM/实机补充交互终端、ConPTY 和 GUI 验收；Linux runner 不能作为 WSL 原生证据。报告分别标明 fixture、官方发行物和交互实测，不能互相替代。
 
 参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。
 

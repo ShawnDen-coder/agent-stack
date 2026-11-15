@@ -67,7 +67,7 @@
 
 当前只读预览在 macOS x64 使用 `/usr/bin/arch -x86_64` 启动同架构的固定 sysctl 查询；这确保子进程与 Node 一样需要或不需要 Rosetta。仅接受 `0` 或精确的 ENOENT 输出；其他错误阻塞。macOS arm64 进程为原生。Windows x64 使用固定 Windows PowerShell 与 .NET Framework [Reflection.Emit](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.emit.typebuilder.definepinvokemethod?view=netframework-4.8.1) 在内存中定义 P/Invoke，调用 [`IsWow64Process2`](https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process2) 检查 Node 进程与系统原生架构，不再依赖 `Add-Type` 的 C# 编译步骤；调用不可用或返回仿真均阻塞。查询使用临时目录、受限环境、固定参数和有界超时/输出，并在结束时清理。Apple 的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 是进程属性；不能使用未控制架构的子进程推断 Node 状态。Windows Node 24/26 原生 CI 验证实际进程、重复查询与无效 PID；本地桌面、Rosetta 和 ARM64 仿真仍须另外验证。
 
-当前进度：macOS uv-only/Herdr-only 计划显示锁定资产；执行按锁下载并核对 SHA-256，uv 限制解包，Herdr 检查 Mach-O 架构，再验证版本、创建受管硬链接、记录绑定，并恢复可证明归属的未完成操作。受管目录必须预先存在于 PATH；不修改 shell 配置。Windows x64 Herdr-only 整包安装与 external 复用已接入候选，原生 Windows 验收待 CI；Windows 其他部件和完整 coding 仍阻塞。
+当前进度：macOS uv-only/Herdr-only 计划显示锁定资产；执行按锁下载并核对 SHA-256，uv 限制解包，Herdr 检查 Mach-O 架构，再验证版本、创建受管硬链接、记录绑定，并恢复可证明归属的未完成操作。受管目录必须预先存在于 PATH；不修改 shell 配置。Windows x64 Herdr-only 整包安装与 external 复用已实现，Node 24/26 原生 CI 已验证官方 ZIP 安装、幂等及隔离 IPC；Windows 其他部件和完整 coding 仍阻塞。
 
 发行布局核验：以锁中 uv 0.13.8 为例，临时下载的 Intel macOS tar.gz 包含 `uv` 与 `uvx`，Windows x64 zip 还包含 `uvw.exe`；两份 SHA-256 与锁一致。该观察不证明其他版本的布局或安装兼容性；发行格式参见[该版本官方配置](https://github.com/astral-sh/uv/blob/0.13.8/dist-workspace.toml)。
 

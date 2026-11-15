@@ -10,4 +10,4 @@ node scripts/smoke-herdr-windows.mjs --cli <独立安装目录>/node_modules/age
 
 HOME、USERPROFILE、APPDATA、LOCALAPPDATA、XDG、临时目录和 Herdr config/session 均隔离；临时根目录采用仅当前用户可写的显式 ACL。脚本核对 managed 回执及七个文件的摘要，启动自己的 server，检查 version/protocol、workspace 和 pane；使用独立客户端连接运行并读取无害命令，检查 client 重连与 server 停止、重启后的行为。finally 只处理本次 server 和临时目录。测试失败必须返回非零，不将 marker 文件存在视作 IPC 健康。
 
-2026-11-15 的官方 Windows x64 ZIP 已在本机按 SHA-256 `d2c6c9c971c43a0bfdde8c692a9a1a7a45c3e4807cd01ae45662b4734fac1cbf` 核对七文件布局和 PE 类型；这不是 Windows 原生执行证据。本候选的真实 Windows CI、Named Pipe、pane 与 ConPTY 仍待运行；GUI、真实 TTY、键盘及普通用户桌面体验仍需 VM/实机验收。
+2026-11-15 的官方 Windows x64 ZIP 已在本机按 SHA-256 `d2c6c9c971c43a0bfdde8c692a9a1a7a45c3e4807cd01ae45662b4734fac1cbf` 核对七文件布局和 PE 类型；这不是 Windows 原生执行证据。随后 `eba44c9` 的 [Windows Node 24/26 原生运行](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43743135846)已通过：解包 CLI 真实 HTTPS 下载、七文件摘要核对、零 fetch 重跑、protocol 22、workspace/pane 命令和独立客户端重连。server 重启后 workspace/pane ID 保留，terminal 重建，旧输出不保留，新命令可运行。GUI、真实 TTY、键盘及普通用户桌面体验仍需 VM/实机验收。
