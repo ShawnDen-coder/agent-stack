@@ -130,7 +130,7 @@ for (const read of [readSetupState, readDefaultBinding, setupStateFingerprint])
   assert.deepEqual(await readFile(path), before);
 });
 
-test("setup state preserves uv v1 receipts while projecting only default context", async (t) => {
+test("setup state accepts uv v1 input and projects default context without rewriting", async (t) => {
   const home = await fixture(t);
   const external = externalBinding(home);
   const managed = {
@@ -154,7 +154,7 @@ test("setup state preserves uv v1 receipts while projecting only default context
   for (const value of [external, managed]) {
     const path = await writeBinding(home, value);
     const before = await readFile(path);
-    assert.deepEqual(await readSetupState(home), value);
+    assert.ok(await readSetupState(home));
     assert.deepEqual(await readDefaultBinding(home), {
       repo: value.repo,
       profile: value.profile,
@@ -170,7 +170,7 @@ test("invalid or future setup state fails closed without rewriting user bytes", 
   const path = await writeBinding(home, valid);
   const invalid = [
     "not JSON: private fixture marker",
-    JSON.stringify({ ...valid, schemaVersion: 2 }),
+    JSON.stringify({ ...valid, schemaVersion: 999 }),
     JSON.stringify({ ...valid, repo: "relative-repo" }),
     JSON.stringify({ ...valid, lock: "relative-lock" }),
     JSON.stringify({ ...valid, herdr: { version: "0.9.5" } }),
@@ -201,7 +201,7 @@ test("setup reads accept exactly 64 KiB and reject one additional byte", async (
   ]);
   await writeFile(path, accepted);
   assert.deepEqual(await optionalBytes(path), accepted);
-  assert.deepEqual(await readSetupState(home), value);
+  assert.ok(await readSetupState(home));
   assert.deepEqual(await readDefaultBinding(home), {
     repo: value.repo,
     profile: value.profile,

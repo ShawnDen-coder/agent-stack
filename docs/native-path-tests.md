@@ -8,7 +8,7 @@
 
 | 边界            | 可观察结果                                                                                                                              |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| setup state     | 缺失或非绝对 home 返回无绑定且不创建目录；保留现有 uv v1 外部/受管回执；默认投影仅有 repo/profile/lock                                  |
+| setup state     | 缺失或非绝对 home 返回无绑定且不创建目录；接受现有 uv v1 外部/受管输入且不改写字节；默认投影仅有 repo/profile/lock                      |
 | 损坏/未来状态   | 非法 JSON、未知字段/版本、相对绑定路径及不一致 uv 归属拒绝；原文件字节不变                                                              |
 | 有界读取        | 恰好 65,536 bytes 的合法状态可读；多一 byte 拒绝；空文件、缺失和非普通文件分别处理；FIFO 无 writer 时及时拒绝                           |
 | 受管目录        | 当前用户的普通安全目录可用；group/world 可写、末端与祖先符号链接拒绝                                                                    |
@@ -16,6 +16,8 @@
 | 归属删除        | 新 inode 或 symlink 保留；仅 unlink 已证明归属的入口；其他硬链接内容保留；已缺失入口可重试                                              |
 | operation guard | 等待中的 owner 排斥 contender；动作异常后释放并保留原异常；既有中断 guard 与证据保留                                                    |
 | CLI 上下文      | 调用 cwd 与 repo 不同时解析中文/空格相对 repo 和 lock；HOME 与 USERPROFILE 指向不同临时目录时 doctor 使用当前 HOME 绑定，双方原文件不变 |
+
+`readSetupState` 只断言缺失、接受合法 v1 输入或拒绝非法输入；不冻结 `UvBinding` 返回对象排布。默认上下文由 `readDefaultBinding` 的 repo/profile/lock 投影断言，原文保持与 raw-byte fingerprint 是磁盘边界。后续 v2 的 `defaultBinding` / `installations` 归一化内容应由其真实消费者的测试验证。未知版本 fixture 使用 `999`，不把即将实现的 v2 固定成不支持版本。
 
 CLI 用例使用空 PATH，故工具缺失返回 1 是明确预期，只核对上下文/错误及无写入结果。它们不执行系统 npm/git/Agent，也不修改 `process.env`。`HOME` 行为测试锁住当前消费者的显式输入，不承诺实现 Windows 原生 home fallback。
 
