@@ -13,10 +13,10 @@ pnpm --version
 
 确认输出为 `12.15.0` 后继续。版本不符时先检查 PATH 中的 pnpm 入口；项目不会替你安装前置工具。
 
-PR 尚未合并时，远端默认 `master` 只有初始提交，必须指定 PR 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
+基础 CLI 已合入 `master`；试用本指南中的 macOS uv 安装增量，请检出 PR #2 的 `uv-macos-setup` 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
 
 ```sh
-git clone --branch research-agent-stack https://github.com/ShawnDen-coder/agent-stack.git
+git clone --branch uv-macos-setup https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
 pnpm install --frozen-lockfile
 pnpm build
