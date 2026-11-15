@@ -573,7 +573,7 @@ test("compiled setup CLI selects the Windows locked bundle and avoids a second d
     `import cp from 'node:child_process';import os from 'node:os';import {readFile,appendFile} from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module';import 'node:path';
 const native=process.platform==='win32';const exec=cp.execFile;cp.execFile=(file,args,opts,cb)=>native&&(opts.env?.AGENT_STACK_DIR||opts.env?.AGENT_STACK_PROBE_PID)?exec(file,args,opts,cb):exec(process.execPath,['-e',opts.env?.AGENT_STACK_DIR?"console.log('safe')":opts.env?.AGENT_STACK_PROBE_PID?"console.log('0,34404')":"console.log('herdr 0.9.5')"],opts,cb);
 const spawn=cp.spawn;cp.spawn=(file,args,opts)=>spawn(process.execPath,['-e',String(file).toLowerCase().endsWith('herdr.exe')?(process.env.BAD_HERDR_VERSION?"console.log('herdr 9.9.9')":"console.log('herdr 0.9.5')"):String(file).toLowerCase().endsWith('git.exe')?"console.log('git version 2.40.0')":"console.log('11.0.0')"],opts);
-if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.defineProperty(process,'arch',{value:'x64'});os.machine=()=> 'x86_64';}syncBuiltinESMExports();globalThis.fetch=async()=>{await appendFile(${JSON.stringify(marker)},'x');if(process.env.NO_FETCH)throw Error('unexpected download');if(process.env.BAD_ASSET)return new Response('bad');if(process.env.MALICIOUS_ARCHIVE)return new Response(await readFile(${JSON.stringify(badArchivePath)}));if(process.env.LOCK_DRIFT)await appendFile(${JSON.stringify(join(repo, "stack/stack.lock.json"))},' ');if(process.env.SOURCE_DRIFT)await appendFile(${JSON.stringify(join(repo, "stack/components/herdr.yaml"))},'\\n');if(process.env.PATHEXT_DRIFT)process.env.PATHEXT='.exe;.cmd';return new Response(await readFile(${JSON.stringify(archivePath)}))};`,
+if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.defineProperty(process,'arch',{value:'x64'});os.machine=()=> 'x86_64';}syncBuiltinESMExports();globalThis.fetch=async()=>{await appendFile(${JSON.stringify(marker)},'x');if(process.env.NO_FETCH)throw Error('unexpected download');if(process.env.BAD_ASSET)return new Response('bad');if(process.env.MALICIOUS_ARCHIVE)return new Response(await readFile(${JSON.stringify(badArchivePath)}));if(process.env.LOCK_DRIFT)await appendFile(${JSON.stringify(join(repo, "stack/stack.lock.json"))},' ');if(process.env.SOURCE_DRIFT)await appendFile(${JSON.stringify(join(repo, "stack/components/herdr.yaml"))},'\\n');if(process.env.PATHEXT_DRIFT)process.env.PATHEXT='.exe;.cmd';if(process.env.TEMP_DRIFT)process.env.TEMP=${JSON.stringify(base)};return new Response(await readFile(${JSON.stringify(archivePath)}))};`,
   );
   const run = (extra = {}, options = []) =>
     spawnSync(
@@ -620,7 +620,12 @@ if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.def
     sourceFile = join(repo, "stack/components/herdr.yaml");
   const lockBytes = await readFile(lockFile),
     sourceBytes = await readFile(sourceFile);
-  for (const mode of ["LOCK_DRIFT", "SOURCE_DRIFT", "PATHEXT_DRIFT"]) {
+  for (const mode of [
+    "LOCK_DRIFT",
+    "SOURCE_DRIFT",
+    "PATHEXT_DRIFT",
+    "TEMP_DRIFT",
+  ]) {
     const failed = run({ [mode]: "1" });
     assert.equal(failed.status, 1, failed.stderr + failed.stdout);
     assert.match(failed.stderr + failed.stdout, /changed after planning/);
@@ -652,7 +657,7 @@ if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.def
   assert.equal(report.binding.installations.herdr.target, "win32-x64");
   assert.deepEqual(report.binding.installations.uv, uvReceipt);
   const state = await readFile(join(home, ".agent-stack/binding.json"));
-  assert.equal(await readFile(marker, "utf8"), "xxxxxx");
+  assert.equal(await readFile(marker, "utf8"), "xxxxxxx");
   const repeat = run({ NO_FETCH: "1" });
   assert.equal(repeat.status, 0, repeat.stderr + repeat.stdout);
   assert.equal(JSON.parse(repeat.stdout).mode, "managed");
@@ -660,7 +665,7 @@ if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.def
     await readFile(join(home, ".agent-stack/binding.json")),
     state,
   );
-  assert.equal(await readFile(marker, "utf8"), "xxxxxx");
+  assert.equal(await readFile(marker, "utf8"), "xxxxxxx");
   await writeFile(join(bin, "conpty/conpty.dll"), "local drift");
   const drift = run({ NO_FETCH: "1" });
   assert.equal(drift.status, 1, drift.stderr + drift.stdout);
@@ -673,7 +678,7 @@ if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.def
     await readFile(join(bin, "conpty/conpty.dll"), "utf8"),
     "local drift",
   );
-  assert.equal(await readFile(marker, "utf8"), "xxxxxx");
+  assert.equal(await readFile(marker, "utf8"), "xxxxxxx");
   await rm(join(home, ".agent-stack"), { recursive: true });
   await mkdir(bin, { recursive: true });
   await writeFile(
@@ -715,7 +720,7 @@ if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.def
   assert.equal(externalReport.binding.installations.herdr.source, "unknown");
   assert.equal(externalReport.binding.installations.herdr.target, "win32-x64");
   assert.deepEqual(externalReport.binding.installations.uv, uvReceipt);
-  assert.equal(await readFile(marker, "utf8"), "xxxxxx");
+  assert.equal(await readFile(marker, "utf8"), "xxxxxxx");
 });
 
 test("Windows bundle adapter rejects a non-x64 process before I/O", async () => {

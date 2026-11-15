@@ -2027,6 +2027,8 @@ export async function applyWindowsHerdr(
       input.signal,
       "herdr",
     );
+    await input.recheck();
+    if (input.signal.aborted) throw new Error("Cancelled");
     const bundle = readHerdrWindowsArchive(archive);
     for (const [index, name] of herdrWindowsNames.entries()) {
       if (input.signal.aborted) throw new Error("Cancelled");

@@ -75,6 +75,9 @@ export async function setupBaseline(
       process.platform === "win32" ? (process.env.SystemRoot ?? null) : null,
     pathExt:
       process.platform === "win32" ? (process.env.PATHEXT ?? null) : null,
+    temp: process.platform === "win32" ? (process.env.TEMP ?? null) : null,
+    tmp: process.platform === "win32" ? (process.env.TMP ?? null) : null,
+    tmpdir: process.platform === "win32" ? (process.env.TMPDIR ?? null) : null,
     path: process.env.PATH ?? null,
     platform: process.platform,
     arch: process.arch,
