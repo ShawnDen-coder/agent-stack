@@ -1,6 +1,6 @@
 # Quickstart：从源码试用
 
-当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。以下命令使用当前实现的只读检查与版本候选报告，不会安装 Pi、uv 或 herdr 等外部工具，也不会应用原生配置。`pnpm install` 安装的是 CLI 自身的依赖。
+当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。前半部分介绍声明检查、工具检测与共享锁；文末的 macOS uv-only setup 会安装或复用 uv，并记录本机绑定。完整 coding 和配置应用仍未实现。`pnpm install` 安装的是 CLI 自身的依赖。
 
 ## 准备与获取源码
 

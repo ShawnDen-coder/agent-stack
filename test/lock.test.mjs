@@ -4503,7 +4503,9 @@ test("recovery preserves a modified staged uv file and its published entry", {
   );
   assert.equal(await readFile(f.marker, "utf8"), "x");
 });
-test("root review: managed receipt must match current asset digest", async (t) => {
+test("root review: managed receipt must match current asset digest", {
+  skip: process.platform === "win32",
+}, async (t) => {
   const f = await uvInstallFixture(t);
   const installed = runUvSetup(f, [
     "--repo",
@@ -4541,7 +4543,9 @@ test("root review: managed receipt must match current asset digest", async (t) =
   assert.deepEqual(await readFile(join(f.bin, "uv")), entryBefore);
 });
 
-test("root review: reject a newly shadowing PATH executable before execution", async (t) => {
+test("root review: reject a newly shadowing PATH executable before execution", {
+  skip: process.platform === "win32",
+}, async (t) => {
   const { mkdir, chmod, appendFile } = await import("node:fs/promises");
   const f = await uvInstallFixture(t);
   const shadow = join(f.dir, "new-first-path");
@@ -4581,6 +4585,7 @@ test("root review: reject a newly shadowing PATH executable before execution", a
 });
 
 test("root review: concurrent stale lock recovery must not remove a live owner", {
+  skip: process.platform === "win32",
   timeout: 30000,
 }, async (t) => {
   const { appendFile } = await import("node:fs/promises");
@@ -4683,7 +4688,9 @@ test("root review: concurrent stale lock recovery must not remove a live owner",
   assert.equal(await pathExists(b.fetch), false);
 });
 
-test("setup rejects a newly shadowing entry after publication without executing it", async (t) => {
+test("setup rejects a newly shadowing entry after publication without executing it", {
+  skip: process.platform === "win32",
+}, async (t) => {
   const { mkdir, appendFile } = await import("node:fs/promises");
   const f = await uvInstallFixture(t);
   const shadow = join(f.dir, "first-path"),
