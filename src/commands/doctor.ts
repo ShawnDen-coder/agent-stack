@@ -28,6 +28,10 @@ export function createDoctorCommand(): Command {
         repo?: string;
         json?: boolean;
       };
+      if (options.repo !== undefined && !options.repo.trim())
+        command.error("error: --repo must not be empty or whitespace");
+      if (options.profile !== undefined && !options.profile.trim())
+        command.error("error: --profile must not be empty or whitespace");
       try {
         const binding = await readUvBinding(process.env.HOME);
         const repo = resolve(

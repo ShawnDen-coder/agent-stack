@@ -102,6 +102,40 @@ test("doctor help and profile errors are explicit", () => {
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stdout).error, /Unknown profile/);
 });
+test("doctor rejects blank explicit context before reading state or running tools", async (t) => {
+  const { root, bin } = await fixture(t);
+  const home = join(root, "home");
+  await mkdir(join(home, ".agent-stack"), { recursive: true });
+  await writeFile(
+    join(home, ".agent-stack", "binding.json"),
+    "invalid binding",
+  );
+  const marker = join(root, "executed");
+  if (process.platform !== "win32") {
+    for (const name of ["npm", "git", "uv", "herdr", "pnpm", "pi"])
+      await fake(bin, name, `touch ${JSON.stringify(marker)}`);
+  }
+  for (const option of ["--repo", "--profile"]) {
+    for (const value of ["", "  "]) {
+      const result = spawnSync(
+        process.execPath,
+        [cli, "doctor", "--json", option, value],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: { ...process.env, HOME: home, PATH: bin },
+          timeout: 15000,
+        },
+      );
+      assert.equal(result.status, 2, result.stderr);
+      const output = JSON.parse(result.stdout);
+      assert.equal(output.schemaVersion, 1);
+      assert.equal(output.error.kind, "usage");
+      assert.match(output.error.message, /must not be empty or whitespace/);
+    }
+  }
+  await assert.rejects(readFile(marker), { code: "ENOENT" });
+});
 test("doctor resolves environment and scoped binding with explicit options first", async (t) => {
   const { root, bin } = await fixture(t);
   const other = await mkdtemp(join(tmpdir(), "doctor other "));
