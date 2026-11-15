@@ -124,6 +124,8 @@ export async function observeHost(signal?: AbortSignal) {
         closed = true;
         finish();
       });
+      // The probe has no input; shells must receive EOF before we await exit.
+      child.stdin?.end();
     });
     if (process.platform === "darwin") {
       const native =
