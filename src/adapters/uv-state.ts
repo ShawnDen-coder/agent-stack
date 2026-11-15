@@ -14,6 +14,7 @@ import {
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import {
+  assertFileUnchanged,
   boundedFileHash,
   decodeState,
   directoryInode,
@@ -21,6 +22,7 @@ import {
   inode,
   missing,
   optional,
+  optionalBytes,
   removeIfOwned,
   removeOwned,
   safeDir,
@@ -832,7 +834,8 @@ export async function bindExternalUv(input: {
         },
       });
       const path = join(root, "binding.json"),
-        existing = await optional(path);
+        existingBytes = await optionalBytes(path),
+        existing = existingBytes?.toString("utf8") ?? null;
       let previousIdentity: { dev: string; ino: string } | undefined;
       if (existing !== null) {
         const old = decodeState(bindingSchema, existing);
@@ -884,13 +887,8 @@ export async function bindExternalUv(input: {
           throw new Error("Setup state directory changed after planning");
         if (input.signal.aborted) throw new Error("Cancelled");
         if (previousIdentity) {
-          const current = await inode(path);
-          if (
-            current.dev !== previousIdentity.dev ||
-            current.ino !== previousIdentity.ino ||
-            (await optional(path)) !== existing
-          )
-            throw new Error("Binding changed after planning");
+          if (!existingBytes) throw new Error("Binding changed after planning");
+          await assertFileUnchanged(path, previousIdentity, existingBytes);
           await rename(tmp, path);
         } else await link(tmp, path);
         completed = true;

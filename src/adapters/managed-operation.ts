@@ -81,6 +81,21 @@ export async function inode(path: string) {
     throw new Error("Cannot verify managed file ownership");
   return { dev: String(value.dev), ino: String(value.ino) };
 }
+export async function assertFileUnchanged(
+  path: string,
+  expected: { dev: string; ino: string },
+  bytes: Buffer,
+) {
+  const current = await inode(path);
+  const contents = await optionalBytes(path);
+  if (
+    current.dev !== expected.dev ||
+    current.ino !== expected.ino ||
+    contents === null ||
+    !contents.equals(bytes)
+  )
+    throw new Error("Binding changed after planning");
+}
 export async function boundedFileHash(
   path: string,
   expected: { dev: string; ino: string },

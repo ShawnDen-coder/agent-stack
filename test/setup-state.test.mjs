@@ -24,3 +24,27 @@ test("setup state fingerprint hashes original bytes, including invalid UTF-8", a
     createHash("sha256").update(second).digest("hex"),
   );
 });
+
+test("state replacement recheck compares file identity and raw bytes", async (t) => {
+  const { assertFileUnchanged, inode } = await import(
+    "../dist/adapters/managed-operation.js"
+  );
+  const dir = await mkdtemp(join(tmpdir(), "state-recheck-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "binding.json");
+  const original = Buffer.from([0xff]);
+  await writeFile(path, original);
+  const identity = await inode(path);
+  await assertFileUnchanged(path, identity, original);
+  await writeFile(path, Buffer.from([0xfe]));
+  await assert.rejects(
+    assertFileUnchanged(path, identity, original),
+    /Binding changed/,
+  );
+  await rm(path);
+  await writeFile(path, original);
+  await assert.rejects(
+    assertFileUnchanged(path, identity, original),
+    /Binding changed/,
+  );
+});
