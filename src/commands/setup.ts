@@ -43,7 +43,7 @@ export function createSetupCommand(): Command {
   let lockSeen = false;
   return shared(
     new Command("setup").description(
-      "Preview or apply a locked macOS uv setup",
+      "Preview or apply locked macOS uv setup or Herdr reuse",
     ),
   )
     .addOption(profileOption())

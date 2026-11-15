@@ -186,7 +186,7 @@ async function createOwned(
 async function recover(root: string, bin: string) {
   const path = join(root, "pending.json");
   const raw = await optional(path);
-  if (!raw) return;
+  if (raw === null) return;
   const journalIdentity = await inode(path);
   const removeJournal = async () => {
     if ((await optional(path)) !== raw)
@@ -366,6 +366,8 @@ async function acquireGuarded(root: string): Promise<Operation> {
       )
         throw probe;
     }
+    const pendingRaw = await optional(join(root, "pending.json"));
+    if (pendingRaw !== null) decodeState(anyPendingSchema, pendingRaw);
     if (old.temporary) {
       const tmp = join(root, old.temporary.name);
       if (old.temporary.identity)
@@ -379,7 +381,7 @@ async function acquireGuarded(root: string): Promise<Operation> {
           "Temporary binding ownership is incomplete; manual recovery required",
         );
     }
-    if (old.stage && !(await optional(join(root, "pending.json")))) {
+    if (old.stage && pendingRaw === null) {
       const binding = await readSetupState(dirname(root));
       if (
         !(
@@ -549,7 +551,7 @@ export async function applyUv(input: {
         );
     } catch (error) {
       if (
-        !(await optional(join(root, "pending.json"))) &&
+        (await optional(join(root, "pending.json"))) === null &&
         (!stage || (await uvEntryAbsent(stage)))
       )
         await operation.release();
@@ -1162,10 +1164,13 @@ export async function bindExternalHerdr(input: {
       throw new Error("Setup state directory changed after planning");
     const operation = await acquire(root);
     try {
-      if (await optional(join(root, "pending.json")))
+      const pendingRaw = await optional(join(root, "pending.json"));
+      if (pendingRaw !== null) {
+        decodeState(anyPendingSchema, pendingRaw);
         throw new Error(
           "Pending uv operation requires recovery before Herdr setup",
         );
+      }
       await input.recheck();
       if (input.signal.aborted) throw new Error("Cancelled");
       const path = join(root, "binding.json"),

@@ -3829,7 +3829,7 @@ async function uvInstallFixture(t, variant = "normal", arch = "x64") {
     preload = join(dir, "install-preload.mjs");
   await writeFile(
     preload,
-    `import cp from 'node:child_process';import os from 'node:os';import fs from 'node:fs';import {EventEmitter} from 'node:events';import {readFile,appendFile,writeFile} from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:${JSON.stringify(arch)}});os.machine=()=>${JSON.stringify(arch === "arm64" ? "arm64" : "x86_64")};const originalUnlink=fs.promises.unlink;fs.promises.unlink=async(p)=>{if(process.env.FAULT_UNLINK==='binding-temp'&&typeof p==='string'&&p.includes('/binding-uv-')&&p.endsWith('.tmp'))throw Object.assign(Error('injected unlink failure'),{code:'EACCES'});return originalUnlink(p)};const originalStat=fs.promises.lstat;let failedStageStat=false;fs.promises.lstat=async(p,...args)=>{if(process.env.FAULT_STAT==='stage'&&!failedStageStat&&typeof p==='string'&&p.includes('/.agent-stack/uv-')){failedStageStat=true;throw Object.assign(Error('injected stage stat failure'),{code:'EACCES'})}return originalStat(p,...args)};const originalOpen=fs.promises.open,originalMkdir=fs.promises.mkdir;fs.promises.open=async(p,...args)=>{if(typeof p==='string'&&((process.env.FAULT_OPEN==='lock'&&p===${JSON.stringify(join(home, ".agent-stack", "operation.lock"))})||(process.env.FAULT_OPEN==='archive'&&p.endsWith('/archive.tar.gz'))||(process.env.FAULT_OPEN==='journal'&&p.endsWith('/pending.json')&&args[0]==='wx')||(process.env.FAULT_OPEN==='binding-temp'&&p.includes('/binding-')&&p.endsWith('.tmp'))))throw Object.assign(Error('injected open failure'),{code:'EACCES'});const h=await originalOpen(p,...args);if(typeof p==='string'&&p.includes('/binding-uv-')&&p.endsWith('.tmp')){if(process.env.FAULT_KILL==='temp-created')process.kill(process.pid,'SIGKILL');if(process.env.FAULT_KILL==='temp-identified'){const write=h.writeFile.bind(h);h.writeFile=async(...a)=>{process.kill(process.pid,'SIGKILL');return write(...a)}}}return h};fs.promises.mkdir=async(p,...args)=>{if(process.env.FAULT_OPEN==='stage'&&typeof p==='string'&&p.includes('/.agent-stack/uv-'))throw Object.assign(Error('injected mkdir failure'),{code:'EACCES'});return originalMkdir(p,...args)};const originalRename=fs.promises.rename;fs.promises.rename=async(a,b)=>{await originalRename(a,b);if(process.env.FAULT_KILL==='binding-rename'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))})process.kill(process.pid,'SIGKILL')};const originalLink=fs.promises.link;fs.promises.link=async(a,b)=>{if((process.env.FAULT_THROW==='uvx'&&b===${JSON.stringify(join(bin, "uvx"))})||(process.env.FAULT_THROW==='binding'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))}))throw Object.assign(Error('injected write failure'),{code:'EACCES'});await originalLink(a,b);if((process.env.FAULT_KILL==='link'&&b===${JSON.stringify(join(bin, "uv"))})||(process.env.FAULT_KILL==='binding'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))}))process.kill(process.pid,'SIGKILL')};const old=cp.execFile;cp.execFile=(file,args,opts,cb)=>{if(file==='/usr/bin/arch'){const p=new EventEmitter();queueMicrotask(()=>{cb(null,'0\\n','');p.emit('close',0)});return p}return old(file,args,opts,cb)};syncBuiltinESMExports();if(process.env.FETCH_MODE==='timeout'){const oldTimeout=AbortSignal.timeout;AbortSignal.timeout=(ms)=>oldTimeout(Math.min(ms,200));}globalThis.fetch=async(url,options)=>{await appendFile(${JSON.stringify(marker)},'x');if(process.env.FETCH_MODE==='timeout'||process.env.FETCH_MODE==='stall')return new Promise((resolve,reject)=>{const timer=setInterval(()=>{},1000);options.signal.addEventListener('abort',()=>{clearInterval(timer);reject(Error('aborted'))},{once:true})});if(process.env.FETCH_MODE==='forbid')throw Error('unexpected network');if(process.env.FETCH_MODE==='bad')return new Response('wrong');if(process.env.FETCH_MODE==='http')return new Response('denied',{status:403});if(process.env.FETCH_MODE==='oversize')return new Response('x',{headers:{'content-length':'67108865'}});if(process.env.FETCH_MODE==='redirect')return new Response('',{status:302,headers:{location:'https://example.com/evil'}});if(process.env.FETCH_MODE==='valid-redirect'&&String(url)===${JSON.stringify(assetUrl)})return new Response('',{status:302,headers:{location:'https://release-assets.githubusercontent.com/fixture?sig=private'}});if(process.env.FETCH_MODE==='valid-redirect'&&String(url).startsWith('https://release-assets.githubusercontent.com/'))return new Response(await readFile(${JSON.stringify(archive)}));if(process.env.FETCH_MODE==='lock-change')await appendFile(${JSON.stringify(join(dir, "stack/stack.lock.json"))},' ');if(process.env.FETCH_MODE==='source-change')await appendFile(${JSON.stringify(join(dir, "stack/components/uv.yaml"))},' ');if(process.env.FETCH_MODE==='env-change')process.env.PATH+=':/changed';if(process.env.FETCH_MODE==='conflict')await writeFile(${JSON.stringify(join(bin, "uv"))},'foreign');if(process.env.FETCH_MODE==='delay')await new Promise(r=>setTimeout(r,1200));if(String(url)!==${JSON.stringify(assetUrl)})throw Error('unexpected URL');return new Response(await readFile(${JSON.stringify(archive)}));};`,
+    `import cp from 'node:child_process';import os from 'node:os';import fs from 'node:fs';import {EventEmitter} from 'node:events';import {readFile,appendFile,writeFile} from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:${JSON.stringify(arch)}});os.machine=()=>${JSON.stringify(arch === "arm64" ? "arm64" : "x86_64")};const originalUnlink=fs.promises.unlink;fs.promises.unlink=async(p)=>{if(process.env.FAULT_UNLINK==='binding-temp'&&typeof p==='string'&&p.includes('/binding-uv-')&&p.endsWith('.tmp'))throw Object.assign(Error('injected unlink failure'),{code:'EACCES'});return originalUnlink(p)};const originalStat=fs.promises.lstat;let failedStageStat=false;fs.promises.lstat=async(p,...args)=>{if(process.env.FAULT_STAT==='stage'&&!failedStageStat&&typeof p==='string'&&p.includes('/.agent-stack/uv-')){failedStageStat=true;throw Object.assign(Error('injected stage stat failure'),{code:'EACCES'})}return originalStat(p,...args)};const originalOpen=fs.promises.open,originalMkdir=fs.promises.mkdir;fs.promises.open=async(p,...args)=>{if(typeof p==='string'&&((process.env.FAULT_OPEN==='lock'&&p===${JSON.stringify(join(home, ".agent-stack", "operation.lock"))})||(process.env.FAULT_OPEN==='archive'&&p.endsWith('/archive.tar.gz'))||(process.env.FAULT_OPEN==='journal'&&p.endsWith('/pending.json')&&args[0]==='wx')||(process.env.FAULT_OPEN==='binding-temp'&&p.includes('/binding-')&&p.endsWith('.tmp'))))throw Object.assign(Error('injected open failure'),{code:'EACCES'});const h=await originalOpen(p,...args);if(typeof p==='string'&&p.endsWith('/pending.json')&&args[0]===(fs.constants.O_RDWR|fs.constants.O_NOFOLLOW)){const truncate=h.truncate.bind(h);h.truncate=async(...a)=>{await truncate(...a);if(process.env.FAULT_KILL==='journal-truncate')process.kill(process.pid,'SIGKILL')}}if(typeof p==='string'&&p.includes('/binding-uv-')&&p.endsWith('.tmp')){if(process.env.FAULT_KILL==='temp-created')process.kill(process.pid,'SIGKILL');if(process.env.FAULT_KILL==='temp-identified'){const write=h.writeFile.bind(h);h.writeFile=async(...a)=>{process.kill(process.pid,'SIGKILL');return write(...a)}}}return h};fs.promises.mkdir=async(p,...args)=>{if(process.env.FAULT_OPEN==='stage'&&typeof p==='string'&&p.includes('/.agent-stack/uv-'))throw Object.assign(Error('injected mkdir failure'),{code:'EACCES'});return originalMkdir(p,...args)};const originalRename=fs.promises.rename;fs.promises.rename=async(a,b)=>{await originalRename(a,b);if(process.env.FAULT_KILL==='binding-rename'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))})process.kill(process.pid,'SIGKILL')};const originalLink=fs.promises.link;fs.promises.link=async(a,b)=>{if((process.env.FAULT_THROW==='uvx'&&b===${JSON.stringify(join(bin, "uvx"))})||(process.env.FAULT_THROW==='binding'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))}))throw Object.assign(Error('injected write failure'),{code:'EACCES'});await originalLink(a,b);if((process.env.FAULT_KILL==='link'&&b===${JSON.stringify(join(bin, "uv"))})||(process.env.FAULT_KILL==='binding'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))}))process.kill(process.pid,'SIGKILL')};const old=cp.execFile;cp.execFile=(file,args,opts,cb)=>{if(file==='/usr/bin/arch'){const p=new EventEmitter();queueMicrotask(()=>{cb(null,'0\\n','');p.emit('close',0)});return p}return old(file,args,opts,cb)};syncBuiltinESMExports();if(process.env.FETCH_MODE==='timeout'){const oldTimeout=AbortSignal.timeout;AbortSignal.timeout=(ms)=>oldTimeout(Math.min(ms,200));}globalThis.fetch=async(url,options)=>{await appendFile(${JSON.stringify(marker)},'x');if(process.env.FETCH_MODE==='timeout'||process.env.FETCH_MODE==='stall')return new Promise((resolve,reject)=>{const timer=setInterval(()=>{},1000);options.signal.addEventListener('abort',()=>{clearInterval(timer);reject(Error('aborted'))},{once:true})});if(process.env.FETCH_MODE==='forbid')throw Error('unexpected network');if(process.env.FETCH_MODE==='bad')return new Response('wrong');if(process.env.FETCH_MODE==='http')return new Response('denied',{status:403});if(process.env.FETCH_MODE==='oversize')return new Response('x',{headers:{'content-length':'67108865'}});if(process.env.FETCH_MODE==='redirect')return new Response('',{status:302,headers:{location:'https://example.com/evil'}});if(process.env.FETCH_MODE==='valid-redirect'&&String(url)===${JSON.stringify(assetUrl)})return new Response('',{status:302,headers:{location:'https://release-assets.githubusercontent.com/fixture?sig=private'}});if(process.env.FETCH_MODE==='valid-redirect'&&String(url).startsWith('https://release-assets.githubusercontent.com/'))return new Response(await readFile(${JSON.stringify(archive)}));if(process.env.FETCH_MODE==='lock-change')await appendFile(${JSON.stringify(join(dir, "stack/stack.lock.json"))},' ');if(process.env.FETCH_MODE==='source-change')await appendFile(${JSON.stringify(join(dir, "stack/components/uv.yaml"))},' ');if(process.env.FETCH_MODE==='env-change')process.env.PATH+=':/changed';if(process.env.FETCH_MODE==='conflict')await writeFile(${JSON.stringify(join(bin, "uv"))},'foreign');if(process.env.FETCH_MODE==='delay')await new Promise(r=>setTimeout(r,1200));if(String(url)!==${JSON.stringify(assetUrl)})throw Error('unexpected URL');return new Response(await readFile(${JSON.stringify(archive)}));};`,
   );
   return { dir, home, bin, tools, preload, marker, archive, sha, metadata };
 }
@@ -3958,6 +3958,195 @@ for (const order of ["uv-first", "herdr-first"]) {
     const rebound = JSON.parse(await readFile(statePath, "utf8"));
     assert.deepEqual(rebound.installations, state.installations);
     assert.equal(rebound.defaultBinding.profile, "uv-only");
+  });
+}
+
+for (const corruption of ["empty", "invalid-with-temp"]) {
+  test(`Herdr rejects a late ${corruption} uv journal without deleting evidence`, {
+    skip: process.platform !== "darwin",
+  }, async (t) => {
+    const { chmod, rename, stat } = await import("node:fs/promises");
+    const f = await uvInstallFixture(t);
+    await writeFile(
+      join(f.dir, "stack/profiles/herdr-only.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "herdr-only",
+        description: "herdr",
+        platforms: ["darwin", "win32", "linux"],
+        components: [{ component: "herdr", channel: "stable" }],
+        integrations: [],
+        requires: ["workspace"],
+      }),
+    );
+    await rename(
+      join(f.dir, "stack/stack.lock.json"),
+      join(f.dir, "uv.lock.json"),
+    );
+    const metadata = join(f.dir, "herdr-metadata.mjs");
+    await writeFile(
+      metadata,
+      `globalThis.fetch=async()=>new Response(${JSON.stringify(JSON.stringify(herdrAssetManifest()))})`,
+    );
+    const locked = run(f.dir, metadata, [
+      "--profile",
+      "herdr-only",
+      "--target",
+      "darwin-x64",
+      "--out",
+      join(f.dir, "herdr.lock.json"),
+      "--json",
+    ]);
+    assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+    const source = join(f.dir, "herdr.c");
+    await writeFile(
+      source,
+      '#include <stdio.h>\nint main(void){puts("herdr 0.9.5");return 0;}\n',
+    );
+    const cc = spawnSync("cc", [source, "-o", join(f.tools, "herdr")], {
+      encoding: "utf8",
+    });
+    assert.equal(cc.status, 0, cc.stderr);
+    await chmod(join(f.tools, "herdr"), 0o755);
+    const args = [
+      "--repo",
+      f.dir,
+      "--profile",
+      "herdr-only",
+      "--lock",
+      join(f.dir, "herdr.lock.json"),
+      "--yes",
+    ];
+    const first = runUvSetup(f, args, { FETCH_MODE: "forbid" });
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    const root = join(f.home, ".agent-stack"),
+      before = await readFile(join(root, "binding.json"));
+    const marker = join(f.dir, "planned"),
+      gate = join(f.dir, "gate"),
+      pause = join(f.dir, "pause.mjs");
+    await writeFile(
+      pause,
+      `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';const old=fs.promises.mkdir;fs.promises.mkdir=async(p,...a)=>{if(p===${JSON.stringify(join(root, "operation.guard"))}){await fs.promises.writeFile(${JSON.stringify(marker)},'ready');while(!fs.existsSync(${JSON.stringify(gate)}))await new Promise(r=>setTimeout(r,20))}return old(p,...a)};syncBuiltinESMExports();`,
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        f.preload,
+        "--import",
+        pause,
+        cli,
+        "setup",
+        ...args,
+        "--json",
+      ],
+      {
+        cwd: f.dir,
+        env: {
+          HOME: f.home,
+          USERPROFILE: f.home,
+          PATH: `${f.bin}:${f.tools}`,
+          NO_COLOR: "1",
+          FETCH_MODE: "forbid",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "",
+      stderr = "";
+    child.stdout.on("data", (x) => (stdout += x));
+    child.stderr.on("data", (x) => (stderr += x));
+    const done = new Promise((resolve) =>
+      child.once("close", (code, signal) => resolve({ code, signal })),
+    );
+    try {
+      let ready = false;
+      for (let n = 0; n < 300; n++) {
+        try {
+          await readFile(marker);
+          ready = true;
+          break;
+        } catch {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      }
+      assert.ok(ready, "Herdr plan reached operation lock");
+      const killed = runUvSetup(
+        f,
+        [
+          "--repo",
+          f.dir,
+          "--profile",
+          "uv-only",
+          "--lock",
+          join(f.dir, "uv.lock.json"),
+          "--yes",
+        ],
+        { FAULT_KILL: "journal-truncate" },
+      );
+      assert.equal(killed.signal, "SIGKILL", killed.stdout + killed.stderr);
+      const pendingPath = join(root, "pending.json"),
+        ownerPath = join(root, "operation.lock");
+      assert.equal((await readFile(pendingPath)).length, 0);
+      let temp;
+      if (corruption === "invalid-with-temp") {
+        await writeFile(pendingPath, "{invalid");
+        const owner = JSON.parse(await readFile(ownerPath, "utf8"));
+        temp = join(root, `binding-${"a".repeat(32)}.tmp`);
+        await writeFile(temp, "keep");
+        const info = await stat(temp, { bigint: true });
+        owner.temporary = {
+          name: `binding-${"a".repeat(32)}.tmp`,
+          identity: { dev: String(info.dev), ino: String(info.ino) },
+        };
+        await writeFile(ownerPath, JSON.stringify(owner));
+      }
+      const owner = await readFile(ownerPath),
+        journal = await readFile(pendingPath);
+      const stagePath = join(root, JSON.parse(owner).stage.name);
+      const stageBefore = await stat(stagePath, { bigint: true });
+      const evidence = await Promise.all(
+        ["uv", "uvx"].map(async (name) => ({
+          name,
+          stage: await readFile(join(stagePath, name)),
+          entry: await readFile(join(f.bin, name)),
+          stageIdentity: await stat(join(stagePath, name), { bigint: true }),
+          entryIdentity: await stat(join(f.bin, name), { bigint: true }),
+        })),
+      );
+      const names = (await readdir(root)).sort();
+      await writeFile(gate, "go");
+      const result = await done;
+      assert.equal(result.code, 1, stdout + stderr);
+      assert.deepEqual(await readFile(join(root, "binding.json")), before);
+      assert.deepEqual(await readFile(ownerPath), owner);
+      assert.deepEqual(await readFile(pendingPath), journal);
+      const stageAfter = await stat(stagePath, { bigint: true });
+      assert.equal(stageAfter.ino, stageBefore.ino);
+      for (const item of evidence) {
+        assert.deepEqual(
+          await readFile(join(stagePath, item.name)),
+          item.stage,
+        );
+        assert.deepEqual(await readFile(join(f.bin, item.name)), item.entry);
+        assert.equal(
+          (await stat(join(stagePath, item.name), { bigint: true })).ino,
+          item.stageIdentity.ino,
+        );
+        assert.equal(
+          (await stat(join(f.bin, item.name), { bigint: true })).ino,
+          item.entryIdentity.ino,
+        );
+      }
+      if (temp) assert.equal(await readFile(temp, "utf8"), "keep");
+      assert.deepEqual((await readdir(root)).sort(), names);
+    } finally {
+      await writeFile(gate, "go");
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await done;
+      }
+    }
   });
 }
 

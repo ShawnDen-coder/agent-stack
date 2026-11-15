@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；原生 macOS 的 uv-only setup 已可按锁安装或复用；锁更新、离线解析、其他部件安装和配置应用尚未实现。
+Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；原生 macOS 的 uv-only setup 已可按锁安装或复用，Herdr-only 可复用匹配的已有入口；锁更新、离线解析、其他部件安装和配置应用尚未实现。
 
 ## 目录职责
 
@@ -141,4 +141,4 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 [Herdr 调研](herdr-research.md)、[Pi 调研](pi-research.md)和 [Otty 调研](otty-research.md)记录固定证据及未验证范围；它们不替代共享锁。多部件状态的默认绑定、回执、资源归属与 journal 迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)。
 
-当前 setup 状态边界由 `setup-state` 严格读取现有 uv v1 binding 并投影默认上下文；`managed-operation` 提供安全文件读取、身份与摘要、归属删除和 guard。uv 特定 owner、journal、提交及恢复仍由 uv adapter 负责；磁盘格式未迁移，Herdr 安装仍未实现。
+当前 `setup-state` 严格读取 v1/v2 状态并投影默认上下文；v1 只在内存归一化，真正成功写入使用 v2 快照。`managed-operation` 提供安全文件读取、身份与摘要、归属删除和 guard。uv 特定 owner、journal、提交及恢复仍由 uv adapter 负责；Herdr managed 安装仍未实现。

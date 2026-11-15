@@ -1,6 +1,6 @@
 # Setup 实施方案：按锁对齐 coding
 
-状态：方案已通过根会话审查；当前实现 macOS uv-only 的只读计划及按锁应用；其他部件与完整 coding 安装尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
+状态：方案已通过根会话审查；当前实现 macOS uv-only 的只读计划及按锁应用，以及 Herdr-only 已有入口的 external 复用；Herdr managed 安装与完整 coding 尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
 
 ## 推荐路径与成功条件
 
@@ -71,15 +71,15 @@
 
 ## 多部件状态兼容契约
 
-当前 `binding.json` 是 schemaVersion 1 的 uv 专用记录，同时包含默认 repo/profile/lock 和 uv 回执；`pending.json` 与操作锁承载 uv 未完成操作和恢复。它们是已实现格式，不把它们解释成完整 coding 已应用的证明。
+历史 v1 `binding.json` 是兼容输入，包含默认 repo/profile/lock 和 uv 回执；读取仅在内存归一化，真正成功写入使用 v2。`pending.json` 与操作锁承载 uv 未完成操作和恢复，不能解释成完整 coding 已应用的证明。
 
-后续 Herdr 消费者落地时，应区分四类本机事实：默认绑定仅指向最后完整成功的 repo/profile/lock；部件回执记录实际版本、来源、资产与已验证摘要；资源归属记录实际 checkout 内容摘要、受管字段或条目及上次写入值；未完成 journal 记录操作阶段、可证明的所有权和恢复依据。共享锁仅固定列出的资产，不固定 npm 全依赖闭包或配置正文。
+状态设计区分四类本机事实：默认绑定仅指向最后完整成功的 repo/profile/lock；部件回执记录实际版本、来源、资产与已验证摘要；资源归属记录实际 checkout 内容摘要、受管字段或条目及上次写入值；未完成 journal 记录操作阶段、可证明的所有权和恢复依据。共享锁仅固定列出的资产，不固定 npm 全依赖闭包或配置正文。
 
-迁移必须识别现有 uv v1 绑定和未完成 journal，先按现有规则恢复或阻塞，再保留 uv 资产证据与外部复用的有限证据；不能凭旧记录推断其他部件或资源已应用。新状态的原子发布、并发和恢复不得削弱现有 uv 保证；失败不得更新完整成功的默认绑定，未知归属和本地漂移保留并报告。profile 切换、资源移除和 checkout 迁移需在真实资源 adapter 中定义三方比较及恢复，不能删除未知内容。具体 schema 随 Herdr 实际消费者实现，不预建空框架。
+迁移必须识别现有 uv v1 绑定和未完成 journal，先按现有规则恢复或阻塞，再保留 uv 资产证据与外部复用的有限证据；不能凭旧记录推断其他部件或资源已应用。新状态的原子发布、并发和恢复不得削弱现有 uv 保证；失败不得更新完整成功的默认绑定，未知归属和本地漂移保留并报告。profile 切换、资源移除和 checkout 迁移需在真实资源 adapter 中定义三方比较及恢复，不能删除未知内容。资源归属 schema 尚待真实配置消费者实现。
 
 固定版本调研见 [Herdr](herdr-research.md)、[Pi](pi-research.md) 和 [Otty](otty-research.md)；调研版本是证据快照，安装仍以共享锁为准。Otty 仅有官方在线文档证据，Windows 发行支持尚未确认。
 
-当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。Herdr 安装、部件状态及恢复仍未实现，完整 coding 继续阻塞。
+当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。Herdr 已有入口的 external 复用及本机回执已实现；managed 安装仍未实现，完整 coding 继续阻塞。
 
 ## 本机 v2 状态与复用
 

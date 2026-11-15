@@ -33,4 +33,4 @@ pnpm cli validate --repo .
 
 `setup --profile coding --dry-run` 可离线预览已有共享锁的本机计划；当前不安装或应用配置，必需步骤未实现时返回 1。需明确锁覆盖的原生目标；支持检测原生 macOS arm64/x64 和 Windows x64，未知或仿真宿主阻塞。
 
-在原生 macOS arm64/x64，`setup` 可按完整锁安装或复用能力完整的 uv-only profile；预览不联网，执行前需确认或显式 `--yes`。新安装的受管入口位于 `$HOME/.agent-stack/bin`，须预先创建并加入 PATH；匹配的外部入口可只读复用。它不代表 coding 已配置；Windows、Linux/WSL、仿真和其他部件仍不能应用。详见 [Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/uv-macos-setup/docs/quickstart.md)。
+在原生 macOS arm64/x64，`setup` 可按完整锁安装或复用能力完整的 uv-only profile；预览不联网，执行前需确认或显式 `--yes`。新安装的受管入口位于 `$HOME/.agent-stack/bin`，须预先创建并加入 PATH；匹配的外部入口可只读复用。原生 macOS Herdr-only 还可复用匹配的已有入口，归属为 unknown；Herdr managed 安装尚未实现。它不代表 coding 已配置；Windows、Linux/WSL、仿真和其他部件仍不能应用。详见 [Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/uv-macos-setup/docs/quickstart.md)。
