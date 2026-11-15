@@ -242,6 +242,29 @@ try {
       `${name}: inherited child write must be rejected`,
     );
   }
+  for (const name of ["generic-write-oi", "generic-all-oi"]) {
+    const report = reports.find((item) => item.name === name);
+    assert.ok(
+      report.evidence.child.raw.some(
+        (ace) =>
+          ace.allow &&
+          ace.genericBits === report.mask &&
+          (ace.flags & 25) === 25,
+      ),
+      `${name}: child must retain its inherited inherit-only generic ACE`,
+    );
+    assert.ok(
+      report.evidence.nestedFile.raw.some(
+        (ace) => ace.allow && ace.writeBits !== 0,
+      ),
+      `${name}: nested file must inherit write access`,
+    );
+    assert.equal(
+      report.decisions.child.accepted,
+      false,
+      `${name}: inheritable child write must be rejected`,
+    );
+  }
   assert.equal(
     suspicious,
     false,
