@@ -5,18 +5,33 @@ import { join } from "node:path";
 
 // IsWow64Process2 examines the actual Node process, not PowerShell itself.
 const windowsProbe = `$ErrorActionPreference='Stop'
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class AgentStackHostProbe {
- [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint a, bool b, int p);
- [DllImport("kernel32.dll", SetLastError=true)] public static extern bool IsWow64Process2(IntPtr h, out ushort p, out ushort n);
- [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+$asm=[AppDomain]::CurrentDomain.DefineDynamicAssembly([Reflection.AssemblyName]::new('AgentStackHostProbe'),[Reflection.Emit.AssemblyBuilderAccess]::Run)
+$mod=$asm.DefineDynamicModule('AgentStackHostProbe')
+$type=$mod.DefineType('AgentStackNative',[Reflection.TypeAttributes]'Public, Abstract, Sealed')
+$attr=[Reflection.MethodAttributes]'Public, Static, PinvokeImpl'
+$cc=[Reflection.CallingConventions]::Standard
+$native=[Runtime.InteropServices.CallingConvention]::Winapi
+$charset=[Runtime.InteropServices.CharSet]::Ansi
+$import=[Runtime.InteropServices.DllImportAttribute]
+$ctor=$import.GetConstructor([type[]]@([string]))
+$field=$import.GetField('SetLastError')
+$lastError=[Reflection.Emit.CustomAttributeBuilder]::new($ctor,[object[]]@('kernel32.dll'),[Reflection.FieldInfo[]]@($field),[object[]]@($true))
+function NativeMethod($name,$returnType,$parameters,$saveError) {
+ $method=$type.DefinePInvokeMethod($name,'kernel32.dll',$attr,$cc,$returnType,[type[]]$parameters,$native,$charset)
+ if ($saveError) { $method.SetCustomAttribute($lastError) }
+ $method.SetImplementationFlags($method.GetMethodImplementationFlags() -bor [Reflection.MethodImplAttributes]::PreserveSig)
 }
-'@
-$h=[AgentStackHostProbe]::OpenProcess(0x1000,$false,$env:AGENT_STACK_PROBE_PID)
+NativeMethod 'OpenProcess' ([IntPtr]) @([uint32],[bool],[int]) $true
+NativeMethod 'IsWow64Process2' ([bool]) @([IntPtr],[uint16].MakeByRefType(),[uint16].MakeByRefType()) $true
+NativeMethod 'CloseHandle' ([bool]) @([IntPtr]) $false
+$probe=$type.CreateType()
+$h=$probe.GetMethod('OpenProcess').Invoke($null,[object[]]@([uint32]0x1000,$false,[int]$env:AGENT_STACK_PROBE_PID))
 if ($h -eq [IntPtr]::Zero) { throw 'OpenProcess failed' }
-try { [UInt16]$p=0; [UInt16]$n=0; if (-not [AgentStackHostProbe]::IsWow64Process2($h,[ref]$p,[ref]$n)) { throw 'IsWow64Process2 failed' }; Write-Output "$p,$n" } finally { [void][AgentStackHostProbe]::CloseHandle($h) }`;
+try {
+ $values=[object[]]@($h,[uint16]0,[uint16]0)
+ if (-not $probe.GetMethod('IsWow64Process2').Invoke($null,$values)) { throw 'IsWow64Process2 failed' }
+ [Console]::Out.WriteLine("$($values[1]),$($values[2])")
+} finally { [void]$probe.GetMethod('CloseHandle').Invoke($null,[object[]]@($h)) }`;
 
 export async function observeHost(signal?: AbortSignal) {
   const value = machine();

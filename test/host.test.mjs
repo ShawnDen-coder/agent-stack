@@ -43,3 +43,53 @@ test("host probe sends EOF to a real child before waiting for its result", async
     else process.env.SystemRoot = systemRoot;
   }
 });
+
+test("native Windows probes the actual Node process repeatedly without compilation", {
+  skip: !(
+    process.platform === "win32" &&
+    process.arch === "x64" &&
+    process.env.RUNNER_ARCH === "X64"
+  ),
+  timeout: 45000,
+}, async () => {
+  const observations = await Promise.all([
+    observeHost(),
+    observeHost(),
+    observeHost(),
+  ]);
+  for (const observation of observations) {
+    assert.equal(observation.target, "win32-x64");
+    assert.equal(observation.native, true, JSON.stringify(observation));
+    assert.equal(observation.evidence, "IsWow64Process2");
+  }
+});
+
+test("native Windows fails closed when OpenProcess cannot open the target", {
+  skip: !(
+    process.platform === "win32" &&
+    process.arch === "x64" &&
+    process.env.RUNNER_ARCH === "X64"
+  ),
+  timeout: 45000,
+}, async () => {
+  const originalExecFile = cp.execFile;
+  cp.execFile = (file, args, options, callback) =>
+    originalExecFile(
+      file,
+      args,
+      {
+        ...options,
+        env: { ...options.env, AGENT_STACK_PROBE_PID: "2147483647" },
+      },
+      callback,
+    );
+  syncBuiltinESMExports();
+  try {
+    const host = await observeHost();
+    assert.equal(host.native, false, JSON.stringify(host));
+    assert.equal(host.evidence, "probe-unknown");
+  } finally {
+    cp.execFile = originalExecFile;
+    syncBuiltinESMExports();
+  }
+});
