@@ -57,7 +57,7 @@ pnpm cli lock --repo . --profile coding --dry-run --json
 
 ## 退出码与平台
 
-已实现命令一般使用 0 表示本次检查范围通过，1 表示业务检查或来源失败，2 表示用法错误，交互取消为 130。`doctor` 和 `lock` 在脚本或 JSON 模式下必须显式提供 `--profile`，交互 TTY 可选择；`validate` 不需要 profile。查看上一条命令退出码：
+已实现命令一般使用 0 表示本次检查范围通过，1 表示业务检查或来源失败，2 表示用法错误，交互取消为 130。`doctor` 在脚本或 JSON 模式下可通过 `--profile`、`AGENT_STACK_PROFILE` 或所选仓库的本机绑定取得 profile；均不可用时明确拒绝，不猜测。`lock` 在这些模式下仍须显式提供 `--profile`；交互 TTY 可选择，`validate` 不需要 profile。查看上一条命令退出码：
 
 ```sh
 # macOS / Linux shell

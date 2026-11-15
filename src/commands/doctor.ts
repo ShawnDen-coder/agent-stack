@@ -33,13 +33,16 @@ export function createDoctorCommand(): Command {
       if (options.profile !== undefined && !options.profile.trim())
         command.error("error: --profile must not be empty or whitespace");
       try {
-        const binding = await readUvBinding(process.env.HOME);
-        const repo = resolve(
-          options.repo ?? process.env.AGENT_STACK_REPO ?? binding?.repo ?? ".",
-        );
+        const requestedRepo = options.repo ?? process.env.AGENT_STACK_REPO;
+        const requestedProfile =
+          options.profile ?? process.env.AGENT_STACK_PROFILE;
+        const binding =
+          requestedRepo !== undefined && requestedProfile !== undefined
+            ? null
+            : await readUvBinding(process.env.HOME);
+        const repo = resolve(requestedRepo ?? binding?.repo ?? ".");
         const selectedProfile =
-          options.profile ??
-          process.env.AGENT_STACK_PROFILE ??
+          requestedProfile ??
           (binding?.repo === repo ? binding.profile : undefined);
         if (!selectedProfile && options.json)
           command.error("error: --profile is required in JSON mode");
