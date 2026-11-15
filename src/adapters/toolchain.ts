@@ -184,19 +184,26 @@ export async function observe(
         failure: result.failure,
         evidence: "version_command",
       };
-    const match = result.stdout
-      .trim()
-      .match(
-        name === "herdr"
-          ? /^herdr (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
-          : name === "uvx"
-            ? /^uvx (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/
-            : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
-      );
+    const output = result.stdout.trim();
+    const gitWindows =
+      name === "git"
+        ? /^git version ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\.windows\.(\d+)$/.exec(
+            output,
+          )
+        : null;
+    const match = output.match(
+      name === "herdr"
+        ? /^herdr (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
+        : name === "uvx"
+          ? /^uvx (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/
+          : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
+    );
     return {
       path,
-      version: match?.[1] ?? null,
-      failure: match ? null : "unparseable_version",
+      version: gitWindows
+        ? `${gitWindows[1]}+windows.${gitWindows[2]}`
+        : (match?.[1] ?? null),
+      failure: gitWindows || match ? null : "unparseable_version",
       evidence: "version_command",
     };
   } finally {
