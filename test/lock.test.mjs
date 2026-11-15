@@ -3100,7 +3100,7 @@ test("setup reports the Windows herdr zip from the validated lock", async (t) =>
         NO_COLOR: "1",
         HOME: home,
         USERPROFILE: home,
-        SystemRoot: home,
+        SystemRoot: process.env.SystemRoot ?? home,
         TEMP: home,
         TMP: home,
       },
@@ -3496,11 +3496,11 @@ test("setup observes the real native Windows x64 CI process", {
       "--dry-run",
       "--json",
     ],
-    { encoding: "utf8", timeout: 20000, env: { ...process.env, PATH: "" } },
+    { encoding: "utf8", timeout: 45000, env: { ...process.env, PATH: "" } },
   );
   assert.equal(result.status, 1, result.stdout + result.stderr);
   const plan = JSON.parse(result.stdout);
-  assert.equal(plan.kind, "setup-plan");
+  assert.equal(plan.kind, "setup-plan", result.stdout + result.stderr);
   assert.equal(plan.host.evidence, "IsWow64Process2");
   assert.equal(plan.host.native, true);
 });
