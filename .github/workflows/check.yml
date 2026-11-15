@@ -36,6 +36,16 @@ jobs:
       - name: Diagnose native Windows probe with minimal environment
         if: ${{ always() && runner.os == 'Windows' }}
         run: node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env minimal
+      - name: Compare isolated Windows runtime variables
+        if: ${{ always() && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $diagnosticFailed = $false
+          foreach ($mode in @('system-path', 'module-path', 'system-path-and-module-path', 'windir', 'comspec', 'appdata', 'local-appdata', 'system-runtime')) {
+            node scripts/diagnose-windows-host-probe.mjs --iterations 2 --concurrency 2 --env $mode
+            if ($LASTEXITCODE -ne 0) { $diagnosticFailed = $true }
+          }
+          if ($diagnosticFailed) { exit 1 }
       - name: Compare native Windows probe with inherited environment
         if: ${{ always() && runner.os == 'Windows' }}
         run: node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env inherited
