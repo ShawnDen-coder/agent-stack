@@ -28,10 +28,16 @@ if (
   !Number.isInteger(concurrency) ||
   concurrency < 1 ||
   concurrency > 16 ||
-  !["minimal", "inherited"].includes(environment)
+  ![
+    "minimal",
+    "inherited",
+    "system-path",
+    "module-path",
+    "system-path-and-module-path",
+  ].includes(environment)
 )
   throw new Error(
-    "Usage: node scripts/diagnose-windows-host-probe.mjs [--iterations 1..100] [--concurrency 1..16] [--env minimal|inherited]",
+    "Usage: node scripts/diagnose-windows-host-probe.mjs [--iterations 1..100] [--concurrency 1..16] [--env minimal|inherited|system-path|module-path|system-path-and-module-path]",
   );
 if (process.platform !== "win32" || !process.env.SystemRoot)
   throw new Error(
@@ -94,6 +100,22 @@ async function run(index) {
       USERPROFILE: home,
       AGENT_STACK_PROBE_PID: String(process.pid),
     };
+    if (
+      environment === "system-path" ||
+      environment === "system-path-and-module-path"
+    )
+      env.PATH = join(process.env.SystemRoot, "System32");
+    if (
+      environment === "module-path" ||
+      environment === "system-path-and-module-path"
+    )
+      env.PSModulePath = join(
+        process.env.SystemRoot,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "Modules",
+      );
     const started = performance.now();
     const stages = [];
     let stderrPartial = "";

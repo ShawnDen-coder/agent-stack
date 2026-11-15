@@ -17,3 +17,17 @@ node scripts/diagnose-windows-host-probe.mjs --iterations 20 --concurrency 4 --e
 - `probe-complete` 已出现但 close 延迟：调查进程退出及仍持有的 pipe；注意 watchdog 不能证明孙进程已被回收。
 
 这些是定位分支，不是已证实根因。脚本不模拟 Windows、不变更生产实现，也不提供原生通过结论；请将两种 Node 版本的原始输出交回分析。
+
+## c50314e 阶段观察与下一步对照
+
+2026-11-15 的 Check run `43725666874` 中，Node 26 的四次精简环境 `Add-Type` 约 19.6–19.9 秒，Node 24 约 24.9–25.8 秒；同一次作业继承环境时分别约 0.12–0.17 秒。两种环境中的 `IsWow64Process2` 约 6–8 毫秒。精简环境重复两轮仍慢，因此不能简单归结为一次性冷启动；同时这些运行自身均在 30 秒内成功，不能声称已在诊断中捕获此前超时。完整 JSON 和 `Preparing modules for first use` stderr 保留在对应 Actions 日志。继承环境更快是相关性，不证明具体缺失变量。
+
+追加三种只增受信任 SystemRoot 路径的隔离对照（仍使用临时 USERPROFILE/TEMP，不读取个人 PATH 或 PowerShell profile）：
+
+```powershell
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env system-path
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env module-path
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env system-path-and-module-path
+```
+
+`system-path` 只提供 `%SystemRoot%\System32` 的 PATH；`module-path` 只提供系统 PowerShell v1.0 Modules 的 PSModulePath；组合则同时提供。按同一 runner 的 minimal、三种对照、inherited 分组记录，不要删掉原有失败结果或只报告最快一次。三种对照均慢时应继续查找其他变量或调用方式，不应宣称模块路径已证实为根因。以上模式只是诊断，不能改变生产接受条件。
