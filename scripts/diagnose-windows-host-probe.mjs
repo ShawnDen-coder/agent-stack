@@ -96,6 +96,7 @@ const reports = new Array(iterations);
 let next = 0;
 async function run(index) {
   const home = await mkdtemp(join(tmpdir(), "agent-stack-probe-diag-"));
+  const report = { iteration: index + 1 };
   try {
     const env = {
       ...(environment === "inherited" ? process.env : {}),
@@ -218,9 +219,17 @@ async function run(index) {
       });
       child.stdin?.end();
     });
-    return { iteration: index + 1, ...result, stages };
+    Object.assign(report, result, { stages });
+    return report;
   } finally {
-    await rm(home, { recursive: true, force: true });
+    try {
+      await rm(home, { recursive: true, force: true });
+    } catch (error) {
+      report.cleanupError = {
+        code: String(error.code ?? "unknown").slice(0, 64),
+        message: String(error.message ?? error).slice(0, 2048),
+      };
+    }
   }
 }
 async function worker() {
@@ -252,6 +261,7 @@ if (
   reports.some(
     (item) =>
       item.error ||
+      item.cleanupError ||
       item.watchdogFired ||
       item.closeCode !== 0 ||
       item.stdout.trim() !== "0,34404" ||
