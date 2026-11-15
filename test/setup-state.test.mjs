@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -41,12 +48,19 @@ test("state replacement recheck compares file identity and raw bytes", async (t)
     assertFileUnchanged(path, identity, original),
     /Binding changed/,
   );
-  await rm(path);
+  // Keep the original inode allocated so replacement cannot reuse its identity.
   await writeFile(path, original);
+  await assertFileUnchanged(path, identity, original);
+  const previous = join(dir, "previous-binding.json");
+  await rename(path, previous);
+  await writeFile(path, original);
+  assert.notDeepEqual(await inode(path), identity);
+  assert.deepEqual(await readFile(path), original);
   await assert.rejects(
     assertFileUnchanged(path, identity, original),
     /Binding changed/,
   );
+  assert.deepEqual(await readFile(previous), original);
 });
 
 test("v1 state normalizes without changing disk or inventing asset evidence", async (t) => {
