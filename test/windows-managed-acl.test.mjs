@@ -49,6 +49,7 @@ $acl.AddAccessRule($rule)
   await safeDir(dir);
   const icacls = join(process.env.SystemRoot, "System32", "icacls.exe");
   const unsafe = spawnSync(icacls, [dir, "/grant", "*S-1-1-0:(OI)(CI)M"], {
+    env: { SystemRoot: process.env.SystemRoot },
     encoding: "utf8",
     timeout: 10000,
     windowsHide: true,
