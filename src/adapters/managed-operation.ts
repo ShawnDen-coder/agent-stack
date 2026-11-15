@@ -54,7 +54,7 @@ $trusted=@($user,'S-1-5-18','S-1-5-32-544','S-1-3-0','S-1-3-4')
 if ($owner -ne $user -and $owner -ne 'S-1-5-32-544') { exit 3 }
 foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
  if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
-     (([long]$rule.FileSystemRights -band 0xD0156) -ne 0) -and
+     (([long]$rule.FileSystemRights -band 0x500D0156) -ne 0) -and
      $rule.IdentityReference.Value -notin $trusted) { exit 4 }
 }
 [Console]::Out.WriteLine('safe')`;

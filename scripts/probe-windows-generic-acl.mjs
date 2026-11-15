@@ -1,4 +1,4 @@
-// Native-only diagnostic. Does not modify the repository or production ACL policy.
+// Native-only regression using real NTFS inheritance and the production safeDir consumer.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -198,7 +198,55 @@ try {
       note: "ACL masks and actual safeDir decisions; does not impersonate an unrelated user or claim a privilege exploit",
     }),
   );
-  if (suspicious) process.exitCode = 2;
+  assert.equal(reports.length, 9, "All NTFS ACL cases must run");
+  const owner = reports.find((report) => report.name === "owner-only-control");
+  assert.equal(
+    owner.decisions.parent.accepted,
+    true,
+    "Owner-only parent must be accepted",
+  );
+  assert.equal(
+    owner.decisions.child.accepted,
+    true,
+    "Owner-only child must be accepted",
+  );
+  for (const report of reports.filter((item) => item.mask !== 0)) {
+    assert.equal(
+      report.decisions.parent.accepted,
+      false,
+      `${report.name}: untrusted generic write must be rejected`,
+    );
+  }
+  for (const name of ["generic-write-oici-io", "generic-all-oici-io"]) {
+    const report = reports.find((item) => item.name === name);
+    assert.ok(
+      report.evidence.parent.raw.some(
+        (ace) =>
+          ace.allow &&
+          ace.genericBits === report.mask &&
+          (ace.flags & 11) === 11,
+      ),
+      `${name}: parent must retain its inherit-only generic ACE`,
+    );
+    for (const child of ["child", "directFile"]) {
+      assert.ok(
+        report.evidence[child].raw.some(
+          (ace) => ace.allow && ace.writeBits !== 0,
+        ),
+        `${name}: ${child} must inherit write access`,
+      );
+    }
+    assert.equal(
+      report.decisions.child.accepted,
+      false,
+      `${name}: inherited child write must be rejected`,
+    );
+  }
+  assert.equal(
+    suspicious,
+    false,
+    "Inheritable untrusted write must never be accepted",
+  );
 } finally {
   for (const [k, v] of Object.entries(previous)) {
     if (v === undefined) delete process.env[k];
