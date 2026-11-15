@@ -31,3 +31,15 @@ node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --en
 ```
 
 `system-path` 只提供 `%SystemRoot%\System32` 的 PATH；`module-path` 只提供系统 PowerShell v1.0 Modules 的 PSModulePath；组合则同时提供。按同一 runner 的 minimal、三种对照、inherited 分组记录，不要删掉原有失败结果或只报告最快一次。三种对照均慢时应继续查找其他变量或调用方式，不应宣称模块路径已证实为根因。以上模式只是诊断，不能改变生产接受条件。
+
+追加单变量和组合对照，值全部来自系统固定位置或该次临时用户目录，不拷贝 runner 的用户环境：
+
+```powershell
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env windir
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env comspec
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env appdata
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env local-appdata
+node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env system-runtime
+```
+
+单变量模式分别设置 `windir=SystemRoot`、`ComSpec=SystemRoot\System32\cmd.exe`、临时 `APPDATA` 和临时 `LOCALAPPDATA`。`system-runtime` 同时设置这四项以及前述系统 PATH 和 PSModulePath，用来判断这一组是否足够；不会继承认证、其他用户环境或 PowerShell profile。每次运行都创建独立的临时 AppData 目录，不模拟真实用户缓存。比较所有样本及失败原始输出，组合快但单项不快时继续逐项缩减组合，不据此宣称单一变量已证实。

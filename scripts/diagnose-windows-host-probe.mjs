@@ -1,7 +1,7 @@
 // Native Windows diagnostic only. This mirrors the production probe while
 // emitting timing markers to stderr; it does not change host acceptance.
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { machine, tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -34,10 +34,15 @@ if (
     "system-path",
     "module-path",
     "system-path-and-module-path",
+    "windir",
+    "comspec",
+    "appdata",
+    "local-appdata",
+    "system-runtime",
   ].includes(environment)
 )
   throw new Error(
-    "Usage: node scripts/diagnose-windows-host-probe.mjs [--iterations 1..100] [--concurrency 1..16] [--env minimal|inherited|system-path|module-path|system-path-and-module-path]",
+    "Usage: node scripts/diagnose-windows-host-probe.mjs [--iterations 1..100] [--concurrency 1..16] [--env minimal|inherited|system-path|module-path|system-path-and-module-path|windir|comspec|appdata|local-appdata|system-runtime]",
   );
 if (process.platform !== "win32" || !process.env.SystemRoot)
   throw new Error(
@@ -102,12 +107,14 @@ async function run(index) {
     };
     if (
       environment === "system-path" ||
-      environment === "system-path-and-module-path"
+      environment === "system-path-and-module-path" ||
+      environment === "system-runtime"
     )
       env.PATH = join(process.env.SystemRoot, "System32");
     if (
       environment === "module-path" ||
-      environment === "system-path-and-module-path"
+      environment === "system-path-and-module-path" ||
+      environment === "system-runtime"
     )
       env.PSModulePath = join(
         process.env.SystemRoot,
@@ -116,6 +123,18 @@ async function run(index) {
         "v1.0",
         "Modules",
       );
+    if (environment === "windir" || environment === "system-runtime")
+      env.windir = process.env.SystemRoot;
+    if (environment === "comspec" || environment === "system-runtime")
+      env.ComSpec = join(process.env.SystemRoot, "System32", "cmd.exe");
+    if (environment === "appdata" || environment === "system-runtime") {
+      env.APPDATA = join(home, "AppData", "Roaming");
+      await mkdir(env.APPDATA, { recursive: true });
+    }
+    if (environment === "local-appdata" || environment === "system-runtime") {
+      env.LOCALAPPDATA = join(home, "AppData", "Local");
+      await mkdir(env.LOCALAPPDATA, { recursive: true });
+    }
     const started = performance.now();
     const stages = [];
     let stderrPartial = "";
