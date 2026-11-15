@@ -18,6 +18,11 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  outputLinePresent,
+  stopServerCleanly,
+} from "./lib/herdr-smoke-checks.mjs";
+
 function execute(command, argv, options = {}) {
   return new Promise((resolveResult, reject) => {
     const child = execFile(command, argv, options, (error, stdout, stderr) => {
@@ -156,12 +161,7 @@ async function startServer() {
     assert.ok(stdout.includes(line), stdout);
 }
 async function stopServer() {
-  if (!server || server.exitCode !== null || server.signalCode !== null) return;
-  await call("server", "stop");
-  await waitFor(
-    () => server.exitCode !== null || server.signalCode !== null,
-    "server exit",
-  );
+  await stopServerCleanly(server, () => call("server", "stop"), waitFor);
   server = undefined;
 }
 try {
@@ -276,10 +276,16 @@ try {
   ).result;
   const pane = created.root_pane.pane_id,
     terminal = created.root_pane.terminal_id;
-  await call("pane", "run", pane, "printf 'agent_stack_smoke_before\\n'");
+  await call(
+    "pane",
+    "run",
+    pane,
+    "printf '%s%s\\n' 'agent_stack_smoke_' 'before'",
+  );
   await waitFor(
     async () =>
-      (await call("pane", "read", pane)).stdout.includes(
+      outputLinePresent(
+        (await call("pane", "read", pane, "--raw")).stdout,
         "agent_stack_smoke_before",
       ),
     "initial pane output",
@@ -287,9 +293,11 @@ try {
   const reconnect = JSON.parse((await call("pane", "get", pane)).stdout).result
     .pane;
   assert.equal(reconnect.terminal_id, terminal);
-  assert.match(
-    (await call("pane", "read", pane)).stdout,
-    /agent_stack_smoke_before/,
+  assert.ok(
+    outputLinePresent(
+      (await call("pane", "read", pane, "--raw")).stdout,
+      "agent_stack_smoke_before",
+    ),
   );
   await stopServer();
   await startServer();
@@ -298,14 +306,23 @@ try {
   assert.equal(restarted.pane_id, pane);
   assert.equal(restarted.workspace_id, created.workspace.workspace_id);
   assert.notEqual(restarted.terminal_id, terminal);
-  assert.doesNotMatch(
-    (await call("pane", "read", pane)).stdout,
-    /agent_stack_smoke_before/,
+  assert.equal(
+    outputLinePresent(
+      (await call("pane", "read", pane, "--raw")).stdout,
+      "agent_stack_smoke_before",
+    ),
+    false,
   );
-  await call("pane", "run", pane, "printf 'agent_stack_smoke_after\\n'");
+  await call(
+    "pane",
+    "run",
+    pane,
+    "printf '%s%s\\n' 'agent_stack_smoke_' 'after'",
+  );
   await waitFor(
     async () =>
-      (await call("pane", "read", pane)).stdout.includes(
+      outputLinePresent(
+        (await call("pane", "read", pane, "--raw")).stdout,
         "agent_stack_smoke_after",
       ),
     "restarted pane output",
