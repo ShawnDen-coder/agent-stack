@@ -26,6 +26,8 @@ if pid == 0:
     env = os.environ.copy()
     env.update({"PATH": path, "TERM": "xterm-256color", "TMPDIR": os.path.join(repo, "tmp"), "FORCE_COLOR": "3"})
     env.pop("CI", None)
+    env.pop("AGENT_STACK_REPO", None)
+    env.pop("AGENT_STACK_PROFILE", None)
     if color_mode == "no-color":
         env["NO_COLOR"] = "1"
     else:
