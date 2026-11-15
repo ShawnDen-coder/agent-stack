@@ -28,7 +28,9 @@ jobs:
       - run: npm install --global pnpm@12.15.0
       - name: Verify pinned pnpm
         shell: bash
-        run: test "$(pnpm --version)" = "12.15.0"
+        run: |
+          pnpm_version="$(pnpm --version)"
+          test "$pnpm_version" = "12.15.0"
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm check
       - name: Verify built CLI
