@@ -91,3 +91,5 @@ macOS/Linux 的交互验收还需要 `python3` 标准库的 `pty`；Windows 跳�
 `lock-resolution` 汇集已有来源 adapter 的版本结果和本次快照，再按目标收集资产；命令层负责单次操作的中断与呈现，复核复用同一快照。测试应从真实 CLI 验证解析、取消和发布结果，尤其区分发布前取消与发布后的结果；不要为未来来源预建注册框架。
 
 网络响应体共用有界读取，但 npm、herdr 与 uv 的预算、超时和错误是各自契约。重查回归使用按 URL 的受控响应快照与请求次数，在真实 CLI 中比较结果；锁文件读取和需要真实终端的测试仍分别处理。
+
+Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询和无效 PID 失败关闭。旧 Add-Type 链路的阶段与环境对照保留为[手动诊断](windows-host-probe-diagnostics.md)，不再附加到每次 PR 的 Check。

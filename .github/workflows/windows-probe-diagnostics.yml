@@ -1,0 +1,45 @@
+name: Windows legacy probe diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment for the legacy Add-Type comparison
+        type: choice
+        default: minimal
+        options:
+          - minimal
+          - inherited
+          - system-path
+          - module-path
+          - system-path-and-module-path
+          - windir
+          - comspec
+          - appdata
+          - local-appdata
+          - system-runtime
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Legacy probe / Node ${{ matrix.node }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Record legacy compiler probe stages
+        env:
+          PROBE_ENV: ${{ inputs.environment }}
+        run: node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --env "$env:PROBE_ENV"

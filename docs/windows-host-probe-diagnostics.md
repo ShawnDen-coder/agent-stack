@@ -1,6 +1,10 @@
-# Windows native host probe diagnostics
+# Windows 旧版编译探针诊断
 
-基线：7f54e9618878cb3ab0efefeab96bd34a3886adcf。Node 24/26 的 Windows PR job 都在约 30.7 秒返回 probe-unknown；相同 SHA 的另一轮通过。现有日志不足以区分 PowerShell 冷启动、Add-Type/.NET 编译、Win32 调用或退出后等待 pipe，因此这些只是待证假设。
+当前 Windows host probe 使用 .NET Framework Reflection.Emit 在内存中定义相同的 Win32 调用，保留严格的架构证据判定和有界子进程管理。本文脚本保留旧版 Add-Type 链路，用于复现和解释已观察到的延迟，不代表当前生产实现。
+
+常规 Check 运行实际生产 probe 的原生 Windows 测试。旧编译链的慢速对照已移到 [Windows legacy probe diagnostics](../.github/workflows/windows-probe-diagnostics.yml) 手动 workflow；可选择环境模式，在 Node 24/26 上记录四次调用，生产验收不依赖这些旧版对照成功。
+
+历史基线：7f54e9618878cb3ab0efefeab96bd34a3886adcf。Node 24/26 的 Windows PR job 都在约 30.7 秒返回 probe-unknown；相同 SHA 的另一轮通过。现有日志不足以区分 PowerShell 冷启动、Add-Type/.NET 编译、Win32 调用或退出后等待 pipe，因此这些只是待证假设。
 
 Windows 原生 runner 获取证据（可分别在 Node 24 和 26 下运行）：
 
@@ -9,7 +13,7 @@ node scripts/diagnose-windows-host-probe.mjs --iterations 20 --concurrency 4 --e
 node scripts/diagnose-windows-host-probe.mjs --iterations 20 --concurrency 4 --env inherited
 ```
 
-第一条复刻生产 child 的精简环境、30 秒 execFile budget、16 KiB 输出上限、SIGKILL、stdin EOF 和等待 close；第二条仅用于定位环境影响。每次输出一行 JSON：包含 parent 和 PowerShell 时钟阶段、stdout、受限 stderr、底层错误码/信号/killed、close 状态与时间。原生 API 失败记录 Win32 错误。额外的 35 秒诊断 watchdog 在已有 timeout 后关闭仍被持有的 pipe；这个 watchdog 仅用于诊断，不改变产品。相对耗时以同一进程的两个时钟分别解释，不将其相加。建议并发运行时同样保留原始完整 `pnpm check` 日志，比较系统负载；失败时保留全部 JSON，而不是只重试至通过。避免打印环境变量与凭据。
+第一条复刻该旧版 child 的精简环境、30 秒 execFile budget、16 KiB 输出上限、SIGKILL、stdin EOF 和等待 close；第二条仅用于定位环境影响。每次输出一行 JSON：包含 parent 和 PowerShell 时钟阶段、stdout、受限 stderr、底层错误码/信号/killed、close 状态与时间。原生 API 失败记录 Win32 错误。额外的 35 秒诊断 watchdog 在已有 timeout 后关闭仍被持有的 pipe；这个 watchdog 仅用于诊断，不改变产品。相对耗时以同一进程的两个时钟分别解释，不将其相加。建议并发运行时同样保留原始完整 `pnpm check` 日志，比较系统负载；失败时保留全部 JSON，而不是只重试至通过。避免打印环境变量与凭据。
 
 - 未出现 `powershell-started`：优先调查 PowerShell 启动、进程调度或 pipe。
 - 出现 `add-type-start` 但没有 `add-type-complete`：优先调查 .NET 编译、临时目录、子进程和并发资源争用。
@@ -43,3 +47,9 @@ node scripts/diagnose-windows-host-probe.mjs --iterations 4 --concurrency 2 --en
 ```
 
 单变量模式分别设置 `windir=SystemRoot`、`ComSpec=SystemRoot\System32\cmd.exe`、临时 `APPDATA` 和临时 `LOCALAPPDATA`。`system-runtime` 同时设置这四项以及前述系统 PATH 和 PSModulePath，用来判断这一组是否足够；不会继承认证、其他用户环境或 PowerShell profile。每次运行都创建独立的临时 AppData 目录，不模拟真实用户缓存。比较所有样本及失败原始输出，组合快但单项不快时继续逐项缩减组合，不据此宣称单一变量已证实。
+
+## 单变量对照结果
+
+[c9dbb08 的 PR 对照](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43726683796)中，系统 PATH、PSModulePath、windir、ComSpec、临时 APPDATA/LOCALAPPDATA 及其组合均未消除 Add-Type 延迟；Node 24/26 仍约需 11.5–13.5 秒，继承环境约需 0.09–0.17 秒。该次原生检查成功不等于瓶颈已解决。
+
+[同 SHA 的 push 对照](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43726679619)进一步捕获 Node 24 的 APPDATA、LOCALAPPDATA 组各两次在 Add-Type 阶段达到 30 秒并被 SIGKILL；尚未进入 Win32 调用。旧版生产 probe 还出现临时目录清理 EBUSY。上述证据支持移除这项编译依赖，不能证明某一环境变量是唯一根因。新 probe 的验收以对应整合 SHA 的原生测试和重复查询结果为准。
