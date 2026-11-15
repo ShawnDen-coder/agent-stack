@@ -34,9 +34,13 @@ if pid == 0:
         env["CI"] = "true"
     if mode == "dumb":
         env["TERM"] = "dumb"
-    args = [node, "--import", os.path.join(repo, "setup-pty-preload.mjs"), cli, "setup", "--repo", repo, "--dry-run"]
-    if mode in ("interrupt", "report"):
-        args += ["--profile", "coding"]
+    args = [node, "--import", os.path.join(repo, "setup-pty-preload.mjs"), cli, "setup", "--repo", repo]
+    if mode.startswith("confirm-"):
+        args += ["--profile", "uv-only"]
+    else:
+        args += ["--dry-run"]
+        if mode in ("interrupt", "report"):
+            args += ["--profile", "coding"]
     os.execve(node, args, env)
 os.close(out_write)
 if err_write is not None:
@@ -66,6 +70,12 @@ try:
                 pass
         if not sent and b"Choose a profile" in streams[error_fd]:
             os.write(tty, b"\x03" if mode == "cancel" else b"\r")
+            sent = True
+        if mode.startswith("confirm-") and not sent and b"Apply this setup plan?" in streams[error_fd]:
+            if mode == "confirm-change":
+                with open(os.environ["MUTATE_ENTRY"], "a", encoding="utf-8") as entry:
+                    entry.write("\n# changed after plan\n")
+            os.write(tty, b"\x03" if mode == "confirm-cancel" else b"\x1b[D\r" if mode in ("confirm-yes", "confirm-change") else b"\r")
             sent = True
         if mode == "interrupt" and not sent and os.path.exists(os.path.join(repo, "probe.pid")):
             os.write(tty, b"\x03")

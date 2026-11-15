@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；锁更新、离线解析、安装和配置应用尚未实现。
+Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；原生 macOS 的 uv-only setup 已可按锁安装或复用，Herdr-only 可复用匹配的已有入口；锁更新、离线解析、其他部件安装和配置应用尚未实现。
 
 ## 目录职责
 
@@ -35,7 +35,7 @@ agent-stack/
 
 自有的人编写声明采用 YAML 1.2：`stack/components/<id>.yaml`、`stack/profiles/<id>.yaml`、`stack/integrations/<id>.yaml`，接受 `.yml`，过渡期兼容 JSON。仓库现有声明已迁移，数据模型与能力要求不变。
 
-YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。只读候选报告对所选、已校验的规范数据输出声明摘要；首次锁可从完整元数据创建，`validate --lock` 可离线核对结构与声明；更新和按锁应用尚未实现。读取或锁定不自动重写作者文件。
+YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败，不静默选择一个。单文件单文档，拒绝重复键和未知自定义标签，不做 include 或环境变量/Shell 求值。只读候选报告对所选、已校验的规范数据输出声明摘要；首次锁可从完整元数据创建，`validate --lock` 可离线核对结构与声明；原生 macOS uv-only 可按锁应用，锁更新和其他部件应用尚未实现。读取或锁定不自动重写作者文件。
 
 工具原生配置保持 JSON/TOML/YAML 等原格式；skills 保持标准 Markdown 与 YAML front matter。机器生成的 `stack/stack.lock.json`、执行计划和 CLI JSON 输出继续使用 JSON。人编写的声明与机器产物分别维护。完整示例和命令分工见 [CLI 行为审查稿](cli-behavior.md)。
 
@@ -92,13 +92,13 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 ## 配置与状态归属
 
-| 内容                                               | 位置与所有者               |
-| -------------------------------------------------- | -------------------------- |
-| 部件、profile、集成、共享原生配置、Agent、skills   | 当前 Git checkout          |
-| CLI 代码与自身依赖                                 | npm 安装的 Agent Stack 包  |
-| 实际版本、可执行路径、安装渠道、应用记录、配置备份 | 设备本地状态目录，后续实现 |
-| Token、OAuth、会话、缓存                           | 各工具的原生本地目录       |
-| 项目规则、验收入口、pnpm/uv 业务依赖               | 各业务项目                 |
+| 内容                                               | 位置与所有者                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------- |
+| 部件、profile、集成、共享原生配置、Agent、skills   | 当前 Git checkout                                             |
+| CLI 代码与自身依赖                                 | npm 安装的 Agent Stack 包                                     |
+| 实际版本、可执行路径、安装渠道、应用记录、配置备份 | 设备本地状态目录，已实现 uv-only 绑定与恢复记录，其余后续实现 |
+| Token、OAuth、会话、缓存                           | 各工具的原生本地目录                                          |
+| 项目规则、验收入口、pnpm/uv 业务依赖               | 各业务项目                                                    |
 
 [Setup 实施方案](setup-plan.md) 定义按锁对齐的分片与验收；[配置变体审查稿](config-variants.md) 说明未来如何将逻辑目标与平台内容变体分开；当前 schema 和配置应用尚不支持该设计。配置 adapter 应明确文件或字段的归属，保留未知内容和本地修改。能直接引用的资源可以引用；需要写入的文件再复制或合并。跨系统不能只依赖软链接。凭证不通过仓库或 npm 包分发。
 
@@ -108,9 +108,9 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 调用方向为 `cli → commands → core / adapters`。core 只接收已解析的数据并返回结果；文件、网络、子进程等外部操作由 adapter 承担。导入业务模块不启动服务、不连接网络、不应用配置。
 
-现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据，npm-registry 与 releases adapter 只读查询官方版本元数据。发行物下载与配置应用的 adapter 在对应功能实现时增加；CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
+现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据，npm-registry 与 releases adapter 只读查询官方版本元数据。uv adapters 负责有界下载、摘要与归档检查、版本查询、受管发布及本机绑定和恢复；配置应用尚未实现。CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
 
-`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线和安装尚未实现。
+`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线解析及其他部件安装尚未实现。
 
 ### 来源规则与锁校验
 
@@ -139,3 +139,9 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 - [Otty 调研](otty-research.md)：官方文档中的原生配置、App/CLI 启动、shell/Agent 集成副作用与待核对项。
 - [Rex Agent 支持](https://www.superlogical.com/rex/docs/automate/agent-skill)：Pi skill 与 hook 的支持范围不同。
 - [Rex 安装](https://www.superlogical.com/rex/docs/installation)、[Otty 安装](https://docs.otty.sh/getting-started/installation)：客户端、服务端与平台范围需要分别核对。
+
+## 调研与后续状态边界
+
+[Herdr 调研](herdr-research.md)、[Pi 调研](pi-research.md)和 [Otty 调研](otty-research.md)记录固定证据及未验证范围；它们不替代共享锁。多部件状态的默认绑定、回执、资源归属与 journal 迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)。
+
+当前 `setup-state` 严格读取 v1/v2 状态并投影默认上下文；v1 只在内存归一化，真正成功写入使用 v2 快照。`managed-operation` 提供安全文件读取、身份与摘要、归属删除和 guard。uv 特定 owner、journal、提交及恢复仍由 uv adapter 负责；Herdr managed 安装仍未实现。

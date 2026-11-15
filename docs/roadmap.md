@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate` 及其共享锁离线校验、有限只读 `doctor`、只读预览和首次新建共享锁的 `lock`，其他命令不得在帮助或 README 中宣称可用。
+首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate` 及其共享锁离线校验、有限只读 `doctor`、首次新建共享锁的 `lock`，以及已审查的 macOS uv-only setup；其余能力不得在帮助或 README 中宣称可用。
 
 ## 1. stack/ 目录迁移：根会话审查通过
 
@@ -16,7 +16,7 @@
 
 ## 3. 共享锁校验与 KISS 架构简化
 
-`validate --lock` 离线读取共享锁并校验结构、声明与资产身份关系，已通过根会话审查。KISS 三片已通过根会话总审；下一阶段是 [setup 实施方案审查](setup-plan.md)，审查通过后逐片实施，再推进 doctor 和 run。用户已授权该顺序，无需再次确认是否简化。
+`validate --lock` 离线读取共享锁并校验结构、声明与资产身份关系，已通过根会话审查。KISS 三片已通过根会话总审；[setup 实施方案](setup-plan.md)和 macOS uv-only 增量已审查，后续逐片推进其他部件、doctor 和 run。用户已授权该顺序，无需再次确认是否简化。
 
 简化的目标是减少理解和修改现有行为所需跨越的概念、重复决策与调用层级，不以减少行数或机械拆分为目标。已收拢 `lock` 的操作生命周期、来源资产规则、相同的来源/摘要字段及有界响应体读取。报告仍可表达部分失败，持久锁仍拒绝未知字段；文件读取与网络读取边界不同，来源预算和错误也分别保留。测试中的重查场景用按 URL 的响应快照表示；不为其余差异强行引入统一模型。
 
@@ -24,7 +24,7 @@
 
 保留来源信任和 SHA-512/SHA-256 区别、缺项与身份冲突失败、无覆盖发布和并发保护、声明与来源复核、各来源的读取/分页/超时限制、中断清理，以及 stdout/stderr、JSON 和 40/80 列彩色与无色行为。以真实 CLI 行为为回归契约；可以简化重复或脆弱的 fixture，但不能删除失败测试或镜像实现。每片运行精确 pnpm `check`、实际 pack 和解包 CLI 验证，更新现状架构及开发文档，并交根会话独立审查。
 
-## 4. setup：方案已审查，只读预览待审
+## 4. setup：macOS uv-only 增量已审查
 
 先审查 [setup 方案](setup-plan.md) 和 [配置变体方案](config-variants.md)，再基于已验收的锁与真实 adapter 安装和对齐配置，明确安装来源与文件归属；配置和 skills 从 Git checkout 读取。实际处理 Node/npm/Git 前置检查及各平台差异，保留原生工具入口，不覆盖来源或归属未知的内容。
 
@@ -44,6 +44,20 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 
 只读报告已提供供后续消费者使用的结构化来源与规范声明摘要；首次写锁已复核来源并通过 no-clobber 发布；`validate --lock` 已能离线检查锁结构与声明一致性，不证明远端或安装；更新与离线仍待实现。
 
-- Setup 方案已通过根会话审查。只读 `setup --dry-run` 预览待审；安装、配置应用与完整闭环仍未实现。
+- Setup 方案已通过根会话审查。只读 `setup --dry-run` 和 macOS uv-only 写入增量已审查，其余安装、配置应用与完整闭环仍未实现。
 
-当前 setup 增量仅显示锁定 uv 资产证据；uv 安装、受管入口、恢复和绑定仍待实现与验收。
+当前增量支持 macOS uv-only 按锁安装、复用、受管入口及本机恢复/绑定；回执核对锁定资产，PATH 变化在执行前拒绝，旧操作锁接管串行化。Windows、其他部件和完整 coding 待实现。
+
+## 下一步分片与证据
+
+本轮对齐 setup 与 doctor 的 repo/profile 选择；doctor 仍只观察工具链，不核验应用结果。状态迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)，现有 uv 恢复保证继续适用。
+
+依次实施 Herdr 三目标安装及隔离协议验收、Pi npm staging 与 pnpm native 和 Windows uv、原生配置与 pi-herdr 资源、doctor 应用核验及 `run coding`；Otty 为独立可选桌面层，Rex 维持实验组合。每片独立提交并评审。平台未实测时如实标注；Actions 的资产与隔离协议测试不能代替 VM/实机终端、ConPTY、GUI 和恢复验收。
+
+参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。
+
+当前 setup 已在计划中显示锁定的 Herdr 目标资产；这只是离线锁元数据，尚未下载或安装。Herdr 安装、归属与恢复仍待后续分片。
+
+本片提取现有 uv 消费的状态读取及受管文件保护边界，保留 v1 存储和恢复协议；不引入 v2 状态，Herdr 安装仍待实现。
+
+当前支持原生 macOS Herdr-only 对匹配的既有入口做 external 复用并记录 v2 状态；Herdr managed 安装、Windows 执行与完整 coding 闭环仍未实现。原生路径契约的 3 项 TODO 保持待实现。

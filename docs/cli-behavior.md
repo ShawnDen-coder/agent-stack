@@ -24,15 +24,18 @@ pnpm cli validate --repo . --json
 pnpm cli doctor --repo . --profile coding --json
 ```
 
-| 当前接口                                                        | 实际行为与成功含义                                                                       |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `validate [--repo <dir>] [--lock [file]] [--json]`              | 校验部件、profile、集成的格式、引用、平台声明和能力要求。退出 0 仅说明声明一致。         |
-| `doctor [--profile <id>] [--repo <dir>] [--json]`               | 观察当前 Node、npm、Git，以及所选 Pi、pnpm、uv、herdr 的有限版本证据。未检查项单独列出。 |
-| `lock --profile <id> --target <target> [--out <file>] [--json]` | 首次新建共享锁，目标可重复；默认锁或输出已存在则拒绝。                                   |
-| `lock --profile <id> --dry-run [--json]`                        | 报告版本候选；可用重复的 `--target` 预览部分 Pi、pnpm、uv 和 herdr 资产，不写锁。        |
-| `--help`、`help [command]`、`--version`                         | 显示当前已注册命令的帮助或 CLI 自身版本；不执行配置操作。                                |
+| 当前接口                                                                             | 实际行为与成功含义                                                                                       |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `setup [--repo <dir>] [--profile <id>] [--lock <file>] [--dry-run] [--yes] [--json]` | 预览完整计划；原生 macOS uv-only 可按锁安装或复用，Herdr-only 可复用匹配的已有入口；完整 coding 仍阻塞。 |
+| `validate [--repo <dir>] [--lock [file]] [--json]`                                   | 校验部件、profile、集成的格式、引用、平台声明和能力要求。退出 0 仅说明声明一致。                         |
+| `doctor [--profile <id>] [--repo <dir>] [--json]`                                    | 观察当前 Node、npm、Git，以及所选 Pi、pnpm、uv、herdr 的有限版本证据。未检查项单独列出。                 |
+| `lock --profile <id> --target <target> [--out <file>] [--json]`                      | 首次新建共享锁，目标可重复；默认锁或输出已存在则拒绝。                                                   |
+| `lock --profile <id> --dry-run [--json]`                                             | 报告版本候选；可用重复的 `--target` 预览部分 Pi、pnpm、uv 和 herdr 资产，不写锁。                        |
+| `--help`、`help [command]`、`--version`                                              | 显示当前已注册命令的帮助或 CLI 自身版本；不执行配置操作。                                                |
 
-当前 `--repo` 默认是调用时的当前目录；`--repo` 和 `--json` 可写在根命令或子命令位置。`doctor` 和 `lock --dry-run` 在交互 TTY 可选择 profile；JSON、CI 或非交互环境必须显式提供 `--profile`。声明读取器支持 YAML、YML 和过渡期 JSON，同 ID 冲突时报错。`validate --lock` 离线校验默认共享锁，显式文件相对调用目录；不检查远端、下载字节或安装。首次创建必须指定目标，`--out` 与 `--dry-run` 互斥；锁的 Node 假设为运行时确切版本。当前未实现锁更新、离线模式、设备默认绑定、环境变量选项、部件筛选、资源筛选、其他锁读取功能或后文的新命令。
+`--repo` 和 `--json` 可写在根命令或子命令位置。`setup` 与 `doctor` 的 repo 优先级为显式 `--repo` → `AGENT_STACK_REPO` → 本机绑定 → 调用时当前目录；profile 为显式 `--profile` → `AGENT_STACK_PROFILE` → 所选 repo 的绑定。绑定 profile 仅在 repo 路径匹配时生效；显式相对路径相对调用目录。没有 profile 时交互 TTY 可选择，JSON 或非交互环境需要通过参数、环境或匹配绑定提供。setup 的锁选择为显式 `--lock` → 匹配 repo/profile 的绑定锁 → `<repo>/stack/stack.lock.json`；doctor 不读取或核验绑定锁的资产。当前绑定可来自成功的 macOS uv-only setup 或 Herdr-only external 复用，不表示完整 coding 已应用。成功 JSON 的 `binding` 是归一化的 v2 视图；读取或 no-op 返回该视图不表示旧 v1 磁盘记录已被改写，真正发生成功状态写入时才发布 v2。
+
+`validate` 和 `lock` 保持各自契约，不读取这些环境变量或绑定；repo 默认调用时当前目录。`lock --dry-run` 可在交互 TTY 选择 profile，JSON 或非交互环境须显式指定。声明读取器支持 YAML、YML 和过渡期 JSON，同 ID 冲突时报错。`validate --lock` 离线校验默认共享锁，显式文件相对调用目录；不检查远端、下载字节或安装。首次创建必须指定目标，`--out` 与 `--dry-run` 互斥；锁的 Node 假设为运行时确切版本。锁更新、离线解析、部件筛选、资源筛选和后文的新命令尚未实现。
 
 当前 `doctor` 的 Pi/pnpm 证据来自可核对的 package metadata，不证明程序可启动；herdr 仅查询当前平台的原生入口。`stable` 渠道仍未解析，Otty/Rex 与集成仍未检查。退出 0 只针对报告中已检查的范围，不能解释为整套环境 ready。当前业务检查失败退出 1，用法错误退出 2，取消退出 130。成功 JSON 及业务错误沿用已有形状；参数解析错误为 `{"schemaVersion":1,"error":{"kind":"usage","message":"..."}}`，帮助/版本的 JSON 包装为 `{"schemaVersion":1,"output":"..."}`。后文完整统一输出契约仍待实现。
 
@@ -509,4 +512,6 @@ setup/apply/update 在 TTY 中展示计划并确认；非交互必须显式 `--y
 
 交互与自动化参考 [Command Line Interface Guidelines](https://clig.dev/) 的组合性、stdout/stderr、交互与可预测行为建议；解析实现参考 [Commander 官方文档](https://github.com/tj/commander.js)。这些是设计参考，具体命令语义以本审查稿及后续实现验收为准。
 
-当前实现：`setup --dry-run` 只读预览已有锁，不安装或应用配置；支持检测原生 macOS arm64/x64 和 Windows x64，无法可靠识别的宿主阻塞。`--repo` / `AGENT_STACK_REPO` / cwd 和 `--profile` / `AGENT_STACK_PROFILE` / 交互选择按此顺序生效，尚无绑定 fallback。
+历史预览增量：`setup --dry-run` 只读预览已有锁，不安装或应用配置；当前上下文顺序及绑定 fallback 见第 1 节。
+
+当前增量：`setup [--repo <root>] [--profile <id>] [--lock <file>] [--dry-run] [--yes] [--json]` 支持原生 macOS uv-only 按锁安装或复用；原生 macOS Herdr-only 支持已有入口的 external 复用；Herdr managed 安装、完整 coding 与 Windows/Linux/WSL 执行仍阻塞。受管目录须预先在 PATH，setup 不写 shell 配置；仅成功后写入本机绑定。

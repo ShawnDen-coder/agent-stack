@@ -10,6 +10,7 @@ import {
   start,
 } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
+import { readDefaultBinding } from "../adapters/setup-state.js";
 import { observe } from "../adapters/toolchain.js";
 import { assess } from "../core/doctor.js";
 import { validateRepository } from "../core/validate.js";
@@ -27,9 +28,23 @@ export function createDoctorCommand(): Command {
         repo?: string;
         json?: boolean;
       };
-      const repo = resolve(options.repo ?? ".");
+      if (options.repo !== undefined && !options.repo.trim())
+        command.error("error: --repo must not be empty or whitespace");
+      if (options.profile !== undefined && !options.profile.trim())
+        command.error("error: --profile must not be empty or whitespace");
       try {
-        if (!options.profile && options.json)
+        const requestedRepo = options.repo ?? process.env.AGENT_STACK_REPO;
+        const requestedProfile =
+          options.profile ?? process.env.AGENT_STACK_PROFILE;
+        const binding =
+          requestedRepo !== undefined && requestedProfile !== undefined
+            ? null
+            : await readDefaultBinding(process.env.HOME);
+        const repo = resolve(requestedRepo ?? binding?.repo ?? ".");
+        const selectedProfile =
+          requestedProfile ??
+          (binding?.repo === repo ? binding.profile : undefined);
+        if (!selectedProfile && options.json)
           command.error("error: --profile is required in JSON mode");
         const repository = await readRepository(repo);
         const validation = validateRepository(repository);
@@ -38,7 +53,7 @@ export function createDoctorCommand(): Command {
             "Repository definitions are invalid; run validate for details",
           );
         const profileId =
-          options.profile ?? (await chooseProfile(repository.profiles));
+          selectedProfile ?? (await chooseProfile(repository.profiles));
         if (!profileId) {
           if (process.exitCode === 130) return;
           command.error("error: --profile is required in non-interactive mode");
@@ -46,7 +61,7 @@ export function createDoctorCommand(): Command {
         const profile = repository.profiles.find(
           (item) => item.id === profileId,
         );
-        if (!profile) throw new Error(`Unknown profile: ${options.profile}`);
+        if (!profile) throw new Error(`Unknown profile: ${profileId}`);
         const engine = await cliNodeRequirement();
         const node = assess(
           {

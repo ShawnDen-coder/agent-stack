@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cp,
   mkdtemp,
@@ -15,6 +16,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import stringWidth from "fast-string-width";
+import { create as createTar } from "tar";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
@@ -2932,6 +2934,54 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   assert.equal(plan.host.target, "darwin-arm64");
   assert.equal(plan.lock.node, "24.0.0");
   assert.equal(plan.components.length, 4);
+  const expectedHerdr = f.lock.assets.find(
+    (asset) => asset.component === "herdr" && asset.target === "darwin-arm64",
+  );
+  const expectedUv = f.lock.assets.find(
+    (asset) => asset.component === "uv" && asset.target === "darwin-arm64",
+  );
+  for (const expected of [expectedHerdr, expectedUv]) {
+    assert.deepEqual(
+      plan.components.find((item) => item.component === expected.component)
+        .lockedAsset,
+      {
+        target: expected.target,
+        name: expected.artifact.assetName,
+        url: expected.url,
+        format: expected.format,
+        sha256: expected.digest.value,
+        digestSource: expected.digestSource,
+      },
+    );
+  }
+  assert.equal(expectedHerdr.format, "binary");
+  assert.match(plan.scope, /expected metadata until downloaded and checked/);
+  assert.ok(
+    plan.blockers.includes(
+      "Installation adapters are not implemented for the complete profile",
+    ),
+  );
+  assert.ok(
+    plan.blockers.includes(
+      "Required resources and integrations are not applied",
+    ),
+  );
+  const human = runSetup([
+    "setup",
+    "--repo",
+    f.dir,
+    "--profile",
+    "coding",
+    "--dry-run",
+  ]);
+  const humanText = stripVTControlCharacters(human.stdout).replace(/\s+/g, "");
+  for (const value of [
+    expectedHerdr.artifact.assetName,
+    expectedHerdr.url,
+    expectedHerdr.digest.value,
+    expectedHerdr.digestSource,
+  ])
+    assert.ok(humanText.includes(value.replace(/\s+/g, "")), value);
   assert.ok(
     plan.components.every(
       (item) =>
@@ -3003,6 +3053,126 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   );
   assert.deepEqual(await readdir(join(f.dir, "home")), []);
   assert.deepEqual(await readdir(join(f.dir, "tmp")), []);
+});
+
+test("setup reports the Windows herdr zip from the validated lock", async (t) => {
+  const f = await freshForValidation(t);
+  const home = join(f.dir, "home");
+  await import("node:fs/promises").then(({ mkdir }) => mkdir(home));
+  const preload = join(f.dir, "windows-plan.mjs");
+  await writeFile(
+    preload,
+    `import os from 'node:os';import cp from 'node:child_process';import {EventEmitter} from 'node:events';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'win32'});Object.defineProperty(process,'arch',{value:'x64'});os.machine=()=> 'x86_64';cp.execFile=(file,args,opts,callback)=>{const child=new EventEmitter();queueMicrotask(()=>{callback(null,'0,34404','');child.emit('close',0)});return child};syncBuiltinESMExports();globalThis.fetch=()=>{throw Error('network forbidden')};`,
+  );
+  const before = await snapshot(f.dir);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ],
+    {
+      cwd: f.dir,
+      encoding: "utf8",
+      timeout: 12000,
+      env: {
+        PATH: "",
+        NO_COLOR: "1",
+        HOME: home,
+        USERPROFILE: home,
+        SystemRoot: home,
+        TEMP: home,
+        TMP: home,
+      },
+    },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const plan = JSON.parse(result.stdout);
+  const asset = f.lock.assets.find(
+    (entry) => entry.component === "herdr" && entry.target === "win32-x64",
+  );
+  assert.deepEqual(
+    plan.components.find((item) => item.component === "herdr").lockedAsset,
+    {
+      target: asset.target,
+      name: asset.artifact.assetName,
+      url: asset.url,
+      format: "zip",
+      sha256: asset.digest.value,
+      digestSource: asset.digestSource,
+    },
+  );
+  assert.ok(
+    plan.blockers.includes(
+      "Installation adapters are not implemented for the complete profile",
+    ),
+  );
+  assert.deepEqual(await snapshot(f.dir), before);
+  assert.deepEqual(await readdir(home), []);
+});
+
+test("setup rejects missing or invalid herdr lock assets before host inspection", async (t) => {
+  const f = await freshForValidation(t);
+  const home = join(f.dir, "home");
+  await import("node:fs/promises").then(({ mkdir }) => mkdir(home));
+  for (const change of [
+    (lock) => {
+      lock.assets = lock.assets.filter(
+        (asset) =>
+          !(asset.component === "herdr" && asset.target === "darwin-arm64"),
+      );
+    },
+    (lock) => {
+      lock.assets.find(
+        (asset) =>
+          asset.component === "herdr" && asset.target === "darwin-arm64",
+      ).artifact.assetName = "wrong";
+    },
+    (lock) => {
+      lock.assets.find(
+        (asset) =>
+          asset.component === "herdr" && asset.target === "darwin-arm64",
+      ).format = "zip";
+    },
+  ]) {
+    const lock = structuredClone(f.lock);
+    change(lock);
+    await writeFile(f.path, JSON.stringify(lock));
+    const before = await snapshot(f.dir);
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        f.offline,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "coding",
+        "--dry-run",
+        "--json",
+      ],
+      {
+        cwd: f.dir,
+        encoding: "utf8",
+        timeout: 12000,
+        env: { PATH: "", NO_COLOR: "1", HOME: home, USERPROFILE: home },
+      },
+    );
+    assert.equal(result.status, 1);
+    assert.notEqual(JSON.parse(result.stdout).kind, "setup-plan");
+    assert.deepEqual(await snapshot(f.dir), before);
+    assert.deepEqual(await readdir(home), []);
+  }
 });
 
 test("setup validates usage and locked inputs before probing the host", async (t) => {
@@ -3478,9 +3648,7 @@ test("setup previews the locked uv asset for a capability-complete uv-only profi
     digestSource: asset.digestSource,
   });
   assert.deepEqual(plan.resources, []);
-  assert.ok(
-    plan.blockers.includes("Installation adapters are not implemented"),
-  );
+  assert.ok(plan.blockers.includes("HOME is required for uv setup"));
   assert.ok(
     !plan.blockers.some(
       (entry) =>
@@ -3488,4 +3656,1785 @@ test("setup previews the locked uv asset for a capability-complete uv-only profi
     ),
   );
   assert.deepEqual(await snapshot(dir), before);
+});
+
+test("Herdr-only setup reuses a native entry and records a v2 snapshot", {
+  skip: process.platform !== "darwin",
+}, async (t) => {
+  const { mkdir, chmod, realpath } = await import("node:fs/promises");
+  const f = await herdrFixture(t, herdrAssetManifest());
+  const locked = run(f.dir, f.preload, [
+    "--profile",
+    "fixture",
+    "--target",
+    "darwin-arm64",
+    "--json",
+  ]);
+  assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+  const homePath = join(f.dir, "home"),
+    bin = join(f.dir, "bin"),
+    source = join(f.dir, "herdr.c");
+  await mkdir(homePath);
+  const home = await realpath(homePath);
+  await mkdir(bin);
+  await writeFile(
+    source,
+    '#include <stdio.h>\nint main(void){puts("herdr 0.9.5");return 0;}\n',
+  );
+  const compiled = spawnSync("cc", [source, "-o", join(bin, "herdr")], {
+    encoding: "utf8",
+  });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  for (const name of ["npm", "git"]) {
+    await writeFile(
+      join(bin, name),
+      `#!${process.execPath}\nconsole.log('${name === "git" ? "git version " : ""}11.0.0')\n`,
+    );
+    await chmod(join(bin, name), 0o755);
+  }
+  const preload = join(f.dir, "herdr-offline.mjs");
+  await writeFile(
+    preload,
+    `import os from 'node:os';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:'arm64'});os.machine=()=> 'arm64';syncBuiltinESMExports();globalThis.fetch=()=>{throw Error('unexpected network')}`,
+  );
+  const invoke = (args) =>
+    spawnSync(
+      process.execPath,
+      [
+        "--import",
+        preload,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "fixture",
+        ...args,
+        "--json",
+      ],
+      {
+        cwd: f.dir,
+        encoding: "utf8",
+        timeout: 20000,
+        env: { HOME: home, USERPROFILE: home, PATH: bin, NO_COLOR: "1" },
+      },
+    );
+  const result = invoke(["--yes"]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const statePath = join(home, ".agent-stack/binding.json"),
+    bytes = await readFile(statePath);
+  const state = JSON.parse(bytes);
+  assert.equal(state.schemaVersion, 2);
+  assert.equal(state.defaultBinding.profile, "fixture");
+  assert.equal(state.installations.herdr.mode, "external");
+  assert.equal(state.installations.herdr.source, "unknown");
+  assert.equal(state.installations.herdr.path, join(bin, "herdr"));
+  assert.equal(invoke(["--yes"]).status, 0);
+  assert.deepEqual(await readFile(statePath), bytes);
+});
+
+async function uvInstallFixture(t, variant = "normal", arch = "x64") {
+  const { mkdir, chmod, realpath } = await import("node:fs/promises");
+  const { dir } = await setup(t, null);
+  const rootName = `uv-${arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`,
+    files = join(dir, "archive-files"),
+    root = join(files, rootName);
+  await mkdir(root, { recursive: true });
+  for (const name of ["uv", "uvx"]) {
+    if (variant === "malicious" && name === "uv") {
+      await symlink("/etc/passwd", join(root, name));
+      continue;
+    }
+    if (variant === "oversize-expanded" && name === "uv") {
+      const file = await import("node:fs/promises").then(({ open }) =>
+        open(join(root, name), "w"),
+      );
+      try {
+        await file.truncate(128 * 1024 * 1024 + 1);
+      } finally {
+        await file.close();
+      }
+      continue;
+    }
+    await writeFile(
+      join(root, name),
+      variant === "version-stall" && name === "uv"
+        ? `#!${process.execPath}\nprocess.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(join(dir, "version-pid"))},String(process.pid));setInterval(()=>{},1000)\n`
+        : `#!${process.execPath}\nif(process.argv[2] !== '--version')process.exit(2);console.log('${name} ${variant === "bad-version" && name === "uvx" ? "9.9.9" : "0.13.8"}')\n`,
+    );
+    await chmod(join(root, name), 0o755);
+  }
+  const archive = join(dir, "uv.tar.gz");
+  await createTar(
+    {
+      gzip: true,
+      cwd: files,
+      file: archive,
+      ...(variant === "traversal" ? { prefix: "../escape" } : {}),
+    },
+    variant === "duplicate" ? [rootName, rootName] : [rootName],
+  );
+  const sha = createHash("sha256")
+    .update(await readFile(archive))
+    .digest("hex");
+  const name = `${rootName}.tar.gz`,
+    assetUrl = `https://github.com/astral-sh/uv/releases/download/0.13.8/${name}`;
+  const release = uvRelease("0.13.8", 1, {
+    assets: [
+      {
+        id: 101,
+        name,
+        state: "uploaded",
+        browser_download_url: assetUrl,
+        digest: `sha256:${sha}`,
+      },
+    ],
+  });
+  const metadata = join(dir, "metadata.mjs");
+  await writeFile(metadata, npmAssetPreload({ uv: [release] }));
+  await writeFile(
+    join(dir, "stack/profiles/uv-only.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "uv-only",
+      description: "Python tools",
+      platforms: ["darwin", "linux", "win32"],
+      components: [{ component: "uv", version: ">=0.13.8 <0.14" }],
+      integrations: [],
+      requires: ["python-tools"],
+    }),
+  );
+  const locked = run(dir, metadata, [
+    "--profile",
+    "uv-only",
+    "--target",
+    `darwin-${arch}`,
+    "--json",
+  ]);
+  assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+  await mkdir(join(dir, "home"));
+  const home = await realpath(join(dir, "home")),
+    bin = join(home, ".agent-stack/bin"),
+    tools = join(dir, "tools");
+  await mkdir(bin, { recursive: true });
+  await mkdir(tools);
+  for (const name of ["npm", "git"]) {
+    await writeFile(
+      join(tools, name),
+      `#!${process.execPath}\nconsole.log('${name === "git" ? "git version " : ""}11.0.0')\n`,
+    );
+    await chmod(join(tools, name), 0o755);
+  }
+  const marker = join(dir, "network-marker"),
+    preload = join(dir, "install-preload.mjs");
+  await writeFile(
+    preload,
+    `import cp from 'node:child_process';import os from 'node:os';import fs from 'node:fs';import {EventEmitter} from 'node:events';import {readFile,appendFile,writeFile} from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:${JSON.stringify(arch)}});os.machine=()=>${JSON.stringify(arch === "arm64" ? "arm64" : "x86_64")};const originalUnlink=fs.promises.unlink;fs.promises.unlink=async(p)=>{if(process.env.FAULT_UNLINK==='binding-temp'&&typeof p==='string'&&p.includes('/binding-uv-')&&p.endsWith('.tmp'))throw Object.assign(Error('injected unlink failure'),{code:'EACCES'});return originalUnlink(p)};const originalStat=fs.promises.lstat;let failedStageStat=false;fs.promises.lstat=async(p,...args)=>{if(process.env.FAULT_STAT==='stage'&&!failedStageStat&&typeof p==='string'&&p.includes('/.agent-stack/uv-')){failedStageStat=true;throw Object.assign(Error('injected stage stat failure'),{code:'EACCES'})}return originalStat(p,...args)};const originalOpen=fs.promises.open,originalMkdir=fs.promises.mkdir;fs.promises.open=async(p,...args)=>{if(typeof p==='string'&&((process.env.FAULT_OPEN==='lock'&&p===${JSON.stringify(join(home, ".agent-stack", "operation.lock"))})||(process.env.FAULT_OPEN==='archive'&&p.endsWith('/archive.tar.gz'))||(process.env.FAULT_OPEN==='journal'&&p.endsWith('/pending.json')&&args[0]==='wx')||(process.env.FAULT_OPEN==='binding-temp'&&p.includes('/binding-')&&p.endsWith('.tmp'))))throw Object.assign(Error('injected open failure'),{code:'EACCES'});const h=await originalOpen(p,...args);if(typeof p==='string'&&p.endsWith('/pending.json')&&args[0]===(fs.constants.O_RDWR|fs.constants.O_NOFOLLOW)){const truncate=h.truncate.bind(h);h.truncate=async(...a)=>{await truncate(...a);if(process.env.FAULT_KILL==='journal-truncate')process.kill(process.pid,'SIGKILL')}}if(typeof p==='string'&&p.includes('/binding-uv-')&&p.endsWith('.tmp')){if(process.env.FAULT_KILL==='temp-created')process.kill(process.pid,'SIGKILL');if(process.env.FAULT_KILL==='temp-identified'){const write=h.writeFile.bind(h);h.writeFile=async(...a)=>{process.kill(process.pid,'SIGKILL');return write(...a)}}}return h};fs.promises.mkdir=async(p,...args)=>{if(process.env.FAULT_OPEN==='stage'&&typeof p==='string'&&p.includes('/.agent-stack/uv-'))throw Object.assign(Error('injected mkdir failure'),{code:'EACCES'});return originalMkdir(p,...args)};const originalRename=fs.promises.rename;fs.promises.rename=async(a,b)=>{await originalRename(a,b);if(process.env.FAULT_KILL==='binding-rename'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))})process.kill(process.pid,'SIGKILL')};const originalLink=fs.promises.link;fs.promises.link=async(a,b)=>{if((process.env.FAULT_THROW==='uvx'&&b===${JSON.stringify(join(bin, "uvx"))})||(process.env.FAULT_THROW==='binding'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))}))throw Object.assign(Error('injected write failure'),{code:'EACCES'});await originalLink(a,b);if((process.env.FAULT_KILL==='link'&&b===${JSON.stringify(join(bin, "uv"))})||(process.env.FAULT_KILL==='binding'&&b===${JSON.stringify(join(home, ".agent-stack", "binding.json"))}))process.kill(process.pid,'SIGKILL')};const old=cp.execFile;cp.execFile=(file,args,opts,cb)=>{if(file==='/usr/bin/arch'){const p=new EventEmitter();queueMicrotask(()=>{cb(null,'0\\n','');p.emit('close',0)});return p}return old(file,args,opts,cb)};syncBuiltinESMExports();if(process.env.FETCH_MODE==='timeout'){const oldTimeout=AbortSignal.timeout;AbortSignal.timeout=(ms)=>oldTimeout(Math.min(ms,200));}globalThis.fetch=async(url,options)=>{await appendFile(${JSON.stringify(marker)},'x');if(process.env.FETCH_MODE==='timeout'||process.env.FETCH_MODE==='stall')return new Promise((resolve,reject)=>{const timer=setInterval(()=>{},1000);options.signal.addEventListener('abort',()=>{clearInterval(timer);reject(Error('aborted'))},{once:true})});if(process.env.FETCH_MODE==='forbid')throw Error('unexpected network');if(process.env.FETCH_MODE==='bad')return new Response('wrong');if(process.env.FETCH_MODE==='http')return new Response('denied',{status:403});if(process.env.FETCH_MODE==='oversize')return new Response('x',{headers:{'content-length':'67108865'}});if(process.env.FETCH_MODE==='redirect')return new Response('',{status:302,headers:{location:'https://example.com/evil'}});if(process.env.FETCH_MODE==='valid-redirect'&&String(url)===${JSON.stringify(assetUrl)})return new Response('',{status:302,headers:{location:'https://release-assets.githubusercontent.com/fixture?sig=private'}});if(process.env.FETCH_MODE==='valid-redirect'&&String(url).startsWith('https://release-assets.githubusercontent.com/'))return new Response(await readFile(${JSON.stringify(archive)}));if(process.env.FETCH_MODE==='lock-change')await appendFile(${JSON.stringify(join(dir, "stack/stack.lock.json"))},' ');if(process.env.FETCH_MODE==='source-change')await appendFile(${JSON.stringify(join(dir, "stack/components/uv.yaml"))},' ');if(process.env.FETCH_MODE==='env-change')process.env.PATH+=':/changed';if(process.env.FETCH_MODE==='conflict')await writeFile(${JSON.stringify(join(bin, "uv"))},'foreign');if(process.env.FETCH_MODE==='delay')await new Promise(r=>setTimeout(r,1200));if(String(url)!==${JSON.stringify(assetUrl)})throw Error('unexpected URL');return new Response(await readFile(${JSON.stringify(archive)}));};`,
+  );
+  return { dir, home, bin, tools, preload, marker, archive, sha, metadata };
+}
+function runUvSetup(f, args, extra = {}) {
+  return spawnSync(
+    process.execPath,
+    ["--import", f.preload, cli, "setup", ...args, "--json"],
+    {
+      encoding: "utf8",
+      timeout: 20000,
+      env: {
+        HOME: f.home,
+        PATH: `${f.bin}:${f.tools}`,
+        NO_COLOR: "1",
+        ...extra,
+      },
+    },
+  );
+}
+for (const order of ["uv-first", "herdr-first"]) {
+  test(`uv and Herdr receipts coexist: ${order}`, {
+    skip: process.platform !== "darwin",
+  }, async (t) => {
+    const { chmod, rename } = await import("node:fs/promises");
+    const f = await uvInstallFixture(t);
+    await writeFile(
+      join(f.dir, "stack/profiles/herdr-only.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "herdr-only",
+        description: "herdr",
+        platforms: ["darwin", "win32", "linux"],
+        components: [{ component: "herdr", channel: "stable" }],
+        integrations: [],
+        requires: ["workspace"],
+      }),
+    );
+    const uvLock = join(f.dir, "uv.lock.json");
+    await rename(join(f.dir, "stack/stack.lock.json"), uvLock);
+    const herdrMetadata = join(f.dir, "herdr-metadata.mjs");
+    await writeFile(
+      herdrMetadata,
+      `globalThis.fetch=async()=>new Response(${JSON.stringify(JSON.stringify(herdrAssetManifest()))})`,
+    );
+    const locked = run(f.dir, herdrMetadata, [
+      "--profile",
+      "herdr-only",
+      "--target",
+      "darwin-x64",
+      "--out",
+      join(f.dir, "herdr.lock.json"),
+      "--json",
+    ]);
+    assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+    const source = join(f.dir, "herdr.c"),
+      executable = join(f.tools, "herdr");
+    await writeFile(
+      source,
+      '#include <stdio.h>\nint main(void){puts("herdr 0.9.5");return 0;}\n',
+    );
+    const cc = spawnSync("cc", [source, "-o", executable], {
+      encoding: "utf8",
+    });
+    assert.equal(cc.status, 0, cc.stderr);
+    await chmod(executable, 0o755);
+    const uv = (extra = {}) =>
+      runUvSetup(
+        f,
+        ["--repo", f.dir, "--profile", "uv-only", "--lock", uvLock, "--yes"],
+        extra,
+      );
+    const herdr = () =>
+      runUvSetup(
+        f,
+        [
+          "--repo",
+          f.dir,
+          "--profile",
+          "herdr-only",
+          "--lock",
+          join(f.dir, "herdr.lock.json"),
+          "--yes",
+        ],
+        { FETCH_MODE: "forbid" },
+      );
+    if (order === "uv-first") {
+      for (const action of [uv, herdr]) {
+        const result = action();
+        assert.equal(result.status, 0, result.stdout + result.stderr);
+      }
+    } else {
+      const first = herdr();
+      assert.equal(first.status, 0, first.stdout + first.stderr);
+      const killed = uv({ FAULT_KILL: "binding-rename" });
+      assert.equal(killed.signal, "SIGKILL", killed.stdout + killed.stderr);
+      const committed = JSON.parse(
+        await readFile(join(f.home, ".agent-stack/binding.json"), "utf8"),
+      );
+      assert.equal(committed.installations.herdr.mode, "external");
+      assert.equal(committed.installations.uv.mode, "managed");
+      const retry = uv({ FETCH_MODE: "forbid" });
+      assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+      assert.deepEqual(
+        JSON.parse(
+          await readFile(join(f.home, ".agent-stack/binding.json"), "utf8"),
+        ),
+        committed,
+      );
+    }
+    const state = JSON.parse(
+      await readFile(join(f.home, ".agent-stack/binding.json"), "utf8"),
+    );
+    assert.equal(state.installations.uv.mode, "managed");
+    assert.equal(state.installations.herdr.mode, "external");
+    assert.equal(
+      state.defaultBinding.profile,
+      order === "uv-first" ? "herdr-only" : "uv-only",
+    );
+    const statePath = join(f.home, ".agent-stack/binding.json");
+    await writeFile(
+      statePath,
+      JSON.stringify({ ...state, defaultBinding: null }),
+    );
+    const retry = uv();
+    assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+    const rebound = JSON.parse(await readFile(statePath, "utf8"));
+    assert.deepEqual(rebound.installations, state.installations);
+    assert.equal(rebound.defaultBinding.profile, "uv-only");
+  });
+}
+
+for (const corruption of ["empty", "invalid-with-temp"]) {
+  test(`Herdr rejects a late ${corruption} uv journal without deleting evidence`, {
+    skip: process.platform !== "darwin",
+  }, async (t) => {
+    const { chmod, rename, stat } = await import("node:fs/promises");
+    const f = await uvInstallFixture(t);
+    await writeFile(
+      join(f.dir, "stack/profiles/herdr-only.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "herdr-only",
+        description: "herdr",
+        platforms: ["darwin", "win32", "linux"],
+        components: [{ component: "herdr", channel: "stable" }],
+        integrations: [],
+        requires: ["workspace"],
+      }),
+    );
+    await rename(
+      join(f.dir, "stack/stack.lock.json"),
+      join(f.dir, "uv.lock.json"),
+    );
+    const metadata = join(f.dir, "herdr-metadata.mjs");
+    await writeFile(
+      metadata,
+      `globalThis.fetch=async()=>new Response(${JSON.stringify(JSON.stringify(herdrAssetManifest()))})`,
+    );
+    const locked = run(f.dir, metadata, [
+      "--profile",
+      "herdr-only",
+      "--target",
+      "darwin-x64",
+      "--out",
+      join(f.dir, "herdr.lock.json"),
+      "--json",
+    ]);
+    assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+    const source = join(f.dir, "herdr.c");
+    await writeFile(
+      source,
+      '#include <stdio.h>\nint main(void){puts("herdr 0.9.5");return 0;}\n',
+    );
+    const cc = spawnSync("cc", [source, "-o", join(f.tools, "herdr")], {
+      encoding: "utf8",
+    });
+    assert.equal(cc.status, 0, cc.stderr);
+    await chmod(join(f.tools, "herdr"), 0o755);
+    const args = [
+      "--repo",
+      f.dir,
+      "--profile",
+      "herdr-only",
+      "--lock",
+      join(f.dir, "herdr.lock.json"),
+      "--yes",
+    ];
+    const first = runUvSetup(f, args, { FETCH_MODE: "forbid" });
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    const root = join(f.home, ".agent-stack"),
+      before = await readFile(join(root, "binding.json"));
+    const marker = join(f.dir, "planned"),
+      gate = join(f.dir, "gate"),
+      pause = join(f.dir, "pause.mjs");
+    await writeFile(
+      pause,
+      `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';const old=fs.promises.mkdir;fs.promises.mkdir=async(p,...a)=>{if(p===${JSON.stringify(join(root, "operation.guard"))}){await fs.promises.writeFile(${JSON.stringify(marker)},'ready');while(!fs.existsSync(${JSON.stringify(gate)}))await new Promise(r=>setTimeout(r,20))}return old(p,...a)};syncBuiltinESMExports();`,
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        f.preload,
+        "--import",
+        pause,
+        cli,
+        "setup",
+        ...args,
+        "--json",
+      ],
+      {
+        cwd: f.dir,
+        env: {
+          HOME: f.home,
+          USERPROFILE: f.home,
+          PATH: `${f.bin}:${f.tools}`,
+          NO_COLOR: "1",
+          FETCH_MODE: "forbid",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "",
+      stderr = "";
+    child.stdout.on("data", (x) => (stdout += x));
+    child.stderr.on("data", (x) => (stderr += x));
+    const done = new Promise((resolve) =>
+      child.once("close", (code, signal) => resolve({ code, signal })),
+    );
+    try {
+      let ready = false;
+      for (let n = 0; n < 300; n++) {
+        try {
+          await readFile(marker);
+          ready = true;
+          break;
+        } catch {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      }
+      assert.ok(ready, "Herdr plan reached operation lock");
+      const killed = runUvSetup(
+        f,
+        [
+          "--repo",
+          f.dir,
+          "--profile",
+          "uv-only",
+          "--lock",
+          join(f.dir, "uv.lock.json"),
+          "--yes",
+        ],
+        { FAULT_KILL: "journal-truncate" },
+      );
+      assert.equal(killed.signal, "SIGKILL", killed.stdout + killed.stderr);
+      const pendingPath = join(root, "pending.json"),
+        ownerPath = join(root, "operation.lock");
+      assert.equal((await readFile(pendingPath)).length, 0);
+      let temp;
+      if (corruption === "invalid-with-temp") {
+        await writeFile(pendingPath, "{invalid");
+        const owner = JSON.parse(await readFile(ownerPath, "utf8"));
+        temp = join(root, `binding-${"a".repeat(32)}.tmp`);
+        await writeFile(temp, "keep");
+        const info = await stat(temp, { bigint: true });
+        owner.temporary = {
+          name: `binding-${"a".repeat(32)}.tmp`,
+          identity: { dev: String(info.dev), ino: String(info.ino) },
+        };
+        await writeFile(ownerPath, JSON.stringify(owner));
+      }
+      const owner = await readFile(ownerPath),
+        journal = await readFile(pendingPath);
+      const stagePath = join(root, JSON.parse(owner).stage.name);
+      const stageBefore = await stat(stagePath, { bigint: true });
+      const evidence = await Promise.all(
+        ["uv", "uvx"].map(async (name) => ({
+          name,
+          stage: await readFile(join(stagePath, name)),
+          entry: await readFile(join(f.bin, name)),
+          stageIdentity: await stat(join(stagePath, name), { bigint: true }),
+          entryIdentity: await stat(join(f.bin, name), { bigint: true }),
+        })),
+      );
+      const names = (await readdir(root)).sort();
+      await writeFile(gate, "go");
+      const result = await done;
+      assert.equal(result.code, 1, stdout + stderr);
+      assert.deepEqual(await readFile(join(root, "binding.json")), before);
+      assert.deepEqual(await readFile(ownerPath), owner);
+      assert.deepEqual(await readFile(pendingPath), journal);
+      const stageAfter = await stat(stagePath, { bigint: true });
+      assert.equal(stageAfter.ino, stageBefore.ino);
+      for (const item of evidence) {
+        assert.deepEqual(
+          await readFile(join(stagePath, item.name)),
+          item.stage,
+        );
+        assert.deepEqual(await readFile(join(f.bin, item.name)), item.entry);
+        assert.equal(
+          (await stat(join(stagePath, item.name), { bigint: true })).ino,
+          item.stageIdentity.ino,
+        );
+        assert.equal(
+          (await stat(join(f.bin, item.name), { bigint: true })).ino,
+          item.entryIdentity.ino,
+        );
+      }
+      if (temp) assert.equal(await readFile(temp, "utf8"), "keep");
+      assert.deepEqual((await readdir(root)).sort(), names);
+    } finally {
+      await writeFile(gate, "go");
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await done;
+      }
+    }
+  });
+}
+
+test("setup installs the locked uv profile, binds it and reruns without a download", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    before = await snapshot(f.dir);
+  const noConsent = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only"], {
+    FETCH_MODE: "forbid",
+  });
+  assert.equal(noConsent.status, 2);
+  assert.equal(JSON.parse(noConsent.stdout).error.kind, "usage");
+  const noPath = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--dry-run"],
+    { FETCH_MODE: "forbid", PATH: f.tools },
+  );
+  assert.equal(noPath.status, 1);
+  assert.match(
+    JSON.stringify(JSON.parse(noPath.stdout).blockers),
+    /Add .* to PATH/,
+  );
+  const preview = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--dry-run"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).uvInstallation.mode, "install");
+  await assert.rejects(readFile(f.marker));
+  const result = runUvSetup(f, [
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+  ]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).kind, "setup-complete");
+  for (const name of ["uv", "uvx"]) {
+    const r = spawnSync(join(f.bin, name), ["--version"], {
+      encoding: "utf8",
+      env: { HOME: f.home, PATH: "" },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, new RegExp(`^${name} 0\\.13\\.8`));
+  }
+  const again = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  const p = JSON.parse(again.stdout);
+  assert.equal(p.mode, "managed");
+  assert.equal(p.plan.profile.selectedBy, "binding");
+  assert.deepEqual(await snapshot(f.dir), before);
+  assert.equal(await readFile(f.marker, "utf8"), "x");
+});
+
+for (const [variant, fetchMode, expected] of [
+  ["normal", "bad", /SHA-256 mismatch/],
+  ["normal", "redirect", /Untrusted uv download URL/],
+  ["normal", "timeout", /uv download timed out/],
+  ["normal", "http", /HTTP 403/],
+  ["normal", "oversize", /exceeds size limit/],
+  ["malicious", "normal", /Unexpected uv archive entry/],
+  ["traversal", "normal", /Unexpected uv archive entry/],
+  [
+    "duplicate",
+    "normal",
+    /Duplicate uv archive entry|Too many uv archive entries/,
+  ],
+  ["bad-version", "normal", /Cannot verify uvx version/],
+  ["oversize-expanded", "normal", /expanded size limit/],
+]) {
+  test(`setup refuses uv ${fetchMode === "normal" ? variant : fetchMode} without publishing`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const f = await uvInstallFixture(t, variant),
+      before = await snapshot(f.dir);
+    const result = runUvSetup(
+      f,
+      ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+      { FETCH_MODE: fetchMode },
+    );
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(JSON.parse(result.stdout).error, expected);
+    assert.deepEqual(await readdir(join(f.home, ".agent-stack")), ["bin"]);
+    assert.deepEqual(await readdir(f.bin), []);
+    assert.deepEqual(await snapshot(f.dir), before);
+  });
+}
+
+test("setup refuses a changed lock and preserves a conflicting target", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  for (const mode of [
+    "lock-change",
+    "source-change",
+    "env-change",
+    "conflict",
+  ]) {
+    const f = await uvInstallFixture(t),
+      result = runUvSetup(
+        f,
+        ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+        { FETCH_MODE: mode },
+      );
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(
+      JSON.parse(result.stdout).error,
+      mode === "conflict" ? /conflict/i : /changed/,
+    );
+    if (mode === "conflict") {
+      assert.equal(await readFile(join(f.bin, "uv"), "utf8"), "foreign");
+      const root = join(f.home, ".agent-stack");
+      const pending = JSON.parse(
+        await readFile(join(root, "pending.json"), "utf8"),
+      );
+      assert.equal(pending.schemaVersion, 2);
+      assert.ok((await readdir(root)).includes(pending.stage));
+      assert.ok((await readdir(root)).includes("operation.lock"));
+    } else {
+      assert.deepEqual(await readdir(f.bin), []);
+      assert.deepEqual(await readdir(join(f.home, ".agent-stack")), ["bin"]);
+    }
+  }
+});
+test("setup recovers a killed publisher before retrying", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    killed = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FAULT_KILL: "link",
+    });
+  assert.equal(killed.signal, "SIGKILL");
+  assert.ok(
+    (await readdir(join(f.home, ".agent-stack"))).includes("pending.json"),
+  );
+  const retry = runUvSetup(f, [
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+  ]);
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+  assert.equal(JSON.parse(retry.stdout).kind, "setup-complete");
+  assert.ok(
+    !(await readdir(join(f.home, ".agent-stack"))).includes("pending.json"),
+  );
+});
+
+test("v2 recovery preserves journal and entry when state is a third value", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const killed = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FAULT_KILL: "link" },
+  );
+  assert.equal(killed.signal, "SIGKILL");
+  const root = join(f.home, ".agent-stack"),
+    journalPath = join(root, "pending.json");
+  const journal = await readFile(journalPath),
+    entry = await readFile(join(f.bin, "uv"));
+  const third = JSON.stringify({
+    schemaVersion: 2,
+    defaultBinding: null,
+    installations: {},
+  });
+  await writeFile(join(root, "binding.json"), third);
+  const retry = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(retry.status, 1, retry.stdout + retry.stderr);
+  assert.match(JSON.parse(retry.stdout).error, /state changed/i);
+  assert.equal(await readFile(join(root, "binding.json"), "utf8"), third);
+  assert.deepEqual(await readFile(journalPath), journal);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), entry);
+});
+
+test("v2 committed recovery preserves evidence when staged uv is replaced", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const killed = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FAULT_KILL: "binding" },
+  );
+  assert.equal(killed.signal, "SIGKILL");
+  const root = join(f.home, ".agent-stack"),
+    journalPath = join(root, "pending.json");
+  const journal = await readFile(journalPath),
+    parsed = JSON.parse(journal),
+    state = await readFile(join(root, "binding.json"));
+  const stageUv = join(root, parsed.stage, "uv"),
+    publicUv = await readFile(join(f.bin, "uv"));
+  await rm(stageUv);
+  await writeFile(stageUv, "foreign stage");
+  const script = `import { recoverPendingUv } from ${JSON.stringify(new URL("../dist/adapters/uv-state.js", import.meta.url).href)};await recoverPendingUv(${JSON.stringify(f.home)},${JSON.stringify(`${f.bin}:${f.tools}`)},new AbortController().signal,async()=>{});`;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", script],
+    {
+      encoding: "utf8",
+      timeout: 12000,
+      env: { HOME: f.home, PATH: `${f.bin}:${f.tools}` },
+    },
+  );
+  assert.notEqual(result.status, 0);
+  assert.deepEqual(await readFile(journalPath), journal);
+  assert.deepEqual(await readFile(join(root, "binding.json")), state);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), publicUv);
+  assert.equal(await readFile(stageUv, "utf8"), "foreign stage");
+});
+
+test("legacy uv pending remains recoverable with a v2 state snapshot", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const killed = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FAULT_KILL: "link" },
+  );
+  assert.equal(killed.signal, "SIGKILL");
+  const root = join(f.home, ".agent-stack"),
+    pendingPath = join(root, "pending.json");
+  const pending = JSON.parse(await readFile(pendingPath, "utf8"));
+  const { kind, beforeHash, beforeIdentity, afterHash, ...legacy } = pending;
+  void kind;
+  void beforeHash;
+  void beforeIdentity;
+  void afterHash;
+  legacy.schemaVersion = 1;
+  await writeFile(pendingPath, JSON.stringify(legacy));
+  const other = { schemaVersion: 2, defaultBinding: null, installations: {} };
+  await writeFile(join(root, "binding.json"), JSON.stringify(other));
+  const retry = runUvSetup(f, [
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+  ]);
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+  assert.equal(
+    JSON.parse(retry.stdout).binding.installations.uv.mode,
+    "managed",
+  );
+});
+
+test("v2 temporary state creation intent preserves unknown ownership", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const killed = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FAULT_KILL: "temp-created" },
+  );
+  assert.equal(killed.signal, "SIGKILL");
+  const root = join(f.home, ".agent-stack"),
+    journalPath = join(root, "pending.json");
+  const journal = await readFile(journalPath),
+    pending = JSON.parse(journal);
+  assert.ok(pending.bindingTmp);
+  assert.equal(pending.bindingDev, null);
+  const temp = join(root, pending.bindingTmp),
+    before = await readFile(temp);
+  const retry = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(retry.status, 1, retry.stdout + retry.stderr);
+  assert.match(JSON.parse(retry.stdout).error, /ownership is incomplete/);
+  assert.deepEqual(await readFile(temp), before);
+  assert.deepEqual(await readFile(journalPath), journal);
+  await assert.rejects(readFile(join(root, "binding.json")), {
+    code: "ENOENT",
+  });
+});
+
+test("v2 identified temporary state is cleaned and installation retries", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const killed = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FAULT_KILL: "temp-identified" },
+  );
+  assert.equal(killed.signal, "SIGKILL");
+  const root = join(f.home, ".agent-stack"),
+    pending = JSON.parse(await readFile(join(root, "pending.json"), "utf8"));
+  assert.ok(pending.bindingTmp && pending.bindingDev && pending.bindingIno);
+  const retry = runUvSetup(f, [
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+  ]);
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+  await assert.rejects(readFile(join(root, pending.bindingTmp)), {
+    code: "ENOENT",
+  });
+  assert.equal(
+    JSON.parse(retry.stdout).binding.installations.uv.mode,
+    "managed",
+  );
+});
+
+test("setup serializes competing uv installations", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const args = [
+    "--import",
+    f.preload,
+    cli,
+    "setup",
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+    "--json",
+  ];
+  const env = {
+    HOME: f.home,
+    PATH: `${f.bin}:${f.tools}`,
+    NO_COLOR: "1",
+    FETCH_MODE: "delay",
+  };
+  const first = spawn(process.execPath, args, {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "",
+    stderr = "";
+  first.stdout.on("data", (x) => (stdout += x));
+  first.stderr.on("data", (x) => (stderr += x));
+  const done = new Promise((resolve) =>
+    first.once("close", (code) => resolve(code)),
+  );
+  try {
+    for (let i = 0; i < 200; i++) {
+      try {
+        await readFile(f.marker);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    const second = runUvSetup(f, [
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--yes",
+    ]);
+    assert.equal(second.status, 1, second.stdout + second.stderr);
+    assert.match(JSON.parse(second.stdout).error, /operation is running/);
+    assert.equal(await done, 0, stdout + stderr);
+    assert.equal(JSON.parse(stdout).kind, "setup-complete");
+  } finally {
+    if (first.exitCode === null && first.signalCode === null) {
+      first.kill("SIGKILL");
+      await done;
+    }
+  }
+});
+
+test("setup reuses matching external uv without taking ownership", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { chmod } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  for (const name of ["uv", "uvx"]) {
+    await writeFile(
+      join(f.tools, name),
+      `#!${process.execPath}\nconsole.log('${name} 0.13.8')\n`,
+    );
+    await chmod(join(f.tools, name), 0o755);
+  }
+  const before = await readFile(join(f.tools, "uv"));
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.mode, "reuse");
+  assert.equal(value.binding.installations.uv.mode, "external");
+  assert.equal(value.plan.components[0].ownership, "unknown");
+  assert.deepEqual(await readFile(join(f.tools, "uv")), before);
+  await assert.rejects(readFile(f.marker));
+  assert.deepEqual(await readdir(f.bin), []);
+});
+test("setup preserves unknown entries and blocks full coding before download", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  await writeFile(join(f.bin, "uv"), "unknown file");
+  const blocked = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr);
+  assert.equal(await readFile(join(f.bin, "uv"), "utf8"), "unknown file");
+  await assert.rejects(readFile(f.marker));
+  await rm(join(f.bin, "uv"));
+  await cp(
+    join(repo, "stack/profiles/coding.yaml"),
+    join(f.dir, "stack/profiles/coding.yaml"),
+  );
+  await rm(join(f.dir, "stack/stack.lock.json"));
+  const locked = run(f.dir, f.metadata, [
+    "--profile",
+    "coding",
+    "--target",
+    "darwin-x64",
+    "--json",
+  ]);
+  assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+  const coding = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "coding", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(coding.status, 1, coding.stdout + coding.stderr);
+  assert.match(
+    JSON.stringify(JSON.parse(coding.stdout).blockers),
+    /complete profile/,
+  );
+  await assert.rejects(readFile(f.marker));
+  assert.deepEqual(await readdir(f.bin), []);
+});
+
+test("setup interruption during download removes its own staging and lock", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    args = [
+      "--import",
+      f.preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--yes",
+      "--json",
+    ];
+  const child = spawn(process.execPath, args, {
+    env: {
+      HOME: f.home,
+      PATH: `${f.bin}:${f.tools}`,
+      NO_COLOR: "1",
+      FETCH_MODE: "stall",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  child.stdout.on("data", (x) => (out += x));
+  child.stderr.resume();
+  const done = new Promise((resolve) =>
+    child.once("close", (code) => resolve(code)),
+  );
+  try {
+    for (let i = 0; i < 200; i++) {
+      try {
+        await readFile(f.marker);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    assert.equal(await readFile(f.marker, "utf8"), "x");
+    child.kill("SIGINT");
+    assert.equal(await done, 130, out);
+    assert.match(JSON.parse(out).error, /Cancelled/);
+    assert.deepEqual(await readdir(join(f.home, ".agent-stack")), ["bin"]);
+    assert.deepEqual(await readdir(f.bin), []);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await done;
+    }
+  }
+});
+
+test("setup recovers a stale download stage after an interrupted process", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    args = [
+      "--import",
+      f.preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--yes",
+      "--json",
+    ];
+  const child = spawn(process.execPath, args, {
+    env: {
+      HOME: f.home,
+      PATH: `${f.bin}:${f.tools}`,
+      NO_COLOR: "1",
+      FETCH_MODE: "stall",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.resume();
+  child.stderr.resume();
+  const done = new Promise((resolve) =>
+    child.once("close", (code, signal) => resolve({ code, signal })),
+  );
+  try {
+    for (let i = 0; i < 200; i++) {
+      try {
+        await readFile(f.marker);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    assert.equal(await readFile(f.marker, "utf8"), "x");
+    child.kill("SIGKILL");
+    assert.equal((await done).signal, "SIGKILL");
+    const result = runUvSetup(f, [
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--yes",
+    ]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const names = await readdir(join(f.home, ".agent-stack"));
+    assert.equal(names.filter((x) => x.startsWith("uv-")).length, 1);
+    assert.ok(!names.includes("operation.lock"));
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await done;
+    }
+  }
+});
+
+for (const mode of ["confirm-cancel", "confirm-no", "confirm-yes"]) {
+  test(`setup asks for real TTY confirmation: ${mode}`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const f = await uvInstallFixture(t);
+    await cp(f.preload, join(f.dir, "setup-pty-preload.mjs"));
+    await import("node:fs/promises").then(({ mkdir }) =>
+      mkdir(join(f.dir, "tmp")),
+    );
+    const result = spawnSync(
+      "python3",
+      [
+        join(repo, "test/setup_pty_driver.py"),
+        process.execPath,
+        cli,
+        f.dir,
+        `${f.bin}:${f.tools}`,
+        mode,
+        "80",
+        "no-color",
+      ],
+      {
+        encoding: "utf8",
+        timeout: 20000,
+        env: {
+          ...process.env,
+          HOME: f.home,
+          FETCH_MODE: mode === "confirm-yes" ? "normal" : "forbid",
+        },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.sent, true, output.stderr);
+    assert.equal(
+      output.status,
+      mode === "confirm-yes" ? 0 : 130,
+      output.stderr,
+    );
+    assert.doesNotMatch(output.stdout, /Apply this setup plan/);
+    if (mode === "confirm-yes")
+      assert.ok((await readdir(f.bin)).includes("uv"));
+    else {
+      await assert.rejects(readFile(f.marker));
+      assert.deepEqual(await readdir(f.bin), []);
+    }
+  });
+}
+
+test("setup completes recovery after binding was published", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    killed = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FAULT_KILL: "binding",
+    });
+  assert.equal(killed.signal, "SIGKILL");
+  const recovered = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.equal(recovered.status, 0, recovered.stdout + recovered.stderr);
+  assert.equal(JSON.parse(recovered.stdout).mode, "managed");
+  const entries = await readdir(join(f.home, ".agent-stack"));
+  assert.ok(!entries.includes("pending.json"));
+  assert.ok(!entries.includes("operation.lock"));
+  assert.ok(
+    !entries.some((x) => x.startsWith("binding-") && x.endsWith(".tmp")),
+  );
+  assert.equal(await readFile(f.marker, "utf8"), "x");
+});
+
+test("setup follows only the allowed release asset CDN redirect", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    result = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FETCH_MODE: "valid-redirect",
+    });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(await readFile(f.marker, "utf8"), "xx");
+  assert.doesNotMatch(result.stdout, /sig=private/);
+});
+
+test("setup installs a locked macOS arm64 uv profile with an isolated fixture", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t, "normal", "arm64"),
+    result = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.plan.host.target, "darwin-arm64");
+  assert.equal(output.kind, "setup-complete");
+});
+
+test("setup refuses an unsupported Windows uv target before downloading", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const win = join(f.dir, "windows-preload.mjs");
+  const source = await readFile(f.preload, "utf8");
+  await writeFile(
+    win,
+    source
+      .replace("value:'darwin'", "value:'win32'")
+      .replace(
+        "if(file==='/usr/bin/arch')",
+        "if(file.includes('powershell.exe'))",
+      )
+      .replace("cb(null,'0\\n','')", "cb(null,'0,34404','')"),
+  );
+  const winName = "uv-x86_64-pc-windows-msvc.zip";
+  const release = uvRelease("0.13.8", 1, {
+    assets: [
+      {
+        id: 102,
+        name: winName,
+        state: "uploaded",
+        browser_download_url: `https://github.com/astral-sh/uv/releases/download/0.13.8/${winName}`,
+        digest: `sha256:${f.sha}`,
+      },
+    ],
+  });
+  await writeFile(f.metadata, npmAssetPreload({ uv: [release] }));
+  await rm(join(f.dir, "stack/stack.lock.json"));
+  const created = run(f.dir, f.metadata, [
+    "--profile",
+    "uv-only",
+    "--target",
+    "win32-x64",
+    "--json",
+  ]);
+  assert.equal(created.status, 0, created.stdout + created.stderr);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      win,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--yes",
+      "--json",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 15000,
+      env: {
+        HOME: f.home,
+        PATH: `${f.bin}:${f.tools}`,
+        SystemRoot: "C:\\Windows",
+        FETCH_MODE: "forbid",
+      },
+    },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(
+    JSON.stringify(JSON.parse(result.stdout)),
+    /only supported on native macOS/,
+  );
+  await assert.rejects(readFile(f.marker));
+  assert.deepEqual(await readdir(f.bin), []);
+});
+
+for (const point of ["uvx", "binding"]) {
+  test(`setup rolls back its own entries when ${point} publication fails`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const f = await uvInstallFixture(t),
+      result = runUvSetup(
+        f,
+        ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+        { FAULT_THROW: point },
+      );
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(JSON.parse(result.stdout).error, /injected write failure/);
+    assert.deepEqual(await readdir(f.bin), []);
+    assert.deepEqual(await readdir(join(f.home, ".agent-stack")), ["bin"]);
+  });
+}
+
+test("setup interruption during staged version verification reaps the child", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t, "version-stall"),
+    args = [
+      "--import",
+      f.preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--yes",
+      "--json",
+    ];
+  const child = spawn(process.execPath, args, {
+    env: { HOME: f.home, PATH: `${f.bin}:${f.tools}`, NO_COLOR: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (x) => (output += x));
+  child.stderr.resume();
+  const done = new Promise((resolve) =>
+    child.once("close", (code) => resolve(code)),
+  );
+  let pid;
+  try {
+    for (let i = 0; i < 200; i++) {
+      try {
+        pid = Number(await readFile(join(f.dir, "version-pid"), "utf8"));
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    assert.ok(pid);
+    child.kill("SIGINT");
+    assert.equal(await done, 130, output);
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+    assert.deepEqual(await readdir(join(f.home, ".agent-stack")), ["bin"]);
+    assert.deepEqual(await readdir(f.bin), []);
+    pid = undefined;
+  } finally {
+    if (pid) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await done;
+    }
+  }
+});
+
+for (const point of ["lock", "stage", "archive", "journal", "binding-temp"]) {
+  test(`setup cleans its own state when ${point} creation fails`, {
+    skip: process.platform === "win32",
+  }, async (t) => {
+    const f = await uvInstallFixture(t),
+      result = runUvSetup(
+        f,
+        ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+        { FAULT_OPEN: point },
+      );
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(
+      JSON.parse(result.stdout).error,
+      /injected (open|mkdir) failure/,
+    );
+    assert.deepEqual(await readdir(f.bin), []);
+    assert.deepEqual(await readdir(join(f.home, ".agent-stack")), ["bin"]);
+  });
+}
+
+test("setup reports published state if binding cleanup fails and repairs it on retry", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    first = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FAULT_UNLINK: "binding-temp",
+    });
+  assert.equal(first.status, 1, first.stdout + first.stderr);
+  assert.match(JSON.parse(first.stdout).error, /installed and bound.*cleanup/);
+  assert.ok((await readdir(f.bin)).includes("uv"));
+  const retry = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+  assert.equal(JSON.parse(retry.stdout).mode, "managed");
+  const entries = await readdir(join(f.home, ".agent-stack"));
+  assert.ok(!entries.includes("pending.json"));
+  assert.ok(!entries.some((x) => x.endsWith(".tmp")));
+});
+
+test("setup preserves uncertain staging ownership for manual recovery", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    result = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FAULT_STAT: "stage",
+    });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).error, /manual recovery/);
+  assert.deepEqual(await readdir(f.bin), []);
+  const entries = await readdir(join(f.home, ".agent-stack"));
+  assert.ok(entries.includes("operation.lock"));
+  assert.ok(entries.some((x) => x.startsWith("uv-")));
+  const retry = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(retry.status, 1, retry.stdout + retry.stderr);
+  assert.match(JSON.parse(retry.stdout).error, /manual recovery/);
+  await assert.rejects(readFile(f.marker));
+});
+
+test("setup updates its own binding after an explicit equivalent checkout", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t),
+    first = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"]);
+  assert.equal(first.status, 0, first.stdout + first.stderr);
+  const other = join(f.dir, "other checkout"),
+    { mkdir } = await import("node:fs/promises");
+  await mkdir(other);
+  await cp(join(f.dir, "stack"), join(other, "stack"), { recursive: true });
+  const before = await readFile(join(f.bin, "uv"));
+  const result = runUvSetup(
+    f,
+    ["--repo", other, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).binding.defaultBinding.repo, other);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), before);
+  const bound = runUvSetup(f, ["--dry-run"], { FETCH_MODE: "forbid" });
+  assert.equal(bound.status, 0, bound.stdout + bound.stderr);
+  assert.equal(JSON.parse(bound.stdout).repo.path, other);
+});
+
+test("setup refuses an external executable changed after confirmation was displayed", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { chmod, mkdir } = await import("node:fs/promises"),
+    f = await uvInstallFixture(t);
+  for (const name of ["uv", "uvx"]) {
+    await writeFile(
+      join(f.tools, name),
+      `#!${process.execPath}\nconsole.log('${name} 0.13.8')\n`,
+    );
+    await chmod(join(f.tools, name), 0o755);
+  }
+  await cp(f.preload, join(f.dir, "setup-pty-preload.mjs"));
+  await mkdir(join(f.dir, "tmp"));
+  const result = spawnSync(
+    "python3",
+    [
+      join(repo, "test/setup_pty_driver.py"),
+      process.execPath,
+      cli,
+      f.dir,
+      `${f.bin}:${f.tools}`,
+      "confirm-change",
+      "80",
+      "no-color",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 20000,
+      env: {
+        ...process.env,
+        HOME: f.home,
+        FETCH_MODE: "forbid",
+        MUTATE_ENTRY: join(f.tools, "uv"),
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.sent, true, output.stderr);
+  assert.equal(output.status, 1, output.stderr);
+  assert.match(output.stderr, /Existing uv entries changed/);
+  await assert.rejects(readFile(join(f.home, ".agent-stack/binding.json")));
+  await assert.rejects(readFile(f.marker));
+});
+
+test("setup preserves locally modified managed uv entries", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { appendFile } = await import("node:fs/promises"),
+    f = await uvInstallFixture(t),
+    first = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"]);
+  assert.equal(first.status, 0, first.stdout + first.stderr);
+  const path = join(f.bin, "uv"),
+    binding = await readFile(join(f.home, ".agent-stack/binding.json"));
+  await appendFile(path, "\n# local change\n");
+  const changed = await readFile(path);
+  const retry = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.equal(retry.status, 1, retry.stdout + retry.stderr);
+  assert.match(
+    JSON.stringify(JSON.parse(retry.stdout).blockers),
+    /Managed uv entries changed/,
+  );
+  assert.deepEqual(await readFile(path), changed);
+  assert.deepEqual(
+    await readFile(join(f.home, ".agent-stack/binding.json")),
+    binding,
+  );
+  assert.equal(await readFile(f.marker, "utf8"), "x");
+});
+
+test("setup can bind matching external tools without a managed PATH directory", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { chmod } = await import("node:fs/promises"),
+    f = await uvInstallFixture(t);
+  await rm(join(f.home, ".agent-stack"), { recursive: true });
+  for (const name of ["uv", "uvx"]) {
+    await writeFile(
+      join(f.tools, name),
+      `#!${process.execPath}\nconsole.log('${name} 0.13.8')\n`,
+    );
+    await chmod(join(f.tools, name), 0o755);
+  }
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { PATH: f.tools, FETCH_MODE: "forbid" },
+  );
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).mode, "reuse");
+  assert.deepEqual(await readdir(join(f.home, ".agent-stack")), [
+    "binding.json",
+  ]);
+  await assert.rejects(readFile(f.marker));
+});
+
+test("external uv binding recovers after publication interruption without owning tools", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { chmod } = await import("node:fs/promises"),
+    f = await uvInstallFixture(t);
+  for (const name of ["uv", "uvx"]) {
+    await writeFile(
+      join(f.tools, name),
+      `#!${process.execPath}\nconsole.log('${name} 0.13.8')\n`,
+    );
+    await chmod(join(f.tools, name), 0o755);
+  }
+  const before = await readFile(join(f.tools, "uv")),
+    first = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FAULT_KILL: "binding",
+      FETCH_MODE: "forbid",
+    });
+  assert.equal(first.signal, "SIGKILL");
+  const retry = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+  assert.equal(JSON.parse(retry.stdout).mode, "reuse");
+  assert.deepEqual(await readFile(join(f.tools, "uv")), before);
+  const entries = await readdir(join(f.home, ".agent-stack"));
+  assert.ok(!entries.includes("operation.lock"));
+  assert.ok(!entries.some((x) => x.endsWith(".tmp")));
+  await assert.rejects(readFile(f.marker));
+});
+
+test("setup applies an explicit relative candidate lock and remembers it", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { rename } = await import("node:fs/promises"),
+    f = await uvInstallFixture(t),
+    candidate = join(f.dir, "candidate 锁.json");
+  await rename(join(f.dir, "stack/stack.lock.json"), candidate);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      f.preload,
+      cli,
+      "setup",
+      "--repo",
+      f.dir,
+      "--profile",
+      "uv-only",
+      "--lock",
+      "candidate 锁.json",
+      "--yes",
+      "--json",
+    ],
+    {
+      cwd: f.dir,
+      encoding: "utf8",
+      timeout: 20000,
+      env: { HOME: f.home, PATH: `${f.bin}:${f.tools}`, NO_COLOR: "1" },
+    },
+  );
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(
+    JSON.parse(result.stdout).binding.defaultBinding.lock,
+    await import("node:fs/promises").then(({ realpath }) =>
+      realpath(candidate),
+    ),
+  );
+  const retry = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr);
+  assert.equal(JSON.parse(retry.stdout).plan.lock.selectedBy, "binding");
+});
+
+test("recovery preserves a modified staged uv file and its published entry", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { appendFile } = await import("node:fs/promises"),
+    f = await uvInstallFixture(t),
+    killed = runUvSetup(f, ["--repo", f.dir, "--profile", "uv-only", "--yes"], {
+      FAULT_KILL: "link",
+    });
+  assert.equal(killed.signal, "SIGKILL");
+  const entry = join(f.bin, "uv");
+  await appendFile(entry, "\n# user change\n");
+  const before = await readFile(entry);
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid" },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).error, /changed; manual recovery/);
+  assert.deepEqual(await readFile(entry), before);
+  assert.ok(
+    (await readdir(join(f.home, ".agent-stack"))).includes("pending.json"),
+  );
+  assert.equal(await readFile(f.marker, "utf8"), "x");
+});
+test("root review: managed receipt must match current asset digest", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const f = await uvInstallFixture(t);
+  const installed = runUvSetup(f, [
+    "--repo",
+    f.dir,
+    "--profile",
+    "uv-only",
+    "--yes",
+  ]);
+  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
+  const file = join(f.dir, "stack/stack.lock.json");
+  const lock = JSON.parse(await readFile(file, "utf8"));
+  const previous = lock.assets[0].digest.value;
+  const bindingPath = join(f.home, ".agent-stack/binding.json");
+  const bindingBefore = await readFile(bindingPath);
+  const entryBefore = await readFile(join(f.bin, "uv"));
+  lock.assets[0].digest.value =
+    previous === "c".repeat(64) ? "d".repeat(64) : "c".repeat(64);
+  await writeFile(file, JSON.stringify(lock));
+  const repeated = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.notEqual(
+    repeated.status,
+    0,
+    "managed install must not claim success for a different archive digest",
+  );
+  assert.deepEqual(await readFile(bindingPath), bindingBefore);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), entryBefore);
+  assert.equal(await readFile(f.marker, "utf8"), "x");
+  lock.assets[0].digest.value = previous;
+  await writeFile(file, JSON.stringify(lock));
+  const current = JSON.parse(bindingBefore);
+  const legacy = {
+    schemaVersion: 1,
+    ...current.defaultBinding,
+    uv: current.installations.uv,
+  };
+  delete legacy.uv.asset;
+  await writeFile(bindingPath, JSON.stringify(legacy));
+  const legacyResult = runUvSetup(f, ["--yes"], { FETCH_MODE: "forbid" });
+  assert.notEqual(legacyResult.status, 0, legacyResult.stdout);
+  assert.deepEqual(await readFile(join(f.bin, "uv")), entryBefore);
+});
+
+test("root review: reject a newly shadowing PATH executable before execution", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { mkdir, chmod, appendFile } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  const shadow = join(f.dir, "new-first-path");
+  await mkdir(shadow);
+  for (const name of ["uv", "uvx"]) {
+    await writeFile(
+      join(f.tools, name),
+      `#!${process.execPath}\nconsole.log('${name} 0.13.8')\n`,
+    );
+    await chmod(join(f.tools, name), 0o755);
+  }
+  const marker = join(f.dir, "unconfirmed-execution");
+  const replacement = `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'executed');console.log('uv 0.13.8')\n`;
+  await appendFile(
+    f.preload,
+    `\n{const previousExec=cp.execFile;let observedUv=0;cp.execFile=(file,args,opts,cb)=>{if(file===${JSON.stringify(join(f.tools, "uv"))}&&args[0]==='--version'&&++observedUv===2){fs.writeFileSync(${JSON.stringify(join(shadow, "uv"))},${JSON.stringify(replacement)});fs.chmodSync(${JSON.stringify(join(shadow, "uv"))},0o755);}return previousExec(file,args,opts,cb)};syncBuiltinESMExports();}\n`,
+  );
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { FETCH_MODE: "forbid", PATH: `${shadow}:${f.bin}:${f.tools}` },
+  );
+  const executed = await readFile(marker, "utf8").then(
+    () => true,
+    () => false,
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).error, /entries changed/);
+  await assert.rejects(readFile(join(f.home, ".agent-stack/binding.json")), {
+    code: "ENOENT",
+  });
+  assert.equal(
+    executed,
+    false,
+    "new first PATH entry was not part of confirmed plan",
+  );
+});
+
+test("root review: concurrent stale lock recovery must not remove a live owner", {
+  skip: process.platform === "win32",
+  timeout: 30000,
+}, async (t) => {
+  const { appendFile } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  const lockPath = join(f.home, ".agent-stack/operation.lock");
+  const finished = spawnSync(process.execPath, ["-e", ""], {
+    encoding: "utf8",
+  });
+  assert.throws(() => process.kill(finished.pid, 0), { code: "ESRCH" });
+  await writeFile(
+    lockPath,
+    JSON.stringify({ pid: finished.pid, stage: null, temporary: null }),
+  );
+  await appendFile(
+    f.preload,
+    `\n{const previousUnlink=fs.promises.unlink;let intercepted=false;fs.promises.unlink=async(p)=>{if(!intercepted&&p===${JSON.stringify(lockPath)}){intercepted=true;fs.writeFileSync(process.env.REVIEW_AT_UNLINK,'waiting');while(!fs.existsSync(process.env.REVIEW_GATE))await new Promise(r=>setTimeout(r,10));}return previousUnlink(p)};const previousFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{fs.writeFileSync(process.env.REVIEW_FETCH,'started');return previousFetch(...args)};syncBuiltinESMExports();}\n`,
+  );
+  const children = [];
+  t.after(async () => {
+    for (const p of children) {
+      if (p.exitCode === null && p.signalCode === null) p.kill("SIGINT");
+    }
+    await Promise.all(
+      children.map((p) =>
+        p.exitCode !== null || p.signalCode !== null
+          ? undefined
+          : new Promise((resolve) => {
+              p.once("close", resolve);
+              setTimeout(() => {
+                p.kill("SIGKILL");
+              }, 2000).unref();
+            }),
+      ),
+    );
+  });
+  const pathExists = async (p) =>
+    readFile(p).then(
+      () => true,
+      () => false,
+    );
+  const waitFor = async (fn, label) => {
+    const until = Date.now() + 8000;
+    while (Date.now() < until) {
+      if (await fn()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw Error("waiting for " + label);
+  };
+  const start = (name) => {
+    const state = {
+      at: join(f.dir, name + ".at-unlink"),
+      gate: join(f.dir, name + ".gate"),
+      fetch: join(f.dir, name + ".fetch"),
+    };
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        f.preload,
+        cli,
+        "setup",
+        "--repo",
+        f.dir,
+        "--profile",
+        "uv-only",
+        "--yes",
+        "--json",
+      ],
+      {
+        env: {
+          HOME: f.home,
+          PATH: `${f.bin}:${f.tools}`,
+          NO_COLOR: "1",
+          FETCH_MODE: "stall",
+          REVIEW_AT_UNLINK: state.at,
+          REVIEW_GATE: state.gate,
+          REVIEW_FETCH: state.fetch,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    child.stdout.resume();
+    child.stderr.resume();
+    children.push(child);
+    return { ...state, child };
+  };
+  const a = start("A");
+  await waitFor(() => pathExists(a.at), "A stale lock check");
+  const b = start("B");
+  await waitFor(
+    () => b.child.exitCode !== null || b.child.signalCode !== null,
+    "B rejected",
+  );
+  assert.notEqual(b.child.exitCode, 0);
+  assert.equal(await pathExists(b.fetch), false);
+  await writeFile(a.gate, "release");
+  await waitFor(() => pathExists(a.fetch), "A fetch");
+  const owner = JSON.parse(await readFile(lockPath, "utf8")).pid;
+  assert.equal(owner, a.child.pid);
+  assert.equal(await pathExists(b.fetch), false);
+});
+
+test("setup rejects a newly shadowing entry after publication without executing it", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { mkdir, appendFile } = await import("node:fs/promises");
+  const f = await uvInstallFixture(t);
+  const shadow = join(f.dir, "first-path"),
+    marker = join(f.dir, "unexpected-execution");
+  await mkdir(shadow);
+  const replacement = `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'executed');console.log('uv 0.13.8')\n`;
+  await appendFile(
+    f.preload,
+    `\n{const prior=fs.promises.link;fs.promises.link=async(a,b)=>{await prior(a,b);if(b===${JSON.stringify(join(f.bin, "uvx"))}){fs.writeFileSync(${JSON.stringify(join(shadow, "uv"))},${JSON.stringify(replacement)});fs.chmodSync(${JSON.stringify(join(shadow, "uv"))},0o755)}};syncBuiltinESMExports();}\n`,
+  );
+  const result = runUvSetup(
+    f,
+    ["--repo", f.dir, "--profile", "uv-only", "--yes"],
+    { PATH: `${shadow}:${f.bin}:${f.tools}` },
+  );
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(JSON.parse(result.stdout).error, /not the first matching PATH/);
+  await assert.rejects(readFile(marker), { code: "ENOENT" });
+  await assert.rejects(readFile(join(f.home, ".agent-stack/binding.json")), {
+    code: "ENOENT",
+  });
+  await assert.rejects(readFile(join(f.bin, "uv")), { code: "ENOENT" });
 });

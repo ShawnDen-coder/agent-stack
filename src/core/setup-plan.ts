@@ -43,15 +43,15 @@ export const setupPlanSchema = z.object({
   kind: z.literal("setup-plan"),
   repo: z.object({
     path: z.string(),
-    selectedBy: z.enum(["option", "environment", "cwd"]),
+    selectedBy: z.enum(["option", "environment", "binding", "cwd"]),
   }),
   profile: z.object({
     id: z.string(),
-    selectedBy: z.enum(["option", "environment", "interactive"]),
+    selectedBy: z.enum(["option", "environment", "binding", "interactive"]),
   }),
   lock: z.object({
     path: z.string(),
-    selectedBy: z.enum(["default", "option"]),
+    selectedBy: z.enum(["default", "option", "binding"]),
     node: z.string(),
   }),
   host: z.object({
@@ -76,13 +76,13 @@ export const setupPlanSchema = z.object({
       component: z.string(),
       lockedVersion: z.string(),
       observation,
-      ownership: z.literal("unknown"),
+      ownership: z.enum(["unknown", "managed"]),
       lockedAsset: z
         .object({
           target: z.string(),
           name: z.string(),
           url: z.url(),
-          format: z.enum(["tar.gz", "zip"]),
+          format: z.enum(["tar.gz", "zip", "binary"]),
           sha256: z.string(),
           digestSource: z.url(),
         })
@@ -94,6 +94,14 @@ export const setupPlanSchema = z.object({
       ]),
     }),
   ),
+  uvInstallation: z
+    .object({
+      mode: z.enum(["install", "reuse", "managed"]),
+      bin: z.string().nullable(),
+      uvx: observation,
+      recovery: z.boolean(),
+    })
+    .optional(),
   integrations: z.array(z.string()),
   resources: z.array(z.string()),
   blockers: z.array(z.string()),

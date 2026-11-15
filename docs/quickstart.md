@@ -1,6 +1,6 @@
 # Quickstart：从源码试用
 
-当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。以下命令使用当前实现的只读检查与版本候选报告，不会安装 Pi、uv 或 herdr 等外部工具，也不会应用原生配置。`pnpm install` 安装的是 CLI 自身的依赖。
+当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。前半部分介绍声明检查、工具检测与共享锁；文末的 macOS uv-only setup 会安装或复用 uv，并记录本机绑定。完整 coding 和配置应用仍未实现。`pnpm install` 安装的是 CLI 自身的依赖。
 
 ## 准备与获取源码
 
@@ -13,10 +13,10 @@ pnpm --version
 
 确认输出为 `12.15.0` 后继续。版本不符时先检查 PATH 中的 pnpm 入口；项目不会替你安装前置工具。
 
-PR 尚未合并时，远端默认 `master` 只有初始提交，必须指定 PR 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
+基础 CLI 已合入 `master`；试用本指南中的 macOS uv 安装、Herdr 外部复用与 v2 设备状态，请检出 PR #3 的 `native-tool-research` 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
 
 ```sh
-git clone --branch research-agent-stack https://github.com/ShawnDen-coder/agent-stack.git
+git clone --branch native-tool-research https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
 pnpm install --frozen-lockfile
 pnpm build
@@ -57,7 +57,7 @@ pnpm cli lock --repo . --profile coding --dry-run --json
 
 ## 退出码与平台
 
-已实现命令一般使用 0 表示本次检查范围通过，1 表示业务检查或来源失败，2 表示用法错误，交互取消为 130。`doctor` 和 `lock` 在脚本或 JSON 模式下必须显式提供 `--profile`，交互 TTY 可选择；`validate` 不需要 profile。查看上一条命令退出码：
+已实现命令一般使用 0 表示本次检查范围通过，1 表示业务检查或来源失败，2 表示用法错误，交互取消为 130。`doctor` 在脚本或 JSON 模式下可通过 `--profile`、`AGENT_STACK_PROFILE` 或所选仓库的本机绑定取得 profile；均不可用时明确拒绝，不猜测。`lock` 在这些模式下仍须显式提供 `--profile`；交互 TTY 可选择，`validate` 不需要 profile。查看上一条命令退出码：
 
 ```sh
 # macOS / Linux shell
@@ -71,7 +71,7 @@ $LASTEXITCODE
 
 Windows 原生与 WSL 应使用各自环境中的 Node、pnpm 和 checkout，不共享本机配置路径。已审查基线 `c6cea45` 的 [CI 运行](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43606679733) 在 macOS/Linux/Windows 与 Node 24/26 六组通过；后续版本候选切片需以其自己的 CI 结果为准。Windows PTY、WSL 与真实外部工具安装尚未由该运行验证。
 
-继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。非预览 setup、`run coding`、锁更新和配置应用尚未实现。
+继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。原生 macOS 的 uv-only setup 可安装或复用 uv，Herdr-only 可复用匹配的已有入口；Herdr managed 安装、其他安装、`run coding`、锁更新和配置应用尚未实现。
 
 指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 Pi、pnpm 顶层与 pnpm native 包的 npm tarball 及预期 SHA-512，以及 uv release 归档、herdr 发行物 URL 和预期 SHA-256；选项可重复。不指定目标时仅报告版本。pnpm native 预览识别 12.15.0 起的 pnpm 12 发行契约，依赖映射或 native 平台元数据不符时阻塞；CLI 自身使用的 pnpm 版本仍由 packageManager 固定。使用 `--dry-run` 时，若四个部件的目标元数据均完整可返回 0，但不会生成锁；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。
 
@@ -93,3 +93,33 @@ pnpm cli validate --repo . --lock "./candidate lock.json" --json
 裸 `--lock` 读取 `<repo>/stack/stack.lock.json`；显式相对路径以当前调用目录解析。检查只覆盖本地结构、声明与资产身份关系，不能证明远端未撤回、签名或下载字节正确，也不验证安装或运行。
 
 已有完整共享锁时，可运行 `node dist/cli.js setup --repo . --profile coding --dry-run` 离线预览；该命令不安装或应用配置，未实现步骤会导致退出码 1。支持检测原生 macOS arm64/x64 和 Windows x64；未知或仿真宿主阻塞。`--lock` 指向候选锁时相对当前目录解析。
+
+## macOS 的 uv-only setup
+
+在 `stack/profiles/uv-only.yaml` 创建一个保留真实能力要求的组合：
+
+```yaml
+schemaVersion: 1
+id: uv-only
+description: Python tools
+platforms: [darwin, linux, win32]
+components:
+  - component: uv
+    version: ">=0.13.8 <0.14"
+integrations: []
+requires: [python-tools]
+```
+
+在没有默认共享锁的 checkout 中，选择本机架构（Apple Silicon 使用 `darwin-arm64`，Intel 使用 `darwin-x64`）并生成候选锁。锁解析需要访问官方元数据；若已有默认锁，首次锁命令拒绝覆盖，须使用合适的独立 checkout。
+
+```sh
+mkdir -p "$HOME/.agent-stack/bin"
+export PATH="$HOME/.agent-stack/bin:$PATH"
+pnpm cli lock --repo . --profile uv-only --target darwin-x64 --out ./uv-only.lock.json
+pnpm cli setup --repo . --profile uv-only --lock ./uv-only.lock.json --dry-run
+pnpm cli setup --repo . --profile uv-only --lock ./uv-only.lock.json
+```
+
+交互式 setup 展示计划并要求确认；脚本可用 `--yes`。`--dry-run` 不下载或持久写入（版本观察使用并清理临时目录）；执行只下载锁中资产、核对 SHA-256 和归档，再验证 `uv`/`uvx` 版本。已有相同版本的外部入口只读复用，来源仍为 unknown；未知或冲突入口不覆盖。示例 `export` 只影响当前 shell；请自行确保后续 shell 也包含该目录，setup 不编辑 shell 配置。成功才登记本机绑定；重复执行会核对受管文件并 no-op。
+
+Windows zip、Linux/WSL、仿真、完整 coding 和其他安装 adapter 尚不可应用。异常中断后重跑可恢复已记录的受管操作；若本机记录不完整或目标已被更改，保留文件并提示人工检查。

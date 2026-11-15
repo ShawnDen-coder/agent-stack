@@ -1,0 +1,303 @@
+{
+  "fixtureVersion": 1,
+  "tool": "herdr",
+  "upstream": {
+    "version": "0.9.5",
+    "commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+    "build": "release"
+  },
+  "evidenceLevel": "fixed-official-source",
+  "consumer": null,
+  "sources": {
+    "paths": {
+      "url": "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/config/io.rs",
+      "symbols": [
+        "config_path",
+        "config_dir",
+        "state_dir",
+        "platform_config_dir",
+        "platform_state_dir"
+      ]
+    },
+    "setup-policy": {
+      "file": "docs/herdr-research.md",
+      "section": "2.1 实现建议",
+      "evidenceLevel": "agent-stack-policy"
+    }
+  },
+  "cases": [
+    {
+      "id": "macos-default",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": "/fixture/home 中文"
+        }
+      },
+      "expected": {
+        "configFile": "/fixture/home 中文/.config/herdr/config.toml",
+        "configDir": "/fixture/home 中文/.config/herdr",
+        "stateDir": "/fixture/home 中文/.local/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "macos-independent-xdg-roots",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": "/fixture/home",
+          "XDG_CONFIG_HOME": "/fixture/config",
+          "XDG_STATE_HOME": "/fixture/state"
+        }
+      },
+      "expected": {
+        "configFile": "/fixture/config/herdr/config.toml",
+        "configDir": "/fixture/config/herdr",
+        "stateDir": "/fixture/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "config-file-override-does-not-move-directories",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": "/fixture/home",
+          "HERDR_CONFIG_PATH": "/fixture/custom file.toml"
+        }
+      },
+      "expected": {
+        "configFile": "/fixture/custom file.toml",
+        "configDir": "/fixture/home/.config/herdr",
+        "stateDir": "/fixture/home/.local/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "config-file-empty-is-set",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": "/fixture/home",
+          "HERDR_CONFIG_PATH": ""
+        }
+      },
+      "expected": {
+        "configFile": "",
+        "configDir": "/fixture/home/.config/herdr",
+        "stateDir": "/fixture/home/.local/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "xdg-empty-is-set",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": "/fixture/home",
+          "XDG_CONFIG_HOME": "",
+          "XDG_STATE_HOME": ""
+        }
+      },
+      "expected": {
+        "configFile": "herdr/config.toml",
+        "configDir": "herdr",
+        "stateDir": "herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "home-empty-is-set",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": ""
+        },
+        "tempDir": "/fixture/tmp"
+      },
+      "expected": {
+        "configFile": ".config/herdr/config.toml",
+        "configDir": ".config/herdr",
+        "stateDir": ".local/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "tilde-remains-literal",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HOME": "/fixture/home",
+          "HERDR_CONFIG_PATH": "~/custom.toml",
+          "XDG_CONFIG_HOME": "~/config",
+          "XDG_STATE_HOME": "~/state"
+        }
+      },
+      "expected": {
+        "configFile": "~/custom.toml",
+        "configDir": "~/config/herdr",
+        "stateDir": "~/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "macos-temp-fallback",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {},
+        "tempDir": "/fixture/tmp"
+      },
+      "expected": {
+        "configFile": "/fixture/tmp/herdr/config.toml",
+        "configDir": "/fixture/tmp/herdr",
+        "stateDir": "/fixture/tmp/herdr-state"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "windows-appdata-roots",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "env": {
+          "APPDATA": "C:/fixture/roaming",
+          "LOCALAPPDATA": "C:/fixture/local",
+          "USERPROFILE": "C:/fixture/profile",
+          "HOME": "C:/fixture/home"
+        }
+      },
+      "expected": {
+        "configFile": "C:/fixture/roaming/herdr/config.toml",
+        "configDir": "C:/fixture/roaming/herdr",
+        "stateDir": "C:/fixture/local/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "windows-xdg-before-appdata",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "env": {
+          "XDG_CONFIG_HOME": "D:/fixture/config",
+          "XDG_STATE_HOME": "D:/fixture/state",
+          "APPDATA": "C:/fixture/roaming",
+          "LOCALAPPDATA": "C:/fixture/local",
+          "USERPROFILE": "C:/fixture/profile"
+        }
+      },
+      "expected": {
+        "configFile": "D:/fixture/config/herdr/config.toml",
+        "configDir": "D:/fixture/config/herdr",
+        "stateDir": "D:/fixture/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "windows-userprofile-fallback",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "env": {
+          "USERPROFILE": "C:/fixture/profile",
+          "HOME": "D:/fixture/home"
+        }
+      },
+      "expected": {
+        "configFile": "C:/fixture/profile/AppData/Roaming/herdr/config.toml",
+        "configDir": "C:/fixture/profile/AppData/Roaming/herdr",
+        "stateDir": "C:/fixture/profile/AppData/Local/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "windows-home-fallback",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "env": {
+          "HOME": "D:/fixture/home"
+        }
+      },
+      "expected": {
+        "configFile": "D:/fixture/home/.config/herdr/config.toml",
+        "configDir": "D:/fixture/home/.config/herdr",
+        "stateDir": "D:/fixture/home/.local/state/herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "windows-empty-appdata-is-set",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "env": {
+          "APPDATA": "",
+          "LOCALAPPDATA": "",
+          "USERPROFILE": "C:/fixture/profile"
+        }
+      },
+      "expected": {
+        "configFile": "herdr/config.toml",
+        "configDir": "herdr",
+        "stateDir": "herdr"
+      },
+      "sourceRefs": ["paths"]
+    },
+    {
+      "id": "windows-temp-fallback",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "env": {},
+        "tempDir": "C:/fixture/tmp"
+      },
+      "expected": {
+        "configFile": "C:/fixture/tmp/herdr/config.toml",
+        "configDir": "C:/fixture/tmp/herdr",
+        "stateDir": "C:/fixture/tmp/herdr-state"
+      },
+      "sourceRefs": ["paths"]
+    }
+  ],
+  "agentStackPolicies": [
+    {
+      "id": "managed-setup-must-not-silently-use-temp",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "env": {},
+        "tempDir": "/fixture/tmp"
+      },
+      "expected": {
+        "decision": "block-and-explain"
+      },
+      "sourceRefs": ["setup-policy"],
+      "evidenceLevel": "agent-stack-policy"
+    },
+    {
+      "id": "ambiguous-relative-override-needs-explicit-handling",
+      "status": "pending-policy",
+      "input": {
+        "platform": "darwin",
+        "env": {
+          "HERDR_CONFIG_PATH": "relative/config.toml"
+        }
+      },
+      "expected": {
+        "decision": "requires-defined-policy"
+      },
+      "sourceRefs": ["setup-policy"],
+      "evidenceLevel": "agent-stack-policy"
+    }
+  ]
+}
