@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto";
 
 const maxBytes = 64 * 1024 * 1024;
-class UvDownloadError extends Error {}
+class ReleaseDownloadError extends Error {}
 const allowed = new Set(["github.com", "release-assets.githubusercontent.com"]);
 
 // Only GitHub's release endpoint and its asset CDN may be contacted. Redirect
 // tokens are never printed and no ambient authentication is supplied.
-export async function downloadUv(
+export async function downloadRelease(
   url: string,
   sha256: string,
   signal: AbortSignal,
+  component: "uv" | "herdr",
 ): Promise<Buffer> {
-  if (signal.aborted) throw new UvDownloadError("Cancelled");
+  if (signal.aborted) throw new ReleaseDownloadError("Cancelled");
   const timeout = AbortSignal.timeout(30000);
   const combined = AbortSignal.any([signal, timeout]);
   try {
@@ -27,7 +28,7 @@ export async function downloadUv(
         next.hash ||
         (next.port && next.port !== "443")
       )
-        throw new UvDownloadError("Untrusted uv download URL");
+        throw new ReleaseDownloadError(`Untrusted ${component} download URL`);
       const response = await fetch(next, {
         redirect: "manual",
         signal: combined,
@@ -37,14 +38,16 @@ export async function downloadUv(
         const location = response.headers.get("location");
         await response.body?.cancel();
         if (!location || redirects === 4)
-          throw new UvDownloadError("Invalid uv download redirect");
+          throw new ReleaseDownloadError(
+            `Invalid ${component} download redirect`,
+          );
         next = new URL(location, next);
         continue;
       }
       if (!response.ok || !response.body) {
         await response.body?.cancel();
-        throw new UvDownloadError(
-          `uv download failed: HTTP ${response.status}`,
+        throw new ReleaseDownloadError(
+          `${component} download failed: HTTP ${response.status}`,
         );
       }
       const declared = response.headers.get("content-length");
@@ -53,7 +56,9 @@ export async function downloadUv(
         (!/^\d+$/.test(declared) || Number(declared) > maxBytes)
       ) {
         await response.body.cancel();
-        throw new UvDownloadError("uv download exceeds size limit");
+        throw new ReleaseDownloadError(
+          `${component} download exceeds size limit`,
+        );
       }
       const reader = response.body.getReader();
       const chunks: Buffer[] = [];
@@ -65,7 +70,9 @@ export async function downloadUv(
           size += value.byteLength;
           if (size > maxBytes) {
             await reader.cancel();
-            throw new UvDownloadError("uv download exceeds size limit");
+            throw new ReleaseDownloadError(
+              `${component} download exceeds size limit`,
+            );
           }
           chunks.push(Buffer.from(value));
         }
@@ -74,14 +81,25 @@ export async function downloadUv(
       }
       const data = Buffer.concat(chunks, size);
       if (createHash("sha256").update(data).digest("hex") !== sha256)
-        throw new UvDownloadError("uv download SHA-256 mismatch");
+        throw new ReleaseDownloadError(
+          `${component} download SHA-256 mismatch`,
+        );
       return data;
     }
-    throw new UvDownloadError("Too many uv download redirects");
+    throw new ReleaseDownloadError(`Too many ${component} download redirects`);
   } catch (error) {
-    if (signal.aborted) throw new UvDownloadError("Cancelled");
-    if (timeout.aborted) throw new UvDownloadError("uv download timed out");
-    if (error instanceof UvDownloadError) throw error;
-    throw new UvDownloadError("uv download failed");
+    if (signal.aborted) throw new ReleaseDownloadError("Cancelled");
+    if (timeout.aborted)
+      throw new ReleaseDownloadError(`${component} download timed out`);
+    if (error instanceof ReleaseDownloadError) throw error;
+    throw new ReleaseDownloadError(`${component} download failed`);
   }
+}
+
+export async function downloadUv(
+  url: string,
+  sha256: string,
+  signal: AbortSignal,
+) {
+  return downloadRelease(url, sha256, signal, "uv");
 }

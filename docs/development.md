@@ -20,7 +20,7 @@
 
 所有 npm 依赖使用确切版本，传递依赖由 `pnpm-lock.yaml` 锁定。开发 pnpm 版本由 `packageManager` 固定；这与 profile 中将来安装到用户环境的 pnpm 要求分别维护。
 
-人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS uv-only 可按锁安装；Linux ABI、更新、离线解析及其他部件安装尚未实现。
+人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS uv-only/Herdr-only 可按锁安装；Linux ABI、更新、离线解析及其他部件安装尚未实现。
 
 运行下限由 `package.json` 的 engines 定义，CI 使用 Node 24 和 26；支持周期见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 

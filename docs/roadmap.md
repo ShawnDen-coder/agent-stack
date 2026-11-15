@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate` 及其共享锁离线校验、有限只读 `doctor`、首次新建共享锁的 `lock`、macOS uv-only 按锁安装，以及 Herdr-only 外部复用和 v2 设备状态；其余能力不得在帮助或 README 中宣称可用。
+首版目标是经过真实 CLI 验证的 setup → doctor → run coding 闭环。按以下依赖顺序独立实现、提交并交根会话复审；前一阶段通过审查后再推进下一阶段。当前已实现 `validate` 及其共享锁离线校验、有限只读 `doctor`、首次新建共享锁的 `lock`、macOS uv-only/Herdr-only 按锁安装与复用，以及 v2 设备状态；其余能力不得在帮助或 README 中宣称可用。
 
 ## 1. stack/ 目录迁移：根会话审查通过
 
@@ -24,13 +24,13 @@
 
 保留来源信任和 SHA-512/SHA-256 区别、缺项与身份冲突失败、无覆盖发布和并发保护、声明与来源复核、各来源的读取/分页/超时限制、中断清理，以及 stdout/stderr、JSON 和 40/80 列彩色与无色行为。以真实 CLI 行为为回归契约；可以简化重复或脆弱的 fixture，但不能删除失败测试或镜像实现。每片运行精确 pnpm `check`、实际 pack 和解包 CLI 验证，更新现状架构及开发文档，并交根会话独立审查。
 
-## 4. setup：macOS uv 安装与 Herdr 外部复用已审查
+## 4. setup：macOS uv 与 Herdr 安装已实现
 
 先审查 [setup 方案](setup-plan.md) 和 [配置变体方案](config-variants.md)，再基于已验收的锁与真实 adapter 安装和对齐配置，明确安装来源与文件归属；配置和 skills 从 Git checkout 读取。实际处理 Node/npm/Git 前置检查及各平台差异，保留原生工具入口，不覆盖来源或归属未知的内容。
 
 验收须在临时环境覆盖新机器、已有工具、重复执行、路径与本地修改冲突、失败恢复和锁不完整；只在临时测试环境安装或写入，不直接修改用户本机工具、PATH、凭证或原生配置。
 
-当前 macOS uv-only 支持按锁安装、external 复用、受管入口及本机恢复；Herdr-only 支持复用与锁定版本匹配的已有原生入口，并记录 external/unknown 回执。状态严格读取 v1/v2，读取只做内存归一化，成功写入使用分开默认上下文与部件回执的 v2 快照；no-op 保留磁盘原文。uv/Herdr 两种应用顺序保留另一部件回执，旧 uv journal 保持兼容；新 journal 按 before/after/第三态恢复，空或损坏 journal 保留证据并阻塞。Herdr managed 安装、Windows 工具执行与完整 coding 仍未实现。
+当前 macOS uv-only 支持按锁安装、external 复用、受管入口及本机恢复；Herdr-only 支持按锁安装单二进制，也可复用与锁定版本匹配的已有原生入口；external 回执保留 unknown 来源。状态严格读取 v1/v2，读取只做内存归一化，成功写入使用分开默认上下文与部件回执的 v2 快照；no-op 保留磁盘原文。uv/Herdr 两种应用顺序保留另一部件回执，旧 uv journal 保持兼容；新 journal 按 before/after/第三态恢复，空或损坏 journal 保留证据并阻塞。Herdr managed 安装核对锁定摘要、Mach-O 架构、版本和文件身份，并复用全局互斥；Windows 工具执行与完整 coding 仍未实现。
 
 ## 5. doctor 与 run coding：待实现，setup 审查通过后开始
 
@@ -50,7 +50,7 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 
 setup 与 doctor 已对齐 repo/profile 的 option、env 和匹配本机绑定选择；doctor 仍只观察工具链，不核验应用结果。状态迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)，现有 uv 恢复保证继续适用。
 
-1. macOS Herdr managed 安装：按锁下载单二进制、验证字节及版本、发布回执并恢复；隔离验证 server、IPC、pane、重启和重连。
+1. macOS Herdr managed 安装已实现，继续按目标记录真实发行物下载、原生安装与隔离 server/IPC 验收；x64 与 arm64 的证据分别维护。
 2. Windows x64 Herdr 整包安装：保留 ZIP 中 ConPTY、OpenConsole 等运行文件及目录关系，单独验收原生执行与恢复；不能只复制 `herdr.exe`。
 3. Pi npm staging、pnpm native 与 Windows uv；随后应用原生配置与 pi-herdr 资源。
 4. doctor 应用核验及 `run coding`，完成 setup → doctor → run coding 闭环。Otty 保持独立可选桌面层，Rex 维持实验组合。

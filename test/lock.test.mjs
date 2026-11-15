@@ -3677,6 +3677,172 @@ test("setup previews the locked uv asset for a capability-complete uv-only profi
   assert.deepEqual(await snapshot(dir), before);
 });
 
+for (const fault of [
+  "none",
+  "before-entry",
+  "after-entry",
+  "after-entry-third",
+  "after-state",
+  "bad-hash",
+  "before-commit-drift",
+]) {
+  test(`setup installs and reuses locked managed Herdr: ${fault}`, {
+    skip: process.platform !== "darwin",
+  }, async (t) => {
+    const { mkdir, chmod, realpath } = await import("node:fs/promises");
+    const f = await herdrFixture(t, herdrAssetManifest());
+    const source = join(f.dir, "herdr.c"),
+      binary = join(f.dir, "herdr-binary");
+    await writeFile(
+      source,
+      '#include <stdio.h>\nint main(void){puts("herdr 0.9.5");return 0;}\n',
+    );
+    const cc = spawnSync("cc", [source, "-o", binary], { encoding: "utf8" });
+    assert.equal(cc.status, 0, cc.stderr);
+    const sha = createHash("sha256")
+      .update(await readFile(binary))
+      .digest("hex");
+    const arch = process.arch === "arm64" ? "arm64" : "x64";
+    const manifest = herdrAssetManifest();
+    manifest.sha256[arch === "arm64" ? "macos-aarch64" : "macos-x86_64"] = sha;
+    await writeFile(
+      f.preload,
+      `globalThis.fetch=async()=>new Response(${JSON.stringify(JSON.stringify(manifest))})`,
+    );
+    const locked = run(f.dir, f.preload, [
+      "--profile",
+      "fixture",
+      "--target",
+      `darwin-${arch}`,
+      "--json",
+    ]);
+    assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+    const homePath = join(f.dir, "home"),
+      tools = join(f.dir, "tools");
+    await mkdir(homePath);
+    const home = await realpath(homePath);
+    const bin = join(home, ".agent-stack/bin");
+    await mkdir(bin, { recursive: true });
+    await mkdir(tools);
+    for (const name of ["npm", "git"]) {
+      await writeFile(
+        join(tools, name),
+        `#!${process.execPath}\nconsole.log('${name === "git" ? "git version " : ""}11.0.0')\n`,
+      );
+      await chmod(join(tools, name), 0o755);
+    }
+    const marker = join(f.dir, "fetch-count"),
+      preload = join(f.dir, "install-herdr.mjs");
+    await writeFile(
+      preload,
+      `import os from 'node:os';import fs from 'node:fs';import {readFile,appendFile} from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module';Object.defineProperty(process,'platform',{value:'darwin'});Object.defineProperty(process,'arch',{value:${JSON.stringify(arch)}});os.machine=()=> ${JSON.stringify(arch === "arm64" ? "arm64" : "x86_64")};const oldLink=fs.promises.link;fs.promises.link=async(a,b)=>{if(process.env.FAULT==='before-entry'&&b===${JSON.stringify(join(bin, "herdr"))})process.kill(process.pid,'SIGKILL');await oldLink(a,b);if((process.env.FAULT?.startsWith('after-entry')&&b===${JSON.stringify(join(bin, "herdr"))})||(process.env.FAULT==='after-state'&&b===${JSON.stringify(join(home, ".agent-stack/binding.json"))}))process.kill(process.pid,'SIGKILL')};const oldOpen=fs.promises.open;fs.promises.open=async(p,...a)=>{const h=await oldOpen(p,...a);if(process.env.FAULT==='before-commit-drift'&&typeof p==='string'&&p.includes('/binding-')&&p.endsWith('.tmp')){const write=h.writeFile.bind(h);h.writeFile=async(...v)=>{await write(...v);await appendFile(${JSON.stringify(join(bin, "herdr"))},'drift')}}return h};syncBuiltinESMExports();globalThis.fetch=async()=>{await appendFile(${JSON.stringify(marker)},'x');return new Response(process.env.FAULT==='bad-hash'?'invalid':await readFile(${JSON.stringify(binary)}))}`,
+    );
+    const invoke = (extra = {}) =>
+      spawnSync(
+        process.execPath,
+        [
+          "--import",
+          pathToFileURL(preload).href,
+          cli,
+          "setup",
+          "--repo",
+          f.dir,
+          "--profile",
+          "fixture",
+          "--yes",
+          "--json",
+        ],
+        {
+          cwd: f.dir,
+          encoding: "utf8",
+          timeout: 20000,
+          env: {
+            HOME: home,
+            USERPROFILE: home,
+            PATH: `${bin}:${tools}`,
+            NO_COLOR: "1",
+            ...extra,
+          },
+        },
+      );
+    if (fault === "before-commit-drift") {
+      const failed = invoke({ FAULT: fault });
+      assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+      const root = join(home, ".agent-stack");
+      const pending = JSON.parse(
+        await readFile(join(root, "pending.json"), "utf8"),
+      );
+      const statePath = join(root, "binding.json");
+      await assert.rejects(readFile(statePath), { code: "ENOENT" });
+      assert.match(
+        (await readFile(join(bin, "herdr"))).toString("utf8"),
+        /drift$/,
+      );
+      assert.ok((await readdir(root)).includes(pending.stage));
+      return;
+    }
+    if (fault === "bad-hash") {
+      const failed = invoke({ FAULT: fault });
+      assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+      assert.match(JSON.parse(failed.stdout).error, /SHA-256 mismatch/);
+      assert.deepEqual(await readdir(bin), []);
+      await assert.rejects(readFile(join(home, ".agent-stack/binding.json")), {
+        code: "ENOENT",
+      });
+      return;
+    }
+    const interrupted = fault === "none" ? null : invoke({ FAULT: fault });
+    if (interrupted)
+      assert.equal(
+        interrupted.signal,
+        "SIGKILL",
+        interrupted.stdout + interrupted.stderr,
+      );
+    if (fault === "after-entry-third") {
+      const statePath = join(home, ".agent-stack/binding.json"),
+        pendingPath = join(home, ".agent-stack/pending.json");
+      const third = JSON.stringify({
+        schemaVersion: 2,
+        defaultBinding: null,
+        installations: {},
+      });
+      await writeFile(statePath, third);
+      const pending = await readFile(pendingPath),
+        entry = await readFile(join(bin, "herdr"));
+      const blocked = invoke();
+      assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr);
+      assert.deepEqual(await readFile(pendingPath), pending);
+      assert.deepEqual(await readFile(join(bin, "herdr")), entry);
+      assert.equal(await readFile(statePath, "utf8"), third);
+      return;
+    }
+    const first = invoke();
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    assert.equal(
+      JSON.parse(first.stdout).binding.installations.herdr.mode,
+      "managed",
+    );
+    const second = invoke();
+    assert.equal(second.status, 0, second.stdout + second.stderr);
+    assert.equal(JSON.parse(second.stdout).mode, "managed");
+    assert.equal(
+      (await readFile(marker, "utf8")).length,
+      fault === "before-entry" || fault === "after-entry" ? 2 : 1,
+    );
+    if (fault === "none") {
+      const { appendFile } = await import("node:fs/promises");
+      const statePath = join(home, ".agent-stack/binding.json"),
+        before = await readFile(statePath);
+      await appendFile(join(bin, "herdr"), "local drift");
+      const changed = await readFile(join(bin, "herdr"));
+      const blocked = invoke();
+      assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr);
+      assert.deepEqual(await readFile(statePath), before);
+      assert.deepEqual(await readFile(join(bin, "herdr")), changed);
+    }
+  });
+}
+
 test("Herdr-only setup reuses a native entry and records a v2 snapshot", {
   skip: process.platform !== "darwin",
 }, async (t) => {
@@ -4173,6 +4339,114 @@ for (const corruption of ["empty", "invalid-with-temp"]) {
         await done;
       }
     }
+  });
+}
+
+for (const order of ["uv-first", "herdr-first"]) {
+  test(`managed uv and Herdr preserve receipts: ${order}`, {
+    skip: process.platform !== "darwin",
+  }, async (t) => {
+    const { appendFile, rename } = await import("node:fs/promises");
+    const arch = process.arch === "arm64" ? "arm64" : "x64",
+      f = await uvInstallFixture(t, "normal", arch);
+    const uvLock = join(f.dir, "uv.lock.json");
+    await rename(join(f.dir, "stack/stack.lock.json"), uvLock);
+    await writeFile(
+      join(f.dir, "stack/profiles/herdr-only.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "herdr-only",
+        description: "herdr",
+        platforms: ["darwin", "win32", "linux"],
+        components: [{ component: "herdr", channel: "stable" }],
+        integrations: [],
+        requires: ["workspace"],
+      }),
+    );
+    const source = join(f.dir, "herdr.c"),
+      binary = join(f.dir, "herdr-binary");
+    await writeFile(
+      source,
+      '#include <stdio.h>\nint main(void){puts("herdr 0.9.5");return 0;}\n',
+    );
+    const cc = spawnSync("cc", [source, "-o", binary], { encoding: "utf8" });
+    assert.equal(cc.status, 0, cc.stderr);
+    const digest = createHash("sha256")
+        .update(await readFile(binary))
+        .digest("hex"),
+      manifest = herdrAssetManifest();
+    manifest.sha256[arch === "arm64" ? "macos-aarch64" : "macos-x86_64"] =
+      digest;
+    const metadata = join(f.dir, "herdr-metadata.mjs");
+    await writeFile(
+      metadata,
+      `globalThis.fetch=async()=>new Response(${JSON.stringify(JSON.stringify(manifest))})`,
+    );
+    const herdrLock = join(f.dir, "herdr.lock.json");
+    const locked = run(f.dir, metadata, [
+      "--profile",
+      "herdr-only",
+      "--target",
+      `darwin-${arch}`,
+      "--out",
+      herdrLock,
+      "--json",
+    ]);
+    assert.equal(locked.status, 0, locked.stdout + locked.stderr);
+    await appendFile(
+      f.preload,
+      `;const previousFetch=globalThis.fetch;globalThis.fetch=async(u,o)=>String(u).includes('/herdrdev/herdr/')?new Response(process.env.HERDR_BAD?'invalid':await readFile(${JSON.stringify(binary)})):previousFetch(u,o)`,
+    );
+    const uv = (extra = {}) =>
+      runUvSetup(
+        f,
+        ["--repo", f.dir, "--profile", "uv-only", "--lock", uvLock, "--yes"],
+        extra,
+      );
+    const herdr = (extra = {}) =>
+      runUvSetup(
+        f,
+        [
+          "--repo",
+          f.dir,
+          "--profile",
+          "herdr-only",
+          "--lock",
+          herdrLock,
+          "--yes",
+        ],
+        extra,
+      );
+    const first = order === "uv-first" ? uv : herdr,
+      second = order === "uv-first" ? herdr : uv;
+    const done = first();
+    assert.equal(done.status, 0, done.stdout + done.stderr);
+    const statePath = join(f.home, ".agent-stack/binding.json"),
+      before = await readFile(statePath);
+    const failed = second(
+      order === "uv-first" ? { HERDR_BAD: "1" } : { FETCH_MODE: "bad" },
+    );
+    assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+    assert.deepEqual(await readFile(statePath), before);
+    const next = second();
+    assert.equal(next.status, 0, next.stdout + next.stderr);
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    assert.equal(state.installations.uv.mode, "managed");
+    assert.equal(state.installations.herdr.mode, "managed");
+    assert.equal(
+      state.defaultBinding.profile,
+      order === "uv-first" ? "herdr-only" : "uv-only",
+    );
+    assert.equal(first().status, 0);
+    assert.equal(
+      JSON.parse(await readFile(statePath, "utf8")).defaultBinding.profile,
+      order === "uv-first" ? "uv-only" : "herdr-only",
+    );
+    assert.equal(second().status, 0);
+    assert.equal(
+      JSON.parse(await readFile(statePath, "utf8")).defaultBinding.profile,
+      order === "uv-first" ? "herdr-only" : "uv-only",
+    );
   });
 }
 
