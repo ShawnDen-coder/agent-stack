@@ -1973,7 +1973,11 @@ export async function applyHerdr(input: {
 export async function applyWindowsHerdr(
   input: Parameters<typeof applyHerdr>[0],
 ) {
-  if (process.platform !== "win32" || input.target !== "win32-x64")
+  if (
+    process.platform !== "win32" ||
+    process.arch !== "x64" ||
+    input.target !== "win32-x64"
+  )
     throw new Error("Windows Herdr installation requires native Windows x64");
   const { root, bin } = await inspectUvPath(input.home, input.path);
   const operation = await acquire(root);

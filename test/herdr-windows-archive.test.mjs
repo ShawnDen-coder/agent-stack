@@ -695,3 +695,24 @@ if(!native){Object.defineProperty(process,'platform',{value:'win32'});Object.def
   assert.deepEqual(externalReport.binding.installations.uv, uvReceipt);
   assert.equal(await readFile(marker, "utf8"), "xxxxxx");
 });
+
+test("Windows bundle adapter rejects a non-x64 process before I/O", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const moduleUrl = new URL("../dist/adapters/uv-state.js", import.meta.url)
+    .href;
+  const source = `import 'node:path';Object.defineProperty(process,'platform',{value:'win32'});Object.defineProperty(process,'arch',{value:'arm64'});const {applyWindowsHerdr}=await import(${JSON.stringify(moduleUrl)});try{await applyWindowsHerdr({target:'win32-x64'});process.exitCode=1}catch(error){if(!/requires native Windows x64/.test(error.message))throw error}`;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", source],
+    {
+      encoding: "utf8",
+      timeout: 10000,
+      env: {
+        ...(process.env.SystemRoot
+          ? { SystemRoot: process.env.SystemRoot }
+          : {}),
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
