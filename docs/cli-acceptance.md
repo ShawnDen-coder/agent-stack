@@ -2,20 +2,21 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-此矩阵记录当前已实现能力；非预览 setup、`run`、锁更新、安装和应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
+此矩阵记录当前已实现能力；除 macOS uv-only setup 外，`run`、锁更新、安装和配置应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
 
-| 行为                                                | 状态   | 测试证据                                          |
-| --------------------------------------------------- | ------ | ------------------------------------------------- |
-| help、无参数、版本                                  | 已实现 | `test/cli.test.mjs`                               |
-| YAML、YML、JSON 过渡、重复定义与非法 YAML           | 已实现 | `test/cli.test.mjs`                               |
-| 只读、路径含空格与 `&`、保留替换后的能力要求        | 已实现 | `test/cli.test.mjs`、`test/interaction.test.mjs`  |
-| 根/子命令共享选项、重复单值、用法错误与 JSON stdout | 已实现 | `test/interaction.test.mjs`                       |
-| 非 TTY、CI、TERM=dumb、NO_COLOR、彩色 40/80 列布局  | 已实现 | `test/interaction.test.mjs`                       |
-| stdout 结果、stderr 交互/进度、重定向时不询问       | 已实现 | `test/interaction.test.mjs`、`test/pty_driver.py` |
-| 真实 TTY 选择、Ctrl-C 取消及检查中中断              | 已实现 | `test/interaction.test.mjs`、`test/pty_driver.py` |
-| doctor 的版本证据、超时和输出上限                   | 已实现 | `test/doctor.test.mjs`、`test/cmd-shim.test.mjs`  |
-| 显式目标的首次共享锁创建、复核、并发拒绝            | 已实现 | `test/lock.test.mjs`                              |
-| setup / run / 锁更新 / 安装 / 配置应用              | 待实现 | 不注册占位命令                                    |
+| 行为                                                | 状态         | 测试证据                                           |
+| --------------------------------------------------- | ------------ | -------------------------------------------------- |
+| help、无参数、版本                                  | 已实现       | `test/cli.test.mjs`                                |
+| YAML、YML、JSON 过渡、重复定义与非法 YAML           | 已实现       | `test/cli.test.mjs`                                |
+| 只读、路径含空格与 `&`、保留替换后的能力要求        | 已实现       | `test/cli.test.mjs`、`test/interaction.test.mjs`   |
+| 根/子命令共享选项、重复单值、用法错误与 JSON stdout | 已实现       | `test/interaction.test.mjs`                        |
+| 非 TTY、CI、TERM=dumb、NO_COLOR、彩色 40/80 列布局  | 已实现       | `test/interaction.test.mjs`                        |
+| stdout 结果、stderr 交互/进度、重定向时不询问       | 已实现       | `test/interaction.test.mjs`、`test/pty_driver.py`  |
+| 真实 TTY 选择、Ctrl-C 取消及检查中中断              | 已实现       | `test/interaction.test.mjs`、`test/pty_driver.py`  |
+| doctor 的版本证据、超时和输出上限                   | 已实现       | `test/doctor.test.mjs`、`test/cmd-shim.test.mjs`   |
+| 显式目标的首次共享锁创建、复核、并发拒绝            | 已实现       | `test/lock.test.mjs`                               |
+| macOS uv-only setup                                 | 已实现，待审 | `test/lock.test.mjs`：下载、发布、确认、恢复、冲突 |
+| 完整 coding setup / run / 锁更新 / 配置应用         | 待实现       | 不注册占位命令                                     |
 
 `validate` 与 `doctor` 成功 JSON 保留既有业务形状；`doctor` 的业务错误仍为 `{ "error": "..." }`，`validate` 失败仍为报告。Commander 用法错误为版本化 `{ "schemaVersion": 1, "error": { "kind": "usage", "message": "..." } }`，退出 2；JSON 帮助和版本为 `{ "schemaVersion": 1, "output": "..." }`。业务失败为 1，交互取消为 130。机器输出没有标题、spinner 或 ANSI，日志只走 stderr。
 
@@ -58,6 +59,6 @@ uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以
 
 `validate --lock [file]` 从真实 CLI 验证共享锁与声明一致性，覆盖离线、篡改、格式等价、路径迁移与 40/80 列输出；不验证远端真实性、下载或安装。
 
-`setup --dry-run`：已有锁的只读计划与未实现步骤阻塞由 `test/lock.test.mjs` 的真实 CLI fixture 验证。本机实测 Intel macOS；Windows 与 arm64 模拟不等于实机验证；安装与应用仍未实现。
+`setup --dry-run`：已有锁的只读计划与未实现步骤阻塞由 `test/lock.test.mjs` 的真实 CLI fixture 验证。本机实测 Intel macOS；Windows 与 arm64 模拟不等于实机验证；仅 macOS uv-only 安装已实现。
 
-uv-only 的只读计划通过真实 CLI fixture 检查锁定目标资产与预期 SHA-256，并保持安装未实现的阻塞；该 fixture 不代表安装验收。
+uv-only 真实 CLI fixture 覆盖只读、安装、复用、确认、冲突、摘要、归档、重定向、中断、并发和恢复；其余部件及完整 coding 仍阻塞。

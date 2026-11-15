@@ -1,6 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import {
   cancel,
+  confirm,
   intro,
   isCancel,
   outro,
@@ -71,6 +72,21 @@ export async function chooseProfile(
     cancel("Cancelled.", { output: process.stderr });
     process.exitCode = 130;
     return null;
+  }
+  return value;
+}
+export async function confirmSetup(): Promise<boolean | null> {
+  if (!interactive()) return null;
+  const value = await confirm({
+    message: "Apply this setup plan?",
+    initialValue: false,
+    input: process.stdin,
+    output: process.stderr,
+  });
+  if (isCancel(value)) {
+    cancel("Cancelled.", { output: process.stderr });
+    process.exitCode = 130;
+    return false;
   }
   return value;
 }
@@ -411,7 +427,7 @@ export function setup(
       "    ",
     );
     line(
-      `Evidence: ${clean(item.observation.evidence ?? "none")} · ownership: unknown`,
+      `Evidence: ${clean(item.observation.evidence ?? "none")} · ownership: ${clean(item.ownership)}`,
       "    ",
     );
     if (item.observation.path) line(clean(item.observation.path), "    ", true);
@@ -428,6 +444,22 @@ export function setup(
       line(clean(item.lockedAsset.digestSource), "      ", true);
     }
     line(clean(item.action), "    ");
+  }
+  if (plan.uvInstallation) {
+    line();
+    line(`uv action: ${clean(plan.uvInstallation.mode)}`);
+    if (plan.uvInstallation.recovery)
+      line("Pending uv operation will be checked for recovery.", "  ");
+    line(
+      `uvx: ${clean(plan.uvInstallation.uvx.version ?? "unknown")} · ${clean(plan.uvInstallation.uvx.status)} · ${clean(plan.uvInstallation.uvx.evidence ?? "none")}`,
+      "  ",
+    );
+    if (plan.uvInstallation.uvx.path)
+      line(clean(plan.uvInstallation.uvx.path), "    ", true);
+    if (plan.uvInstallation.bin) {
+      line("Managed entry directory:");
+      line(clean(plan.uvInstallation.bin), "  ", true);
+    }
   }
   line();
   line(`Integrations: ${plan.integrations.map(clean).join(", ") || "none"}`);

@@ -29,8 +29,8 @@ pnpm cli validate --repo .
 
 ## 当前边界
 
-`lock --dry-run` 报告版本元数据；提供 `--target` 时可预览 Pi、pnpm、uv 和 herdr 的 macOS arm64/x64 与 Windows x64 资产元数据及预期摘要。pnpm native 预览核对已识别的 pnpm 12 发行契约；未知系列或依赖形态不符时阻塞。该报告不生成锁或执行计划；它只读取发行方元数据，不下载发行物，也不完成字节摘要验证、签名验证、传递依赖闭包或运行验收。显式指定已支持目标时，`lock` 可首次创建共享锁；已有默认锁或输出文件时拒绝覆盖。更新、离线解析、安装、配置应用、非预览 setup 和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。
+`lock --dry-run` 报告版本元数据；提供 `--target` 时可预览 Pi、pnpm、uv 和 herdr 的 macOS arm64/x64 与 Windows x64 资产元数据及预期摘要。pnpm native 预览核对已识别的 pnpm 12 发行契约；未知系列或依赖形态不符时阻塞。该报告不生成锁或执行计划；它只读取发行方元数据，不下载发行物，也不完成字节摘要验证、签名验证、传递依赖闭包或运行验收。显式指定已支持目标时，`lock` 可首次创建共享锁；已有默认锁或输出文件时拒绝覆盖。更新、离线解析、其他部件安装、配置应用和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。
 
 `setup --profile coding --dry-run` 可离线预览已有共享锁的本机计划；当前不安装或应用配置，必需步骤未实现时返回 1。需明确锁覆盖的原生目标；支持检测原生 macOS arm64/x64 和 Windows x64，未知或仿真宿主阻塞。
 
-只读 setup 计划会显示锁定 uv 资产的 URL 和预期 SHA-256；它不会下载或验证发行物字节。uv 安装仍未实现。
+在原生 macOS arm64/x64，`setup` 可按完整锁安装或复用能力完整的 uv-only profile；预览不联网，执行前需确认或显式 `--yes`。新安装的受管入口位于 `$HOME/.agent-stack/bin`，须预先创建并加入 PATH；匹配的外部入口可只读复用。它不代表 coding 已配置；Windows、Linux/WSL、仿真和其他部件仍不能应用。详见 [Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/research-agent-stack/docs/quickstart.md)。

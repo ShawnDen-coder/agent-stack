@@ -1,6 +1,6 @@
 # Setup 实施方案：按锁对齐 coding
 
-状态：方案已通过根会话审查；当前仅实现 `setup --dry-run` 只读预览，计划执行和安装尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
+状态：方案已通过根会话审查；当前实现 macOS uv-only 的只读计划及按锁应用；其他部件与完整 coding 安装尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
 
 ## 推荐路径与成功条件
 
@@ -61,6 +61,8 @@
 
 当前只读预览在 macOS x64 使用 `/usr/bin/arch -x86_64` 启动同架构的固定 sysctl 查询；这确保子进程与 Node 一样需要或不需要 Rosetta。仅接受 `0` 或精确的 ENOENT 输出；其他错误阻塞。macOS arm64 进程为原生。Windows x64 使用固定 PowerShell 内置 `Add-Type` 调用 [`IsWow64Process2`](https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process2)，检查 Node 进程与系统原生架构；调用不可用或返回仿真均阻塞。查询使用临时目录、受限环境、固定参数和有界超时/输出，并在结束时清理。Apple 的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 是进程属性；不能使用未控制架构的子进程推断 Node 状态。Windows 原生实机、Rosetta 和 ARM64 仿真仍须实机验证。
 
-当前进度：只读计划已显示选中目标的 uv 资产身份、URL 和预期 SHA-256；uv-only 不再报告不适用的 npm engines 或 Pi 资源阻塞。下载、字节校验、部署、归属、确认、绑定及恢复均尚未实现。
+当前进度：macOS uv-only 计划显示锁定资产；执行可下载并核对 SHA-256、限制解包和版本验证、创建受管硬链接、记录绑定，并恢复可证明归属的未完成操作。受管目录必须预先存在于 PATH；不修改 shell 配置。Windows、其他部件和完整 coding 仍阻塞。
 
 发行布局核验：以锁中 uv 0.13.8 为例，临时下载的 Intel macOS tar.gz 包含 `uv` 与 `uvx`，Windows x64 zip 还包含 `uvw.exe`；两份 SHA-256 与锁一致。该观察不证明其他版本的布局或安装兼容性；发行格式参见[该版本官方配置](https://github.com/astral-sh/uv/blob/0.13.8/dist-workspace.toml)。
+
+当前 uv adapter 将下载限制为 64 MiB、30 秒和最多四次仅 GitHub release/CDN 的 HTTPS 重定向；使用固定 tar 依赖仅读取已知的两个普通文件，文件内容展开上限 128 MiB、tar 元数据额外上限 1 MiB，拒绝未知路径、重复、链接和特殊文件。每个受管入口使用硬链接 no-clobber 发布；本机锁与恢复日志只协调 Agent Stack，自行修改的文件不会被删除。进程在尚未记录完整所有权或文件内容基线的窗口被强制杀死，或暂存文件被外部修改时，保留不明文件并要求人工检查。确认后与发布前复核锁、声明、绑定、PATH、HOME 和目标目录；外部非协作编辑器仍存在检查与单次文件操作之间的竞争窗口。

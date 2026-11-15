@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；锁更新、离线解析、安装和配置应用尚未实现。
+Agent Stack 使用同一份 Git 仓库保存共享配置与工作方法，npm CLI 读取这份 checkout，并逐步实现检测、安装、配置应用和升级。当前代码提供声明校验、有限只读工具链检测，npm、uv、herdr 的候选报告，以及显式支持目标的首次共享锁创建；原生 macOS 的 uv-only setup 已可按锁安装或复用；锁更新、离线解析、其他部件安装和配置应用尚未实现。
 
 ## 目录职责
 
@@ -110,7 +110,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 现阶段 repository adapter 读取定义，toolchain adapter 执行受限版本查询和读取包元数据，npm-registry 与 releases adapter 只读查询官方版本元数据。发行物下载与配置应用的 adapter 在对应功能实现时增加；CLI 不直接拼接 Shell 命令。Windows 标准 cmd-shim 经完整模板与包元数据静态核对；未知包装器不执行。
 
-`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线和安装尚未实现。
+`--repo` 指向仓库根目录；声明仅读取其 `stack/` 下的目录，不读取根目录旧布局。默认外部部件锁位置为 `<repo>/stack/stack.lock.json`；首次创建必须显式指定已支持目标。Linux ABI、更新、离线解析及其他部件安装尚未实现。
 
 ### 来源规则与锁校验
 

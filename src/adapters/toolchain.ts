@@ -184,7 +184,9 @@ export async function observe(
       .match(
         name === "herdr"
           ? /^herdr (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
-          : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
+          : name === "uvx"
+            ? /^uvx (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/
+            : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
       );
     return {
       path,

@@ -6,13 +6,33 @@ import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
 import {
   chooseProfile,
+  confirmSetup,
   failure,
   progress,
   setup,
   start,
 } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
+import {
+  recheckSetupBaseline,
+  setupBaseline,
+} from "../adapters/setup-baseline.js";
 import { observe } from "../adapters/toolchain.js";
+import {
+  applyUv,
+  bindExternalUv,
+  hasPendingUv,
+  inspectUvPath,
+  matchesManagedUv,
+  readUvBinding,
+  recoverPendingUv,
+  type UvBinding,
+  UvCommittedError,
+  uvEntryAbsent,
+  uvEntryFingerprint,
+  uvRootIdentity,
+} from "../adapters/uv-state.js";
+import { verifyObservedUv } from "../adapters/uv-version.js";
 import { assess } from "../core/doctor.js";
 import { freshLockSchema } from "../core/fresh-lock.js";
 import { componentAction, setupPlanSchema } from "../core/setup-plan.js";
@@ -23,7 +43,7 @@ export function createSetupCommand(): Command {
   let lockSeen = false;
   return shared(
     new Command("setup").description(
-      "Preview a read-only setup plan from a shared lock",
+      "Preview or apply a locked macOS uv setup",
     ),
   )
     .addOption(profileOption())
@@ -42,24 +62,38 @@ export function createSetupCommand(): Command {
       ),
     )
     .option("--dry-run", "Preview only; no changes are made")
+    .option("--yes", "Confirm the displayed plan")
     .action(async (_options: unknown, command: Command) => {
       const options = command.optsWithGlobals() as {
         repo?: string;
         profile?: string;
         lock?: string;
         dryRun?: boolean;
+        yes?: boolean;
         json?: boolean;
       };
-      if (!options.dryRun)
-        command.error("error: setup currently only supports --dry-run");
       if (options.repo !== undefined && !options.repo.trim())
         command.error("error: --repo must not be empty or whitespace");
       if (options.profile !== undefined && !options.profile.trim())
         command.error("error: --profile must not be empty or whitespace");
       const json = Boolean(options.json);
-      const repo = resolve(options.repo ?? process.env.AGENT_STACK_REPO ?? ".");
+      if (!options.dryRun && !options.yes && json)
+        command.error("error: --yes is required in JSON mode");
+      const home = process.env.HOME;
+      let binding: UvBinding | null;
+      try {
+        binding = await readUvBinding(home);
+      } catch (error) {
+        failure(error instanceof Error ? error.message : String(error), json);
+        process.exitCode = 1;
+        return;
+      }
+      const repo = resolve(
+        options.repo ?? process.env.AGENT_STACK_REPO ?? binding?.repo ?? ".",
+      );
+      const bound = binding?.repo === repo ? binding : null;
       const selectedProfile =
-        options.profile ?? process.env.AGENT_STACK_PROFILE;
+        options.profile ?? process.env.AGENT_STACK_PROFILE ?? bound?.profile;
       if (!selectedProfile && json)
         command.error("error: --profile is required in JSON mode");
       const controller = new AbortController();
@@ -84,10 +118,11 @@ export function createSetupCommand(): Command {
           (item) => item.id === profileId,
         );
         if (!profile) throw new Error(`Unknown profile: ${profileId}`);
+        const boundLock = bound?.profile === profileId ? bound.lock : undefined;
         const path =
-          options.lock === undefined
-            ? join(repo, "stack", "stack.lock.json")
-            : resolve(options.lock);
+          options.lock !== undefined
+            ? resolve(options.lock)
+            : (boundLock ?? join(repo, "stack", "stack.lock.json"));
         const raw = await readLock(path);
         validateLock(raw, repository);
         const lock = freshLockSchema.parse(raw);
@@ -104,6 +139,34 @@ export function createSetupCommand(): Command {
           throw new Error(
             `Cannot establish a supported native host for ${target}: ${host.evidence}`,
           );
+        const uvOnly =
+          profile.components.length === 1 &&
+          profile.components[0]?.component === "uv" &&
+          profile.integrations.length === 0;
+        const componentIds = profile.components.map((item) => item.component);
+        const baseline = await setupBaseline(
+          repo,
+          path,
+          repository,
+          profileId,
+          componentIds,
+          profile.integrations,
+        );
+        const recheck = () =>
+          recheckSetupBaseline(
+            baseline,
+            repo,
+            path,
+            profileId,
+            componentIds,
+            profile.integrations,
+          );
+        if (
+          JSON.stringify(await readLock(path)) !== JSON.stringify(raw) ||
+          JSON.stringify(await readUvBinding(home)) !== JSON.stringify(binding)
+        )
+          throw new Error("Setup inputs changed during planning");
+        await recheck();
         const engine = await cliNodeRequirement();
         const node = {
           name: "node",
@@ -117,7 +180,12 @@ export function createSetupCommand(): Command {
             engine,
           ),
         };
-        start("Agent Stack · Setup preview", json);
+        start(
+          options.dryRun
+            ? "Agent Stack · Setup preview"
+            : "Agent Stack · Setup",
+          json,
+        );
         const stop = progress("Inspecting toolchain", json);
         let checks: Array<{ name: string } & ReturnType<typeof assess>>;
         try {
@@ -126,6 +194,7 @@ export function createSetupCommand(): Command {
               "npm",
               "git",
               ...lock.components.map((item) => item.component),
+              ...(uvOnly ? ["uvx"] : []),
             ].map(async (name) => {
               const component = lock.components.find(
                 (item) => item.component === name,
@@ -133,7 +202,9 @@ export function createSetupCommand(): Command {
               return {
                 name,
                 ...assess(
-                  ["npm", "git", "pi", "pnpm", "uv", "herdr"].includes(name)
+                  ["npm", "git", "pi", "pnpm", "uv", "uvx", "herdr"].includes(
+                    name,
+                  )
                     ? await observe(name, controller.signal)
                     : {
                         path: null,
@@ -141,7 +212,11 @@ export function createSetupCommand(): Command {
                         failure: "not_checked",
                         evidence: null,
                       },
-                  component ? `=${component.version}` : null,
+                  component
+                    ? `=${component.version}`
+                    : name === "uvx"
+                      ? `=${lock.components.find((item) => item.component === "uv")?.version}`
+                      : null,
                 ),
               };
             }),
@@ -154,6 +229,126 @@ export function createSetupCommand(): Command {
           failure("Cancelled.", json);
           return;
         }
+        const uvVersion = lock.components.find(
+          (item) => item.component === "uv",
+        )?.version;
+        const uv = checks.find((item) => item.name === "uv"),
+          uvx = checks.find((item) => item.name === "uvx");
+        let uvMode: "install" | "reuse" | "managed" | undefined;
+        let uvBin: string | null = null;
+        let uvPathIdentity: string | undefined;
+        const pendingUv = uvOnly && home ? await hasPendingUv(home) : false;
+        const uvBlockers: string[] = [];
+        if (uvOnly) {
+          if (process.platform !== "darwin")
+            uvBlockers.push(
+              "uv installation is only supported on native macOS",
+            );
+          if (!home) uvBlockers.push("HOME is required for uv setup");
+          if (binding?.uv.mode === "managed" && home && uvVersion) {
+            if (await matchesManagedUv(home, binding, uvVersion, target)) {
+              const expectedBin = join(resolve(home), ".agent-stack", "bin");
+              if (
+                uv?.path === join(expectedBin, "uv") &&
+                uvx?.path === join(expectedBin, "uvx") &&
+                uv.status === "ok" &&
+                uvx.status === "ok"
+              ) {
+                uvMode = "managed";
+                uvBin = expectedBin;
+              } else
+                uvBlockers.push(
+                  "Managed uv entries are not the first matching PATH entries",
+                );
+            } else
+              uvBlockers.push(
+                "Managed uv entries changed or do not match the lock",
+              );
+          } else if (pendingUv && home && !binding) {
+            try {
+              const paths = await inspectUvPath(home, process.env.PATH ?? "");
+              uvBin = paths.bin;
+              uvPathIdentity = paths.identity;
+              uvMode = "install";
+            } catch (error) {
+              uvBlockers.push(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          } else if (
+            uv?.status === "ok" &&
+            uvx?.status === "ok" &&
+            uv.path &&
+            uvx.path &&
+            uvVersion
+          ) {
+            try {
+              await Promise.all([
+                verifyObservedUv(uv.path, "uv", uvVersion, controller.signal),
+                verifyObservedUv(uvx.path, "uvx", uvVersion, controller.signal),
+              ]);
+              uvMode = "reuse";
+            } catch {
+              if (controller.signal.aborted) throw new Error("Cancelled");
+              uvBlockers.push(
+                "Cannot verify existing uv and uvx entry behavior",
+              );
+            }
+          } else if (
+            uv?.status === "not_found" &&
+            uvx?.status === "not_found" &&
+            home
+          ) {
+            try {
+              const paths = await inspectUvPath(home, process.env.PATH ?? "");
+              uvBin = paths.bin;
+              uvPathIdentity = paths.identity;
+              if (
+                !(await uvEntryAbsent(join(paths.bin, "uv"))) ||
+                !(await uvEntryAbsent(join(paths.bin, "uvx")))
+              )
+                throw new Error("Managed uv entries already exist");
+              uvMode = "install";
+            } catch (error) {
+              uvBlockers.push(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          } else
+            uvBlockers.push(
+              "Existing uv or uvx entry is missing, unverified, or conflicts with the lock",
+            );
+        }
+        let rootIdentity: string | null = null;
+        if (uvOnly && home) {
+          try {
+            rootIdentity = await uvRootIdentity(home);
+          } catch {
+            uvBlockers.push("Cannot verify setup state directory");
+          }
+        }
+        let uvFingerprint: string | undefined,
+          uvxFingerprint: string | undefined;
+        if (uvMode === "reuse" || uvMode === "managed") {
+          try {
+            if (!uv?.path || !uvx?.path)
+              throw new Error("Missing uv entry path");
+            [uvFingerprint, uvxFingerprint] = await Promise.all([
+              uvEntryFingerprint(uv.path),
+              uvEntryFingerprint(uvx.path),
+            ]);
+          } catch {
+            uvBlockers.push("Cannot verify existing uv entry identities");
+          }
+        }
+        if (uvOnly && pendingUv && binding?.uv.mode === "external")
+          uvBlockers.push(
+            "Pending uv operation conflicts with the existing external binding; inspect it before retrying",
+          );
+        if (uvOnly && binding && uvMode === "install")
+          uvBlockers.push(
+            "Existing setup binding is stale; refusing to replace it",
+          );
         const plan = setupPlanSchema.parse({
           kind: "setup-plan",
           repo: {
@@ -163,7 +358,9 @@ export function createSetupCommand(): Command {
                 ? "option"
                 : process.env.AGENT_STACK_REPO !== undefined
                   ? "environment"
-                  : "cwd",
+                  : bound
+                    ? "binding"
+                    : "cwd",
           },
           profile: {
             id: profileId,
@@ -172,11 +369,18 @@ export function createSetupCommand(): Command {
                 ? "option"
                 : process.env.AGENT_STACK_PROFILE !== undefined
                   ? "environment"
-                  : "interactive",
+                  : bound
+                    ? "binding"
+                    : "interactive",
           },
           lock: {
             path,
-            selectedBy: options.lock === undefined ? "default" : "option",
+            selectedBy:
+              options.lock !== undefined
+                ? "option"
+                : boundLock
+                  ? "binding"
+                  : "default",
             node: lock.node,
           },
           host,
@@ -211,7 +415,10 @@ export function createSetupCommand(): Command {
               component: item.component,
               lockedVersion: item.version,
               observation,
-              ownership: "unknown",
+              ownership:
+                item.component === "uv" && uvMode === "managed"
+                  ? "managed"
+                  : "unknown",
               ...(uvAsset && uvAsset.artifact.type === "uv"
                 ? {
                     lockedAsset: {
@@ -227,6 +434,16 @@ export function createSetupCommand(): Command {
               action: componentAction(observation.status),
             };
           }),
+          ...(uvMode
+            ? {
+                uvInstallation: {
+                  mode: uvMode,
+                  bin: uvBin,
+                  uvx,
+                  recovery: pendingUv,
+                },
+              }
+            : {}),
           integrations: profile.integrations,
           resources: profile.components.some(
             (item) => item.component === "pi" || item.component === "herdr",
@@ -234,13 +451,23 @@ export function createSetupCommand(): Command {
             ? ["configuration", "skills", "agent resources"]
             : [],
           blockers: [
-            ...[node, ...checks]
+            ...[
+              node,
+              ...checks.filter(
+                (item) => item.name === "npm" || item.name === "git",
+              ),
+            ]
               .filter((item) => item.status !== "ok")
               .map((item) => `${item.name}: ${item.status}`),
+            ...uvBlockers,
+            ...(!uvOnly
+              ? [
+                  "Installation adapters are not implemented for the complete profile",
+                ]
+              : []),
             ...(lock.components.some((item) => item.source.type === "npm")
               ? ["Package-level Node engines are not checked"]
               : []),
-            "Installation adapters are not implemented",
             ...(profile.components.some(
               (item) => item.component === "pi" || item.component === "herdr",
             ) || profile.integrations.length
@@ -248,13 +475,179 @@ export function createSetupCommand(): Command {
               : []),
           ],
           scope:
-            "Read-only preview; metadata does not prove executability or ownership; environment readiness is not assessed.",
+            "Plan only; locked digest is expected metadata until downloaded and checked.",
         });
-        setup(plan, json);
-        process.exitCode = 1;
+        if (options.dryRun || !json) setup(plan, json);
+        if (plan.blockers.length) {
+          if (json && !options.dryRun) setup(plan, true);
+          process.exitCode = 1;
+          return;
+        }
+        if (options.dryRun) return;
+        if (!options.yes) {
+          const confirmed = await confirmSetup();
+          if (confirmed === null)
+            command.error("error: --yes is required in non-interactive mode");
+          if (!confirmed) {
+            process.exitCode = 130;
+            return;
+          }
+        }
+        if (!home || !uvMode || !uvVersion || !uv || !uvx)
+          throw new Error("Incomplete uv setup plan");
+        const selected = plan.components.find(
+          (item) => item.component === "uv",
+        )?.lockedAsset;
+        if (selected?.format !== "tar.gz")
+          throw new Error("Unsupported uv target asset");
+        const verifyInput = async () => {
+          await recheck();
+          if (
+            uvMode !== "install" &&
+            rootIdentity !== null &&
+            (await uvRootIdentity(home)) !== rootIdentity
+          )
+            throw new Error("Setup state directory changed after planning");
+          if (
+            uvMode === "install" &&
+            (await inspectUvPath(home, process.env.PATH ?? "")).identity !==
+              uvPathIdentity
+          )
+            throw new Error("Managed entry directory changed after planning");
+          if (controller.signal.aborted) throw new Error("Cancelled");
+        };
+        const verifyExternal = async () => {
+          await verifyInput();
+          if (!uv.path || !uvx.path) throw new Error("Missing uv entry path");
+          if (
+            (await uvEntryFingerprint(uv.path)) !== uvFingerprint ||
+            (await uvEntryFingerprint(uvx.path)) !== uvxFingerprint
+          )
+            throw new Error("Existing uv entries changed after planning");
+          await Promise.all([
+            verifyObservedUv(uv.path, "uv", uvVersion, controller.signal),
+            verifyObservedUv(uvx.path, "uvx", uvVersion, controller.signal),
+          ]);
+          const currentUv = await observe("uv", controller.signal),
+            currentUvx = await observe("uvx", controller.signal);
+          if (
+            currentUv.path !== uv.path ||
+            currentUvx.path !== uvx.path ||
+            currentUv.version !== uv.version ||
+            currentUvx.version !== uvx.version ||
+            currentUv.failure ||
+            currentUvx.failure ||
+            !currentUv.path ||
+            !currentUvx.path ||
+            (await uvEntryFingerprint(currentUv.path)) !== uvFingerprint ||
+            (await uvEntryFingerprint(currentUvx.path)) !== uvxFingerprint ||
+            (uvMode === "managed" &&
+              binding &&
+              !(await matchesManagedUv(home, binding, uvVersion, target)))
+          )
+            throw new Error("Existing uv entries changed after planning");
+        };
+        let result: UvBinding | null;
+        if (uvMode === "managed") {
+          await verifyExternal();
+          if (pendingUv)
+            await recoverPendingUv(
+              home,
+              process.env.PATH ?? "",
+              controller.signal,
+              verifyInput,
+            );
+          if (
+            binding &&
+            (binding.repo !== repo ||
+              binding.profile !== profileId ||
+              binding.lock !== path)
+          )
+            result = await bindExternalUv({
+              home,
+              repo,
+              profile: profileId,
+              lock: path,
+              version: uvVersion,
+              target,
+              managed: binding,
+              rootIdentity,
+              signal: controller.signal,
+              recheck: verifyExternal,
+            });
+          else result = binding;
+        } else if (uvMode === "reuse")
+          result = await bindExternalUv({
+            home,
+            repo,
+            profile: profileId,
+            lock: path,
+            version: uvVersion,
+            target,
+            rootIdentity,
+            signal: controller.signal,
+            recheck: verifyExternal,
+          });
+        else
+          result = await applyUv({
+            checkReachable: async () => {
+              const a = assess(
+                await observe("uv", controller.signal),
+                `=${uvVersion}`,
+              );
+              const b = assess(
+                await observe("uvx", controller.signal),
+                `=${uvVersion}`,
+              );
+              if (
+                a.status !== "ok" ||
+                b.status !== "ok" ||
+                a.path !== join(uvBin ?? "", "uv") ||
+                b.path !== join(uvBin ?? "", "uvx")
+              )
+                throw new Error(
+                  "Published uv entries are not the first matching PATH entries",
+                );
+            },
+            home,
+            path: process.env.PATH ?? "",
+            repo,
+            profile: profileId,
+            lock: path,
+            version: uvVersion,
+            target,
+            asset: selected,
+            signal: controller.signal,
+            recheck: verifyInput,
+          });
+        if (json)
+          console.log(
+            JSON.stringify(
+              {
+                kind: "setup-complete",
+                profile: profileId,
+                mode: uvMode,
+                plan,
+                binding: result,
+              },
+              null,
+              2,
+            ),
+          );
+        else
+          console.log(
+            uvMode === "reuse"
+              ? "[OK] Existing uv was reused; retain its native PATH in future shells."
+              : `[OK] uv profile setup completed. Ensure future shells include ${uvBin} in PATH.`,
+          );
       } catch (error) {
         if (error instanceof Error && error.name === "CommanderError")
           throw error;
+        if (error instanceof UvCommittedError) {
+          failure(error.message, json);
+          process.exitCode = 1;
+          return;
+        }
         if (controller.signal.aborted) {
           process.exitCode = 130;
           failure("Cancelled.", json);
