@@ -1,7 +1,17 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { type BigIntStats, constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rmdir, unlink } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  realpath,
+  rm,
+  rmdir,
+  unlink,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { z } from "zod";
 
@@ -48,41 +58,60 @@ foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIde
      $rule.IdentityReference.Value -notin $trusted) { exit 4 }
 }
 [Console]::Out.WriteLine('safe')`;
-  return await new Promise<boolean>((done) => {
-    let closed = false;
-    let result: boolean | undefined;
-    const finish = () => {
-      if (closed && result !== undefined) done(result);
-    };
-    const child = execFile(
-      program,
-      [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-EncodedCommand",
-        Buffer.from(script, "utf16le").toString("base64"),
-      ],
-      {
-        cwd: path,
-        env: { SystemRoot: systemRoot, AGENT_STACK_DIR: path },
-        timeout: 5000,
-        maxBuffer: 4096,
-        killSignal: "SIGKILL",
-        windowsHide: true,
-        encoding: "utf8",
-      },
-      (error, stdout) => {
-        result = !error && stdout.trim() === "safe";
+  const temporary = await mkdtemp(join(tmpdir(), "agent-stack-acl-"));
+  try {
+    return await new Promise<boolean>((done) => {
+      let closed = false;
+      let result: boolean | undefined;
+      const finish = () => {
+        if (closed && result !== undefined) done(result);
+      };
+      const child = execFile(
+        program,
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-EncodedCommand",
+          Buffer.from(script, "utf16le").toString("base64"),
+        ],
+        {
+          cwd: temporary,
+          env: {
+            SystemRoot: systemRoot,
+            AGENT_STACK_DIR: path,
+            HOME: temporary,
+            USERPROFILE: temporary,
+            APPDATA: temporary,
+            LOCALAPPDATA: temporary,
+            TEMP: temporary,
+            TMP: temporary,
+          },
+          timeout: 5000,
+          maxBuffer: 4096,
+          killSignal: "SIGKILL",
+          windowsHide: true,
+          encoding: "utf8",
+        },
+        (error, stdout) => {
+          result = !error && stdout.trim() === "safe";
+          finish();
+        },
+      );
+      child.stdin?.end();
+      child.once("close", () => {
+        closed = true;
         finish();
-      },
-    );
-    child.stdin?.end();
-    child.once("close", () => {
-      closed = true;
-      finish();
+      });
     });
-  });
+  } finally {
+    await rm(temporary, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 100,
+    });
+  }
 }
 export async function safeDir(path: string) {
   const info = await lstat(path, { bigint: true });

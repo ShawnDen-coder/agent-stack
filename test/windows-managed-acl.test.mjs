@@ -11,7 +11,17 @@ test("native Windows refuses write access for Everyone on managed directories", 
   timeout: 45000,
 }, async (t) => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "herdr-acl-")));
-  t.after(() => rm(home, { recursive: true, force: true }));
+  const previousTemp = process.env.TEMP,
+    previousTmp = process.env.TMP;
+  process.env.TEMP = home;
+  process.env.TMP = home;
+  t.after(async () => {
+    if (previousTemp === undefined) delete process.env.TEMP;
+    else process.env.TEMP = previousTemp;
+    if (previousTmp === undefined) delete process.env.TMP;
+    else process.env.TMP = previousTmp;
+    await rm(home, { recursive: true, force: true });
+  });
   const dir = join(home, "managed");
   await mkdir(dir);
   const powershell = join(
@@ -39,7 +49,17 @@ $acl.AddAccessRule($rule)
       Buffer.from(script, "utf16le").toString("base64"),
     ],
     {
-      env: { SystemRoot: process.env.SystemRoot, TEST_DIR: dir },
+      cwd: home,
+      env: {
+        SystemRoot: process.env.SystemRoot,
+        TEST_DIR: dir,
+        HOME: home,
+        USERPROFILE: home,
+        TMP: home,
+        TEMP: home,
+        APPDATA: home,
+        LOCALAPPDATA: home,
+      },
       encoding: "utf8",
       timeout: 10000,
       windowsHide: true,
@@ -49,7 +69,16 @@ $acl.AddAccessRule($rule)
   await safeDir(dir);
   const icacls = join(process.env.SystemRoot, "System32", "icacls.exe");
   const unsafe = spawnSync(icacls, [dir, "/grant", "*S-1-1-0:(OI)(CI)M"], {
-    env: { SystemRoot: process.env.SystemRoot },
+    cwd: home,
+    env: {
+      SystemRoot: process.env.SystemRoot,
+      HOME: home,
+      USERPROFILE: home,
+      TMP: home,
+      TEMP: home,
+      APPDATA: home,
+      LOCALAPPDATA: home,
+    },
     encoding: "utf8",
     timeout: 10000,
     windowsHide: true,

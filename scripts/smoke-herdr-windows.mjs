@@ -178,7 +178,16 @@ $acl.AddAccessRule($rule)
     ],
     {
       cwd: base,
-      env: { SystemRoot: systemRoot, TEST_DIR: base },
+      env: {
+        SystemRoot: systemRoot,
+        TEST_DIR: base,
+        HOME: base,
+        USERPROFILE: base,
+        TMP: base,
+        TEMP: base,
+        APPDATA: base,
+        LOCALAPPDATA: base,
+      },
       timeout: 10000,
       windowsHide: true,
     },

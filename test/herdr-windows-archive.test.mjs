@@ -28,7 +28,16 @@ $acl.AddAccessRule($rule)
       Buffer.from(script, "utf16le").toString("base64"),
     ],
     {
-      env: { SystemRoot: systemRoot, TEST_DIR: base },
+      env: {
+        SystemRoot: systemRoot,
+        TEST_DIR: base,
+        HOME: base,
+        USERPROFILE: base,
+        TMP: base,
+        TEMP: base,
+        APPDATA: base,
+        LOCALAPPDATA: base,
+      },
       encoding: "utf8",
       timeout: 10000,
       windowsHide: true,
@@ -218,8 +227,10 @@ for (const killPoint of [
     await secureTestWindows(base);
     const home = join(base, "home"),
       root = join(home, ".agent-stack"),
-      bin = join(root, "bin");
+      bin = join(root, "bin"),
+      temporary = join(base, "tmp");
     await mkdir(bin, { recursive: true });
+    await mkdir(temporary);
     const archive = zip(fixture()),
       archivePath = join(base, "bundle.zip");
     await writeFile(archivePath, archive);
@@ -256,6 +267,9 @@ if(process.env.TEST_ACTION==='recover'){await recoverPendingUv(args.home,args.pa
             HOME: home,
             USERPROFILE: home,
             SystemRoot: process.env.SystemRoot ?? base,
+            TMP: temporary,
+            TEMP: temporary,
+            TMPDIR: temporary,
             PATH: bin,
             ...extra,
           },
@@ -277,6 +291,9 @@ if(process.env.TEST_ACTION==='recover'){await recoverPendingUv(args.home,args.pa
             HOME: home,
             USERPROFILE: home,
             SystemRoot: process.env.SystemRoot ?? base,
+            TMP: temporary,
+            TEMP: temporary,
+            TMPDIR: temporary,
             PATH: bin,
             TEST_DELAY: "1",
           },
@@ -440,9 +457,11 @@ test("compiled setup CLI selects the Windows locked bundle and avoids a second d
     home = join(base, "home"),
     bin = join(home, ".agent-stack", "bin"),
     tools = join(base, "tools"),
-    marker = join(base, "fetch-count");
+    marker = join(base, "fetch-count"),
+    temporary = join(base, "tmp");
   await mkdir(bin, { recursive: true });
   await mkdir(tools);
+  await mkdir(temporary);
   await cp(
     fileURLToPath(new URL("../stack", import.meta.url)),
     join(repo, "stack"),
@@ -485,6 +504,9 @@ test("compiled setup CLI selects the Windows locked bundle and avoids a second d
     HOME: home,
     USERPROFILE: home,
     SystemRoot: process.env.SystemRoot ?? base,
+    TMP: temporary,
+    TEMP: temporary,
+    TMPDIR: temporary,
     PATH: `${bin}${delimiter}${tools}`,
     PATHEXT: ".exe",
     NO_COLOR: "1",
