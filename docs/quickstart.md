@@ -124,7 +124,6 @@ pnpm cli setup --repo . --profile uv-only --lock ./uv-only.lock.json
 
 Windows zip、Linux/WSL、仿真、完整 coding 和其他安装 adapter 尚不可应用。异常中断后重跑可恢复已记录的受管操作；若本机记录不完整或目标已被更改，保留文件并提示人工检查。
 
-
 ## macOS 的 Herdr-only setup
 
 在独立 checkout 的 `stack/profiles/herdr-only.yaml` 创建组合：

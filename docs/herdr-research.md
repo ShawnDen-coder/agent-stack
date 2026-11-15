@@ -1,5 +1,7 @@
 # Herdr 调研：特性、目录与启动流程
 
+当前 Agent Stack 安装与运行验证范围另见 [Herdr 原生验收](herdr-macos-smoke.md)；下文为固定版本的上游调研证据。
+
 [架构](architecture.md) · [Setup 方案](setup-plan.md) · [路线图](roadmap.md)
 
 调研日期：2026-11-15。对象是本仓库 `herdr` component 对应的 **Herdr TUI**（`herdrdev/herdr`），不包含 Herdr desktop app 或 herdr-core 的安装与配置契约。

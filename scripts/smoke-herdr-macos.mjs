@@ -17,9 +17,21 @@ import { machine } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 
-const execute = promisify(execFile);
+function execute(command, argv, options = {}) {
+  return new Promise((resolveResult, reject) => {
+    const child = execFile(command, argv, options, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+      } else {
+        resolveResult({ stdout, stderr });
+      }
+    });
+    child.stdin?.end();
+  });
+}
 const root = fileURLToPath(new URL("..", import.meta.url));
 const args = process.argv.slice(2);
 if (args.length !== 4 || args[0] !== "--cli" || args[2] !== "--target") {
@@ -41,14 +53,18 @@ assert.equal(
 assert.equal(machine(), expectedMachine, "native machine must match target");
 if (process.arch === "x64") {
   const translated = await execute(
-    "/usr/sbin/sysctl",
-    ["-n", "sysctl.proc_translated"],
+    "/usr/bin/arch",
+    ["-x86_64", "/usr/sbin/sysctl", "-n", "sysctl.proc_translated"],
     { timeout: 5000 },
   ).catch((error) => {
-    if (String(error.stderr).includes("unknown oid")) return { stdout: "0" };
+    if (
+      error.code === 1 &&
+      /^sysctl: unknown oid 'sysctl\.proc_translated'\s*$/.test(error.stderr)
+    )
+      return { stdout: "0" };
     throw error;
   });
-  assert.notEqual(translated.stdout.trim(), "1", "Rosetta is not native x64");
+  assert.equal(translated.stdout.trim(), "0", "native Intel macOS required");
 }
 const fixture = JSON.parse(
   await readFile(join(root, "test/fixtures/herdr-release/v0.9.5.json"), "utf8"),
@@ -221,7 +237,10 @@ try {
       .digest("hex"),
     fixture.sha256[key],
   );
-  assert.match((await run(herdr, ["--version"])).stdout, /0\.9\.5/);
+  assert.equal(
+    (await run(herdr, ["--version"])).stdout.trim(),
+    `herdr ${fixture.version}`,
+  );
   const again = JSON.parse(
     (
       await run(
@@ -319,7 +338,7 @@ try {
       await waitFor(
         () => server.exitCode !== null || server.signalCode !== null,
         "forced server exit",
-      ).catch(() => {});
+      );
     }
   }
   await rm(base, { recursive: true, force: true });

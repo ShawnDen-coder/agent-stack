@@ -1,0 +1,61 @@
+name: Herdr macOS installation
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Official Herdr / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: macos-latest
+            target: darwin-arm64
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm install --global pnpm@12.15.0
+      - name: Verify pinned pnpm
+        shell: bash
+        run: |
+          pnpm_version="$(pnpm --version)"
+          test "$pnpm_version" = "12.15.0"
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+      - name: Install the packed CLI in isolation
+        shell: bash
+        run: |
+          herdr_pack_dir="$(mktemp -d "$RUNNER_TEMP/herdr-pack.XXXXXX")"
+          herdr_cli_dir="$(mktemp -d "$RUNNER_TEMP/herdr-cli.XXXXXX")"
+          npm pack --ignore-scripts --json --pack-destination "$herdr_pack_dir" > "$herdr_pack_dir/pack.json"
+          node --input-type=module - "$herdr_pack_dir/pack.json" <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          const [pack] = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const files = pack.files.map(({ path }) => path);
+          assert.ok(files.includes("dist/cli.js"), "Packed CLI is missing");
+          assert.ok(files.every((path) => !/^(stack|src|test|scripts|docs)\//.test(path)), "Package includes checkout resources");
+          console.log(JSON.stringify({ packedFiles: files.length }));
+          NODE
+          npm install --prefix "$herdr_cli_dir" --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false "$herdr_pack_dir/"*.tgz
+          node --check "$herdr_cli_dir/node_modules/agent-stack/dist/cli.js"
+          printf 'HERDR_SMOKE_CLI=%s\n' "$herdr_cli_dir/node_modules/agent-stack/dist/cli.js" >> "$GITHUB_ENV"
+      - name: Install and exercise official Herdr
+        shell: bash
+        run: node scripts/smoke-herdr-macos.mjs --cli "$HERDR_SMOKE_CLI" --target "${{ matrix.target }}"

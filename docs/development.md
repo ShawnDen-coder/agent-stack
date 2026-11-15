@@ -72,7 +72,9 @@ npm pack --dry-run --ignore-scripts
 
 ## 多系统验证
 
-CI 覆盖六组 OS/Node 组合，但只有运行后的结果才算证据。它验证构建、定义校验和 CLI 行为，尚不安装外部工具，也不证明各部件原生集成通过。
+`Check` 覆盖 Linux/macOS/Windows × Node 24/26 六组组合，验证构建、定义校验和真实 CLI 边界及受控 fixture。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 Windows/WSL、GUI、交互式 TUI 或完整 coding 集成通过。
+
+原生 smoke 的接口、固定 metadata 与 live 资产下载分工及验收边界见 [Herdr 原生验收](herdr-macos-smoke.md)。runner 标签与架构依据 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
 
 后续增加实际安装/应用时，需要分别验证 Windows 原生与 WSL，并覆盖已有工具、多个 PATH 候选、本地修改、重复应用、失败重试和恢复。不能把 Linux runner 等同于 WSL，也不能通过删除能力要求掩盖替换后的缺口。
 

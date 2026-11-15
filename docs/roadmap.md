@@ -55,7 +55,7 @@ setup 与 doctor 已对齐 repo/profile 的 option、env 和匹配本机绑定�
 3. Pi npm staging、pnpm native 与 Windows uv；随后应用原生配置与 pi-herdr 资源。
 4. doctor 应用核验及 `run coding`，完成 setup → doctor → run coding 闭环。Otty 保持独立可选桌面层，Rex 维持实验组合。
 
-每片独立提交并评审。GitHub Actions 的 Linux/macOS/Windows × Node 24/26 矩阵目前运行构建、CLI 和受控 fixture；外部工具 adapter 交付后，再加入官方发行物的实际安装、幂等、隔离协议及恢复任务。VM/实机补充交互终端、ConPTY 和 GUI 验收；Linux runner 不能作为 WSL 原生证据。报告分别标明 fixture、官方发行物和交互实测，不能互相替代。
+每片独立提交并评审。GitHub Actions 的 Linux/macOS/Windows × Node 24/26 矩阵运行构建、CLI 和受控 fixture；另有 Herdr macOS x64/arm64 官方发行物实际下载、安装、幂等与隔离 server/IPC 任务。后续部件和 Windows 安装仍需随 adapter 增加实际任务。VM/实机补充交互终端、ConPTY 和 GUI 验收；Linux runner 不能作为 WSL 原生证据。报告分别标明 fixture、官方发行物和交互实测，不能互相替代。
 
 参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。
 
