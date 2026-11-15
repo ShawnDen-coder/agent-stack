@@ -47,3 +47,11 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 - Setup 方案已通过根会话审查。只读 `setup --dry-run` 和 macOS uv-only 写入增量已审查，其余安装、配置应用与完整闭环仍未实现。
 
 当前增量支持 macOS uv-only 按锁安装、复用、受管入口及本机恢复/绑定；回执核对锁定资产，PATH 变化在执行前拒绝，旧操作锁接管串行化。Windows、其他部件和完整 coding 待实现。
+
+## 下一步分片与证据
+
+本轮对齐 setup 与 doctor 的 repo/profile 选择；doctor 仍只观察工具链，不核验应用结果。状态迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)，现有 uv 恢复保证继续适用。
+
+依次实施 Herdr 三目标安装及隔离协议验收、Pi npm staging 与 pnpm native 和 Windows uv、原生配置与 pi-herdr 资源、doctor 应用核验及 `run coding`；Otty 为独立可选桌面层，Rex 维持实验组合。每片独立提交并评审。平台未实测时如实标注；Actions 的资产与隔离协议测试不能代替 VM/实机终端、ConPTY、GUI 和恢复验收。
+
+参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。

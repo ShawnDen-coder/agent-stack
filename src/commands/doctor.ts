@@ -11,6 +11,7 @@ import {
 } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
 import { observe } from "../adapters/toolchain.js";
+import { readUvBinding } from "../adapters/uv-state.js";
 import { assess } from "../core/doctor.js";
 import { validateRepository } from "../core/validate.js";
 
@@ -27,9 +28,16 @@ export function createDoctorCommand(): Command {
         repo?: string;
         json?: boolean;
       };
-      const repo = resolve(options.repo ?? ".");
       try {
-        if (!options.profile && options.json)
+        const binding = await readUvBinding(process.env.HOME);
+        const repo = resolve(
+          options.repo ?? process.env.AGENT_STACK_REPO ?? binding?.repo ?? ".",
+        );
+        const selectedProfile =
+          options.profile ??
+          process.env.AGENT_STACK_PROFILE ??
+          (binding?.repo === repo ? binding.profile : undefined);
+        if (!selectedProfile && options.json)
           command.error("error: --profile is required in JSON mode");
         const repository = await readRepository(repo);
         const validation = validateRepository(repository);
@@ -38,7 +46,7 @@ export function createDoctorCommand(): Command {
             "Repository definitions are invalid; run validate for details",
           );
         const profileId =
-          options.profile ?? (await chooseProfile(repository.profiles));
+          selectedProfile ?? (await chooseProfile(repository.profiles));
         if (!profileId) {
           if (process.exitCode === 130) return;
           command.error("error: --profile is required in non-interactive mode");
@@ -46,7 +54,7 @@ export function createDoctorCommand(): Command {
         const profile = repository.profiles.find(
           (item) => item.id === profileId,
         );
-        if (!profile) throw new Error(`Unknown profile: ${options.profile}`);
+        if (!profile) throw new Error(`Unknown profile: ${profileId}`);
         const engine = await cliNodeRequirement();
         const node = assess(
           {

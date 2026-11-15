@@ -102,6 +102,62 @@ test("doctor help and profile errors are explicit", () => {
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stdout).error, /Unknown profile/);
 });
+test("doctor resolves environment and scoped binding with explicit options first", async (t) => {
+  const { root, bin } = await fixture(t);
+  const other = await mkdtemp(join(tmpdir(), "doctor other "));
+  t.after(() => rm(other, { recursive: true, force: true }));
+  await cp(join(root, "stack"), join(other, "stack"), { recursive: true });
+  const home = join(root, "home");
+  await mkdir(join(home, ".agent-stack"), { recursive: true });
+  await writeFile(
+    join(home, ".agent-stack", "binding.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      repo: root,
+      profile: "coding-rex",
+      lock: join(root, "stack/stack.lock.json"),
+      uv: {
+        version: "1.0.0",
+        target: "darwin-arm64",
+        mode: "external",
+        directory: null,
+        uvHash: null,
+        uvxHash: null,
+      },
+    }),
+  );
+  const env = { ...process.env, HOME: home, PATH: bin };
+  const invoke = (args, extra = {}) =>
+    spawnSync(process.execPath, [cli, "doctor", "--json", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...env, ...extra },
+      timeout: 15000,
+    });
+  assert.equal(JSON.parse(invoke([]).stdout).profile, "coding-rex");
+  assert.equal(
+    JSON.parse(
+      invoke([], { AGENT_STACK_REPO: ".", AGENT_STACK_PROFILE: "coding" })
+        .stdout,
+    ).profile,
+    "coding",
+  );
+  assert.equal(
+    JSON.parse(
+      invoke(["--repo", ".", "--profile", "coding-rex"], {
+        AGENT_STACK_REPO: other,
+        AGENT_STACK_PROFILE: "coding",
+      }).stdout,
+    ).profile,
+    "coding-rex",
+  );
+  const unbound = invoke(["--repo", other]);
+  assert.equal(unbound.status, 2);
+  assert.match(
+    JSON.parse(unbound.stdout).error.message,
+    /--profile is required/,
+  );
+});
 test(
   "doctor reports observations, requirements and unchecked scope without touching the project",
   unix,
