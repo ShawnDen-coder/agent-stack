@@ -10,8 +10,8 @@ import {
   start,
 } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
+import { readDefaultBinding } from "../adapters/setup-state.js";
 import { observe } from "../adapters/toolchain.js";
-import { readUvBinding } from "../adapters/uv-state.js";
 import { assess } from "../core/doctor.js";
 import { validateRepository } from "../core/validate.js";
 
@@ -39,7 +39,7 @@ export function createDoctorCommand(): Command {
         const binding =
           requestedRepo !== undefined && requestedProfile !== undefined
             ? null
-            : await readUvBinding(process.env.HOME);
+            : await readDefaultBinding(process.env.HOME);
         const repo = resolve(requestedRepo ?? binding?.repo ?? ".");
         const selectedProfile =
           requestedProfile ??

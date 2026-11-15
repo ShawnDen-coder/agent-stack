@@ -140,3 +140,5 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 ## 调研与后续状态边界
 
 [Herdr 调研](herdr-research.md)、[Pi 调研](pi-research.md)和 [Otty 调研](otty-research.md)记录固定证据及未验证范围；它们不替代共享锁。多部件状态的默认绑定、回执、资源归属与 journal 迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)。
+
+当前 setup 状态边界由 `setup-state` 严格读取现有 uv v1 binding 并投影默认上下文；`managed-operation` 提供安全文件读取、身份与摘要、归属删除和 guard。uv 特定 owner、journal、提交及恢复仍由 uv adapter 负责；磁盘格式未迁移，Herdr 安装仍未实现。

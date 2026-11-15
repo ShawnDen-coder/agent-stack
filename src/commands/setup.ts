@@ -17,6 +17,7 @@ import {
   recheckSetupBaseline,
   setupBaseline,
 } from "../adapters/setup-baseline.js";
+import { readSetupState, type UvBinding } from "../adapters/setup-state.js";
 import { findExecutable, observe } from "../adapters/toolchain.js";
 import {
   applyUv,
@@ -24,9 +25,7 @@ import {
   hasPendingUv,
   inspectUvPath,
   matchesManagedUv,
-  readUvBinding,
   recoverPendingUv,
-  type UvBinding,
   UvCommittedError,
   uvEntryAbsent,
   uvEntryFingerprint,
@@ -82,7 +81,7 @@ export function createSetupCommand(): Command {
       const home = process.env.HOME;
       let binding: UvBinding | null;
       try {
-        binding = await readUvBinding(home);
+        binding = await readSetupState(home);
       } catch (error) {
         failure(error instanceof Error ? error.message : String(error), json);
         process.exitCode = 1;
@@ -163,7 +162,7 @@ export function createSetupCommand(): Command {
           );
         if (
           JSON.stringify(await readLock(path)) !== JSON.stringify(raw) ||
-          JSON.stringify(await readUvBinding(home)) !== JSON.stringify(binding)
+          JSON.stringify(await readSetupState(home)) !== JSON.stringify(binding)
         )
           throw new Error("Setup inputs changed during planning");
         await recheck();

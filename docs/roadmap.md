@@ -57,3 +57,5 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。
 
 当前 setup 已在计划中显示锁定的 Herdr 目标资产；这只是离线锁元数据，尚未下载或安装。Herdr 安装、归属与恢复仍待后续分片。
+
+本片提取现有 uv 消费的状态读取及受管文件保护边界，保留 v1 存储和恢复协议；不引入 v2 状态，Herdr 安装仍待实现。

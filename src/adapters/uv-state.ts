@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import {
   link,
@@ -12,55 +12,31 @@ import {
   unlink,
 } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
-import semver from "semver";
 import { z } from "zod";
+import {
+  boundedFileHash,
+  decodeState,
+  directoryInode,
+  hash,
+  inode,
+  missing,
+  optional,
+  removeIfOwned,
+  removeOwned,
+  safeDir,
+  withOperationGuard,
+} from "./managed-operation.js";
+import {
+  bindingSchema,
+  readSetupState,
+  type UvBinding,
+} from "./setup-state.js";
 import { readUvArchive } from "./uv-archive.js";
 import { downloadUv } from "./uv-download.js";
 import { verifyUvVersion } from "./uv-version.js";
 
 export class UvCommittedError extends Error {}
 
-const bindingSchema = z
-  .strictObject({
-    schemaVersion: z.literal(1),
-    repo: z.string().refine(isAbsolute),
-    profile: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-    lock: z.string().refine(isAbsolute),
-    uv: z.strictObject({
-      version: z.string().refine((value) => semver.valid(value) === value),
-      target: z.enum(["darwin-arm64", "darwin-x64"]),
-      mode: z.enum(["managed", "external"]),
-      directory: z.string().nullable(),
-      uvHash: z.string().nullable(),
-      uvxHash: z.string().nullable(),
-      asset: z
-        .strictObject({
-          name: z.string(),
-          url: z.string(),
-          sha256: z.string().regex(/^[a-f0-9]{64}$/),
-          releaseId: z.number().int().positive(),
-          assetId: z.number().int().positive(),
-        })
-        .optional(),
-    }),
-  })
-  .refine((binding) =>
-    binding.uv.mode === "managed"
-      ? Boolean(
-          binding.uv.directory &&
-            /^uv-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/.test(
-              binding.uv.directory,
-            ) &&
-            binding.uv.uvHash &&
-            /^[a-f0-9]{64}$/.test(binding.uv.uvHash) &&
-            binding.uv.uvxHash &&
-            /^[a-f0-9]{64}$/.test(binding.uv.uvxHash),
-        )
-      : binding.uv.directory === null &&
-        binding.uv.uvHash === null &&
-        binding.uv.uvxHash === null,
-  );
-export type UvBinding = z.infer<typeof bindingSchema>;
 const pendingSchema = z
   .strictObject({
     schemaVersion: z.literal(1),
@@ -122,18 +98,6 @@ const ownerSchema = z.strictObject({
 });
 type Owner = z.infer<typeof ownerSchema>;
 
-const hash = (value: Buffer) =>
-  createHash("sha256").update(value).digest("hex");
-const missing = (error: unknown) =>
-  error instanceof Error && "code" in error && error.code === "ENOENT";
-function decodeState<T>(schema: z.ZodType<T>, raw: string): T {
-  try {
-    return schema.parse(JSON.parse(raw));
-  } catch {
-    throw new Error("Invalid local setup state");
-  }
-}
-
 export function uvPaths(home: string, path: string) {
   if (!isAbsolute(home)) throw new Error("HOME must be an absolute directory");
   const root = join(resolve(home), ".agent-stack");
@@ -141,149 +105,6 @@ export function uvPaths(home: string, path: string) {
   if (!path.split(delimiter).some((part) => part && resolve(part) === bin))
     throw new Error(`Add ${bin} to PATH in your shell before setup`);
   return { root, bin };
-}
-async function safeDir(path: string) {
-  const info = await lstat(path);
-  if (
-    !info.isDirectory() ||
-    info.isSymbolicLink() ||
-    (info.mode & 0o022) !== 0 ||
-    (process.getuid && info.uid !== process.getuid())
-  )
-    throw new Error("Managed directory has unsafe ownership or permissions");
-  if ((await realpath(path)) !== resolve(path))
-    throw new Error("Managed directory must not traverse symlinks");
-}
-async function optional(path: string) {
-  let file: Awaited<ReturnType<typeof open>>;
-  try {
-    file = await open(
-      path,
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
-  } catch (error) {
-    if (missing(error)) return null;
-    throw error;
-  }
-  try {
-    const before = await file.stat({ bigint: true });
-    if (!before.isFile() || before.size > 65536n)
-      throw new Error("Invalid local setup state");
-    const buffer = Buffer.alloc(65537);
-    let length = 0;
-    while (length < buffer.length) {
-      const { bytesRead } = await file.read(
-        buffer,
-        length,
-        buffer.length - length,
-        null,
-      );
-      if (!bytesRead) break;
-      length += bytesRead;
-    }
-    const after = await file.stat({ bigint: true });
-    if (
-      length > 65536 ||
-      after.dev !== before.dev ||
-      after.ino !== before.ino ||
-      after.size !== BigInt(length) ||
-      after.mtimeNs !== before.mtimeNs
-    )
-      throw new Error("Invalid local setup state");
-    return buffer.subarray(0, length).toString("utf8");
-  } finally {
-    await file.close();
-  }
-}
-
-export async function readUvBinding(
-  home: string | undefined,
-): Promise<UvBinding | null> {
-  if (!home || !isAbsolute(home)) return null;
-  const data = await optional(join(home, ".agent-stack", "binding.json"));
-  return data === null ? null : decodeState(bindingSchema, data);
-}
-export async function uvBindingFingerprint(
-  home: string | undefined,
-): Promise<string | null> {
-  if (!home || !isAbsolute(home)) return null;
-  const value = await optional(join(home, ".agent-stack", "binding.json"));
-  return value === null ? null : hash(Buffer.from(value));
-}
-async function inode(path: string) {
-  const value = await lstat(path, { bigint: true });
-  if (!value.isFile() || value.isSymbolicLink() || value.ino === 0n)
-    throw new Error("Cannot verify managed file ownership");
-  return { dev: String(value.dev), ino: String(value.ino) };
-}
-async function boundedFileHash(
-  path: string,
-  expected: { dev: string; ino: string },
-) {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const before = await file.stat({ bigint: true });
-    if (
-      !before.isFile() ||
-      String(before.dev) !== expected.dev ||
-      String(before.ino) !== expected.ino ||
-      before.size > BigInt(128 * 1024 * 1024)
-    )
-      throw new Error("Managed file changed or exceeds size limit");
-    const buffer = Buffer.alloc(65536),
-      digest = createHash("sha256");
-    let total = 0;
-    for (;;) {
-      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
-      if (!bytesRead) break;
-      total += bytesRead;
-      if (total > 128 * 1024 * 1024)
-        throw new Error("Managed file exceeds size limit");
-      digest.update(buffer.subarray(0, bytesRead));
-    }
-    const after = await file.stat({ bigint: true });
-    if (
-      after.size !== BigInt(total) ||
-      after.dev !== before.dev ||
-      after.ino !== before.ino ||
-      after.mtimeNs !== before.mtimeNs
-    )
-      throw new Error("Managed file changed during inspection");
-    return digest.digest("hex");
-  } finally {
-    await file.close();
-  }
-}
-async function removeOwned(path: string, dev: string, ino: string) {
-  try {
-    const item = await inode(path);
-    if (item.dev !== dev || item.ino !== ino)
-      throw new Error("Managed entry changed; manual recovery required");
-    await unlink(path);
-  } catch (error) {
-    if (!missing(error)) throw error;
-  }
-}
-async function removeIfOwned(
-  path: string,
-  dev: string,
-  ino: string,
-): Promise<boolean> {
-  try {
-    const item = await inode(path);
-    if (item.dev !== dev || item.ino !== ino) return false;
-    await unlink(path);
-    return true;
-  } catch (error) {
-    if (missing(error)) return true;
-    throw error;
-  }
-}
-async function directoryInode(path: string) {
-  const value = await lstat(path, { bigint: true });
-  if (!value.isDirectory() || value.isSymbolicLink() || value.ino === 0n)
-    throw new Error("Cannot verify managed directory ownership");
-  return { dev: String(value.dev), ino: String(value.ino) };
 }
 async function cleanupStage(
   stage: string,
@@ -358,7 +179,7 @@ async function recover(root: string, bin: string, home: string) {
       pending.bindingIno,
     );
   }
-  const binding = await readUvBinding(home);
+  const binding = await readSetupState(home);
   if (
     binding?.uv.mode === "managed" &&
     binding.uv.directory === pending.stage
@@ -412,21 +233,7 @@ type Operation = {
 };
 
 async function acquire(root: string): Promise<Operation> {
-  const guard = join(root, "operation.guard");
-  try {
-    await mkdir(guard, { mode: 0o700 });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST")
-      throw new Error(
-        "Another setup operation is acquiring the lock; if interrupted, inspect operation.guard for manual recovery",
-      );
-    throw error;
-  }
-  try {
-    return await acquireGuarded(root);
-  } finally {
-    await rmdir(guard);
-  }
+  return withOperationGuard(root, () => acquireGuarded(root));
 }
 
 async function acquireGuarded(root: string): Promise<Operation> {
@@ -478,7 +285,7 @@ async function acquireGuarded(root: string): Promise<Operation> {
         );
     }
     if (old.stage && !(await optional(join(root, "pending.json")))) {
-      const binding = await readUvBinding(dirname(root));
+      const binding = await readSetupState(dirname(root));
       if (
         !(
           binding?.uv.mode === "managed" &&

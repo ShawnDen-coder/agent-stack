@@ -7,7 +7,7 @@ import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
 import { readLock } from "./lock-reader.js";
 import { readRepository } from "./repository.js";
-import { uvBindingFingerprint } from "./uv-state.js";
+import { setupStateFingerprint } from "./setup-state.js";
 
 async function digest(path: string, maxBytes: number) {
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -67,7 +67,7 @@ export async function setupBaseline(
   return JSON.stringify({
     paths,
     values,
-    binding: await uvBindingFingerprint(process.env.HOME),
+    binding: await setupStateFingerprint(process.env.HOME),
     home: process.env.HOME ?? null,
     path: process.env.PATH ?? null,
     platform: process.platform,
