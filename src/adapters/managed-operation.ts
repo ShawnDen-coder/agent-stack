@@ -58,7 +58,9 @@ foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIde
      $rule.IdentityReference.Value -notin $trusted) { exit 4 }
 }
 [Console]::Out.WriteLine('safe')`;
-  const temporary = await mkdtemp(join(tmpdir(), "agent-stack-acl-"));
+  const temporaryRoot = tmpdir();
+  if (!isAbsolute(temporaryRoot)) return false;
+  const temporary = await mkdtemp(join(temporaryRoot, "agent-stack-acl-"));
   try {
     return await new Promise<boolean>((done) => {
       let closed = false;

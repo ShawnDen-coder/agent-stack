@@ -168,3 +168,34 @@ test("state disappearing between identity check and open fails closed", async (t
     syncBuiltinESMExports();
   }
 });
+
+test("Windows directory checks reject a relative temporary root before launching a child", async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  const { access } = await import("node:fs/promises");
+  const home = await mkdtemp(join(tmpdir(), "setup-relative-temp-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const moduleUrl = new URL(
+    "../dist/adapters/managed-operation.js",
+    import.meta.url,
+  ).href;
+  const source = `import 'node:path';import 'node:os';if(process.platform!=='win32')Object.defineProperty(process,'platform',{value:'win32'});const {safeDir}=await import(${JSON.stringify(moduleUrl)});try{await safeDir(${JSON.stringify(home)});process.exitCode=1}catch(error){if(!/unsafe ownership or permissions/.test(error.message))throw error}`;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", source],
+    {
+      cwd: home,
+      encoding: "utf8",
+      timeout: 10000,
+      env: {
+        HOME: home,
+        USERPROFILE: home,
+        SystemRoot: home,
+        TMP: "relative",
+        TEMP: "relative",
+        TMPDIR: "relative",
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  await assert.rejects(access(join(home, "relative")));
+});
