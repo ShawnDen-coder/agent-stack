@@ -189,7 +189,7 @@ test("Windows directory checks reject a relative temporary root before launching
       env: {
         HOME: home,
         USERPROFILE: home,
-        SystemRoot: home,
+        SystemRoot: process.env.SystemRoot ?? home,
         TMP: "relative",
         TEMP: "relative",
         TMPDIR: "relative",
