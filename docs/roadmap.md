@@ -56,8 +56,10 @@ pnpm native 预览按 12.15.0 起的 pnpm 12 发行契约核对所选版本的�
 
 参考 [Herdr v0.9.5 调研](herdr-research.md)、[Pi v1.5.2 调研](pi-research.md)和 [Otty 官方文档调研](otty-research.md)。这些快照不改变共享锁，Otty Windows 发行支持尚未确认。
 
-当前 setup 已在计划中显示锁定的 Herdr 目标资产；这只是离线锁元数据，尚未下载或安装。Herdr 安装、归属与恢复仍待后续分片。
+预览阶段的 setup 计划已显示锁定 Herdr 目标资产；预览只读取离线锁元数据，不下载资产。
 
-本片提取现有 uv 消费的状态读取及受管文件保护边界，保留 v1 存储和恢复协议；不引入 v2 状态，Herdr 安装仍待实现。
+边界提取阶段保留了 v1 存储和恢复协议；后续已加入 v2 状态与 Herdr 消费者。
 
-当前支持原生 macOS Herdr-only 对匹配的既有入口做 external 复用并记录 v2 状态；Herdr managed 安装、Windows 执行与完整 coding 闭环仍未实现。原生路径契约的 3 项 TODO 保持待实现。
+当前支持原生 macOS Herdr-only 对匹配的既有入口做 external 复用并记录 v2 状态；Herdr managed 安装现支持原生 macOS；Windows 执行与完整 coding 闭环仍未实现。原生路径契约的 3 项 TODO 保持待实现。
+
+当前原生 macOS Herdr-only 可按锁安装或复用；Windows ZIP 安装、Pi 集成与完整 coding 仍待后续切片。

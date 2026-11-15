@@ -102,6 +102,12 @@ export const setupPlanSchema = z.object({
       recovery: z.boolean(),
     })
     .optional(),
+  herdrInstallation: z
+    .object({
+      mode: z.enum(["install", "reuse", "managed"]),
+      recovery: z.boolean(),
+    })
+    .optional(),
   integrations: z.array(z.string()),
   resources: z.array(z.string()),
   blockers: z.array(z.string()),

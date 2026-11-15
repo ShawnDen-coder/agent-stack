@@ -45,7 +45,7 @@ export const bindingSchema = defaultBindingSchema.extend({
   schemaVersion: z.literal(1),
   uv: uvReceiptSchema,
 });
-const herdrReceiptSchema = z.strictObject({
+const externalHerdrReceiptSchema = z.strictObject({
   mode: z.literal("external"),
   source: z.literal("unknown"),
   version: z.string().refine((value) => semver.valid(value) === value),
@@ -53,6 +53,27 @@ const herdrReceiptSchema = z.strictObject({
   path: z.string().refine(isAbsolute),
   fingerprint: z.string().min(1),
 });
+const managedHerdrReceiptSchema = z.strictObject({
+  mode: z.literal("managed"),
+  version: z.string().refine((value) => semver.valid(value) === value),
+  target: z.enum(["darwin-arm64", "darwin-x64"]),
+  directory: z
+    .string()
+    .regex(/^herdr-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/),
+  entryHash: z.string().regex(/^[a-f0-9]{64}$/),
+  asset: z.strictObject({
+    assetKey: z.enum(["macos-aarch64", "macos-x86_64"]),
+    name: z.string(),
+    url: z.url(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    digestSource: z.url(),
+  }),
+});
+const herdrReceiptSchema = z.discriminatedUnion("mode", [
+  externalHerdrReceiptSchema,
+  managedHerdrReceiptSchema,
+]);
+export type HerdrReceipt = z.infer<typeof herdrReceiptSchema>;
 export const setupStateSchema = z.strictObject({
   schemaVersion: z.literal(2),
   defaultBinding: defaultBindingSchema.nullable(),

@@ -20,11 +20,13 @@ import {
 import { readSetupState, type SetupState } from "../adapters/setup-state.js";
 import { findExecutable, observe } from "../adapters/toolchain.js";
 import {
+  applyHerdr,
   applyUv,
   bindExternalHerdr,
   bindExternalUv,
   hasPendingUv,
   inspectUvPath,
+  matchesManagedHerdr,
   matchesManagedUv,
   recoverPendingUv,
   UvCommittedError,
@@ -43,7 +45,7 @@ export function createSetupCommand(): Command {
   let lockSeen = false;
   return shared(
     new Command("setup").description(
-      "Preview or apply locked macOS uv setup or Herdr reuse",
+      "Preview or apply locked macOS uv or Herdr setup",
     ),
   )
     .addOption(profileOption())
@@ -356,25 +358,95 @@ export function createSetupCommand(): Command {
         const herdrVersion = lock.components.find(
           (item) => item.component === "herdr",
         )?.version;
-        let herdrFingerprint: string | undefined;
+        const lockedHerdr = lock.assets.find(
+          (asset) =>
+            asset.component === "herdr" &&
+            asset.target === target &&
+            asset.artifact.type === "herdr",
+        );
+        const herdrAsset =
+          lockedHerdr?.artifact.type === "herdr" &&
+          lockedHerdr.digest.algorithm === "sha256" &&
+          lockedHerdr.format === "binary"
+            ? {
+                assetKey: lockedHerdr.artifact.assetKey,
+                name: lockedHerdr.artifact.assetName,
+                url: lockedHerdr.url,
+                sha256: lockedHerdr.digest.value,
+                digestSource: lockedHerdr.digestSource,
+              }
+            : undefined;
+        let herdrFingerprint: string | undefined,
+          herdrPathIdentity: string | undefined;
+        let herdrMode: "install" | "reuse" | "managed" | undefined;
+        const herdrPending =
+          herdrOnly && home ? await hasPendingUv(home) : false;
         if (herdrOnly) {
           if (process.platform !== "darwin")
-            uvBlockers.push("Herdr reuse is only supported on native macOS");
+            uvBlockers.push("Herdr setup is only supported on native macOS");
           if (!home) uvBlockers.push("HOME is required for Herdr setup");
-          if (!herdr?.path || herdr.status !== "ok" || !herdrVersion)
+          const receipt = state?.installations.herdr;
+          if (
+            receipt?.mode === "managed" &&
+            home &&
+            herdrVersion &&
+            herdrAsset
+          ) {
+            if (
+              (await matchesManagedHerdr(
+                home,
+                receipt,
+                herdrVersion,
+                target,
+                herdrAsset,
+              )) &&
+              herdr?.path ===
+                join(resolve(home), ".agent-stack", "bin", "herdr") &&
+              herdr.status === "ok"
+            )
+              herdrMode = "managed";
+            else
+              uvBlockers.push(
+                "Managed Herdr entry changed or does not match the lock",
+              );
+          } else if (
+            home &&
+            !receipt &&
+            (herdrPending || herdr?.status === "not_found")
+          ) {
+            try {
+              const paths = await inspectUvPath(home, process.env.PATH ?? "");
+              herdrPathIdentity = paths.identity;
+              if (
+                !herdrPending &&
+                !(await uvEntryAbsent(join(paths.bin, "herdr")))
+              )
+                throw new Error("Managed Herdr entry already exists");
+              herdrMode = "install";
+            } catch (error) {
+              uvBlockers.push(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          } else if (herdr?.path && herdr.status === "ok" && herdrVersion)
+            herdrMode = "reuse";
+          else
             uvBlockers.push(
               "Existing Herdr entry is missing, unverified, or conflicts with the lock",
             );
-          else {
+          if (
+            (herdrMode === "managed" || herdrMode === "reuse") &&
+            herdr?.path
+          ) {
             try {
               herdrFingerprint = await uvEntryFingerprint(herdr.path);
             } catch {
               uvBlockers.push("Cannot verify existing Herdr entry identity");
             }
           }
-          if (home && (await hasPendingUv(home)))
+          if (herdrPending && receipt?.mode === "external")
             uvBlockers.push(
-              "Pending uv operation requires recovery before Herdr setup",
+              "Pending operation conflicts with external Herdr binding",
             );
         }
         let rootIdentity: string | null = null;
@@ -492,7 +564,8 @@ export function createSetupCommand(): Command {
               lockedVersion: item.version,
               observation,
               ownership:
-                item.component === "uv" && uvMode === "managed"
+                (item.component === "uv" && uvMode === "managed") ||
+                (item.component === "herdr" && herdrMode === "managed")
                   ? "managed"
                   : "unknown",
               ...(selectedAsset &&
@@ -521,6 +594,9 @@ export function createSetupCommand(): Command {
                   recovery: pendingUv,
                 },
               }
+            : {}),
+          ...(herdrMode
+            ? { herdrInstallation: { mode: herdrMode, recovery: herdrPending } }
             : {}),
           integrations: profile.integrations,
           resources:
@@ -576,49 +652,131 @@ export function createSetupCommand(): Command {
           }
         }
         if (herdrOnly) {
-          if (!home || !herdr?.path || !herdrVersion || !herdrFingerprint)
+          if (!home || !herdrVersion || !herdrMode || !herdrAsset)
             throw new Error("Incomplete Herdr setup plan");
-          const entry = herdr.path,
-            fingerprint = herdrFingerprint;
-          const verifyHerdr = async () => {
+          const verifyInput = async () => {
             await recheck();
             if (controller.signal.aborted) throw new Error("Cancelled");
             if (
-              (await findExecutable("herdr")) !== entry ||
-              (await uvEntryFingerprint(entry)) !== fingerprint
+              herdrMode === "install" &&
+              (await inspectUvPath(home, process.env.PATH ?? "")).identity !==
+                herdrPathIdentity
             )
-              throw new Error("Existing Herdr entry changed after planning");
-            const observation = assess(
-              await observe("herdr", controller.signal),
-              `=${herdrVersion}`,
-            );
-            if (
-              observation.status !== "ok" ||
-              observation.path !== entry ||
-              (await uvEntryFingerprint(entry)) !== fingerprint
-            )
-              throw new Error("Existing Herdr entry changed after planning");
+              throw new Error("Managed entry directory changed after planning");
           };
-          const result = await bindExternalHerdr({
-            home,
-            repo,
-            profile: profileId,
-            lock: path,
-            version: herdrVersion,
-            target,
-            path: entry,
-            fingerprint,
-            rootIdentity,
-            signal: controller.signal,
-            recheck: verifyHerdr,
-          });
+          let result: SetupState | null;
+          if (herdrMode === "install") {
+            result = await applyHerdr({
+              home,
+              path: process.env.PATH ?? "",
+              repo,
+              profile: profileId,
+              lock: path,
+              version: herdrVersion,
+              target,
+              asset: herdrAsset,
+              signal: controller.signal,
+              recheck: verifyInput,
+              checkReachable: async () => {
+                if (
+                  (await findExecutable("herdr")) !==
+                  join(resolve(home), ".agent-stack", "bin", "herdr")
+                )
+                  throw new Error(
+                    "Published Herdr entry is not the first PATH candidate",
+                  );
+              },
+            });
+          } else {
+            if (!herdr?.path || !herdrFingerprint)
+              throw new Error("Incomplete Herdr observation");
+            const entry = herdr.path,
+              fingerprint = herdrFingerprint;
+            const verifyHerdr = async () => {
+              await verifyInput();
+              if (
+                (await findExecutable("herdr")) !== entry ||
+                (await uvEntryFingerprint(entry)) !== fingerprint
+              )
+                throw new Error("Existing Herdr entry changed after planning");
+              const observation = assess(
+                await observe("herdr", controller.signal),
+                `=${herdrVersion}`,
+              );
+              if (
+                observation.status !== "ok" ||
+                observation.path !== entry ||
+                (await uvEntryFingerprint(entry)) !== fingerprint
+              )
+                throw new Error("Existing Herdr entry changed after planning");
+              const receipt = state?.installations.herdr;
+              if (
+                herdrMode === "managed" &&
+                (receipt?.mode !== "managed" ||
+                  !(await matchesManagedHerdr(
+                    home,
+                    receipt,
+                    herdrVersion,
+                    target,
+                    herdrAsset,
+                  )))
+              )
+                throw new Error("Managed Herdr entry changed after planning");
+            };
+            await verifyHerdr();
+            if (herdrMode === "managed") {
+              if (herdrPending)
+                await recoverPendingUv(
+                  home,
+                  process.env.PATH ?? "",
+                  controller.signal,
+                  verifyInput,
+                );
+              const receipt = state?.installations.herdr;
+              if (receipt?.mode !== "managed")
+                throw new Error("Missing managed Herdr receipt");
+              if (
+                context?.repo !== repo ||
+                context?.profile !== profileId ||
+                context?.lock !== path
+              )
+                result = await bindExternalHerdr({
+                  home,
+                  repo,
+                  profile: profileId,
+                  lock: path,
+                  version: herdrVersion,
+                  target,
+                  path: entry,
+                  fingerprint,
+                  managed: receipt,
+                  rootIdentity,
+                  signal: controller.signal,
+                  recheck: verifyHerdr,
+                });
+              else result = state;
+            } else
+              result = await bindExternalHerdr({
+                home,
+                repo,
+                profile: profileId,
+                lock: path,
+                version: herdrVersion,
+                target,
+                path: entry,
+                fingerprint,
+                rootIdentity,
+                signal: controller.signal,
+                recheck: verifyHerdr,
+              });
+          }
           if (json)
             console.log(
               JSON.stringify(
                 {
                   kind: "setup-complete",
                   profile: profileId,
-                  mode: "reuse",
+                  mode: herdrMode,
                   plan,
                   binding: result,
                 },
@@ -628,7 +786,9 @@ export function createSetupCommand(): Command {
             );
           else
             console.log(
-              "[OK] Existing Herdr was reused; ownership remains unknown.",
+              herdrMode === "reuse"
+                ? "[OK] Existing Herdr was reused; ownership remains unknown."
+                : "[OK] Managed Herdr setup completed.",
             );
           return;
         }

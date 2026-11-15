@@ -93,7 +93,8 @@ export async function observeHost(signal?: AbortSignal) {
         {
           cwd: home,
           env,
-          timeout: process.platform === "win32" ? 10000 : 3000,
+          // Windows PowerShell may need a cold .NET/C# compiler startup.
+          timeout: process.platform === "win32" ? 30000 : 3000,
           maxBuffer: 16384,
           killSignal: "SIGKILL",
           windowsHide: true,

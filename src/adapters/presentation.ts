@@ -445,6 +445,12 @@ export function setup(
     }
     line(clean(item.action), "    ");
   }
+  if (plan.herdrInstallation) {
+    line();
+    line(`Herdr action: ${clean(plan.herdrInstallation.mode)}`);
+    if (plan.herdrInstallation.recovery)
+      line("Pending operation will be checked for recovery.", "  ");
+  }
   if (plan.uvInstallation) {
     line();
     line(`uv action: ${clean(plan.uvInstallation.mode)}`);

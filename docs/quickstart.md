@@ -71,7 +71,7 @@ $LASTEXITCODE
 
 Windows 原生与 WSL 应使用各自环境中的 Node、pnpm 和 checkout，不共享本机配置路径。已审查基线 `c6cea45` 的 [CI 运行](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43606679733) 在 macOS/Linux/Windows 与 Node 24/26 六组通过；后续版本候选切片需以其自己的 CI 结果为准。Windows PTY、WSL 与真实外部工具安装尚未由该运行验证。
 
-继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。原生 macOS 的 uv-only setup 可安装或复用 uv，Herdr-only 可复用匹配的已有入口；Herdr managed 安装、其他安装、`run coding`、锁更新和配置应用尚未实现。
+继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。原生 macOS 的 uv-only setup 可安装或复用 uv，Herdr-only 可按锁安装或复用匹配的已有入口；其他安装、`run coding`、锁更新和配置应用尚未实现。
 
 指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 Pi、pnpm 顶层与 pnpm native 包的 npm tarball 及预期 SHA-512，以及 uv release 归档、herdr 发行物 URL 和预期 SHA-256；选项可重复。不指定目标时仅报告版本。pnpm native 预览识别 12.15.0 起的 pnpm 12 发行契约，依赖映射或 native 平台元数据不符时阻塞；CLI 自身使用的 pnpm 版本仍由 packageManager 固定。使用 `--dry-run` 时，若四个部件的目标元数据均完整可返回 0，但不会生成锁；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。
 

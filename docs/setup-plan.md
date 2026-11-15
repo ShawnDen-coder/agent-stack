@@ -1,6 +1,6 @@
 # Setup 实施方案：按锁对齐 coding
 
-状态：方案已通过根会话审查；当前实现 macOS uv-only 的只读计划及按锁应用，以及 Herdr-only 已有入口的 external 复用；Herdr managed 安装与完整 coding 尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
+状态：方案已通过根会话审查；当前实现 macOS uv-only 的只读计划及按锁应用，以及 Herdr-only 按锁 managed 安装或已有入口的 external 复用；完整 coding 尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
 
 ## 推荐路径与成功条件
 
@@ -79,10 +79,12 @@
 
 固定版本调研见 [Herdr](herdr-research.md)、[Pi](pi-research.md) 和 [Otty](otty-research.md)；调研版本是证据快照，安装仍以共享锁为准。Otty 仅有官方在线文档证据，Windows 发行支持尚未确认。
 
-当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。Herdr 已有入口的 external 复用及本机回执已实现；managed 安装仍未实现，完整 coding 继续阻塞。
+当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。原生 macOS Herdr managed 安装与 external 复用均有本机回执；完整 coding 继续阻塞。
 
 ## 本机 v2 状态与复用
 
-`binding.json` 的 v1 输入严格校验后只在内存归一化；读取不写迁移，旧 uv 回执的资产证据原样保留，缺失时不补造。成功写入使用单份 v2 快照：`defaultBinding` 记录最后完整成功的 repo/profile/lock，`installations` 分别保存 uv 与 Herdr 回执。Herdr 本片仅在原生 macOS 复用与锁定版本匹配的已有入口，回执的 `source` 为 `unknown`，入口指纹不代表发行资产摘要已验证。Herdr managed 安装及 Windows 执行尚未实现。
+`binding.json` 的 v1 输入严格校验后只在内存归一化；读取不写迁移，旧 uv 回执的资产证据原样保留，缺失时不补造。成功写入使用单份 v2 快照：`defaultBinding` 记录最后完整成功的 repo/profile/lock，`installations` 分别保存 uv 与 Herdr 回执。Herdr 本片仅在原生 macOS 复用与锁定版本匹配的已有入口，回执的 `source` 为 `unknown`，入口指纹不代表发行资产摘要已验证。原生 macOS 还支持按锁安装独立 Herdr binary；Windows 执行尚未实现。
 
 旧 uv v1 journal 继续按旧协议恢复；新 uv v2 journal 在发布入口前记录提交前原始状态摘要和将提交的完整快照摘要，以及 stage、入口和临时文件的身份。当前状态匹配 before 时只撤销可证明归属的本次文件；匹配 after 且回执、stage、入口身份及摘要均一致时保留安装并清理 journal；其他状态或文件变化保留证据并阻塞。状态替换前复核身份与原始字节，但非协作进程仍可能在检查与文件操作之间竞争，这不是文件系统级 CAS。临时文件意图已记录而身份尚不明时，若文件存在则保留并要求人工检查。
+
+Herdr managed 安装仅支持原生 macOS arm64/x64。它下载锁中 raw binary，核对 SHA-256、Mach-O 架构、版本、stage 与公开入口身份和摘要；使用独立 `herdr-install` journal，在状态发布前记录 before/after 摘要。恢复仅对可证明归属的文件执行清理；未知身份、损坏 journal 或第三态保留并阻塞。受管目录须已在 PATH，不修改 shell 配置，也不启动或停止用户 server。
