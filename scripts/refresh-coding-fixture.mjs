@@ -47,6 +47,14 @@ try {
       "utf8",
     ),
   );
+  if (
+    manifest.source !== "https://herdr.dev/latest.json" ||
+    manifest.version !== "0.9.5"
+  )
+    throw Error("Expected the fixed Herdr 0.9.5 manifest snapshot");
+  console.log(
+    "Metadata inputs: live npm registry and uv GitHub releases; Herdr 0.9.5 manifest snapshot",
+  );
   const preload = join(root, "metadata.mjs");
   await writeFile(preload, codingMetadataPreload(manifest));
   const cli = join(project, "dist/cli.js");

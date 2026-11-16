@@ -9,7 +9,7 @@ node --import "$metadata_preload" dist/cli.js lock --repo "$temporary_repo" --pr
 node dist/cli.js validate --repo "$temporary_repo" --lock --json
 ```
 
-`metadata_preload` 仅将 `https://herdr.dev/latest.json` 固定为仓库已有的 [Herdr 0.9.5 官方 manifest 快照](../herdr-release/v0.9.5.json)；uv 的 GitHub release 和分页 metadata 均真实联网解析，npm metadata 来自官方 registry。生成时没有使用认证 token。CLI 输出经过 Biome 格式化，JSON 内容未改写。格式化后锁文件 SHA-256 为 `3af2abd9f989beb6b544fa69f0dff85a952a0f0758d96b02f15e09133ab52736`，与 `scripts/lib/coding-fixture.mjs` 的校验值一致。
+`metadata_preload` 仅将 `https://herdr.dev/latest.json` 固定为仓库已有的 [Herdr 0.9.5 官方 manifest 快照](../herdr-release/v0.9.5.json)；uv 的 GitHub release 和分页 metadata 均真实联网解析，npm metadata 来自官方 registry。生成时没有使用认证 token。生产 CLI 校验结果为 `valid: true`，覆盖 2 个目标与 10 个资产；CLI 输出经过 Biome 格式化，JSON 内容未改写。格式化后锁文件 SHA-256 为 `3af2abd9f989beb6b544fa69f0dff85a952a0f0758d96b02f15e09133ab52736`，与 `scripts/lib/coding-fixture.mjs` 的校验值一致。
 
 维护者可先 `pnpm build`，再用以下命令在不存在的路径生成并离线校验新候选；脚本不会覆盖现有文件：
 
@@ -20,3 +20,5 @@ node scripts/refresh-coding-fixture.mjs --out ./coding-lock-candidate.json
 可选环境变量 `AGENT_STACK_TEST_GITHUB_TOKEN` 仅在 lock 的 uv GitHub API 首页面和已验证数字仓库分页路径使用，不传给 validate、setup、npm 或 SEA；不要把 token 写入仓库。审查候选的来源、版本、资产和差异后再更新本 fixture；格式化 JSON、重新计算 SHA-256 并同步 `codingLockSha256`。若官方来源、摘要或校验失败，保留失败并调查，不手填锁。
 
 CI 每次从 fixture 校验锁、真实下载并验证发行资产、执行 setup 和 Pi/Herdr TUI，再检查幂等、doctor 与 run；它**不在每次安装 smoke 中重新解析在线版本目录**。此 fixture 的历史 metadata 解析证据与每次 CI 的实际资产安装和运行证据是不同的；锁不固定 npm 的完整传递依赖闭包，也不是发布者签名证明。
+
+原失败证据：PR 的 ARM64 SEA job `133651413594` 在 metadata-only `lock` 返回的部分 `resolution-report` 中报告 uv `Release metadata request timed out`，Pi、pnpm 和 Herdr metadata 已解析，uv 资产因版本元数据缺失不可用；该 job 尚未进入 setup。这个网络/metadata 失败不是实际资产安装失败，也不能证明生产 resolver 的所有路径无问题。生产 resolver 和其测试仍保留，不针对部分报告扩大重试。
