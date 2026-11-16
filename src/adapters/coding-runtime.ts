@@ -307,6 +307,7 @@ export default function(pi) {
   }
   if (shutdownError) throw shutdownError;
   if (operationError) throw operationError;
+  if (input.signal.aborted) throw Error("Cancelled");
   return {
     mode: "tui" as const,
     agent: true as const,
