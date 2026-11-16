@@ -110,7 +110,7 @@ Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询
 
 版本流程：本地运行 `cog bump --auto`（首次显式版本），检查生成的版本提交、tag 和 changelog；将版本提交通过受审 PR 合入 `master`，保留该 commit 身份；确认 tag 指向已合入的确切 commit 后，再按另行授权推送 tag。不可在版本提交进入 `master` 前推送 tag。PR squash 或 rebase 会改变 commit，必须重新核对版本和 tag 身份。该 workflow 不创建或推送 tag。
 
-构建 job 运行 `pnpm check`，只打包一次 npm tarball 并从该 tarball 实际独立安装验证；四个平台原生构建 SEA、归档许可材料并从解包归档运行 smoke。发布 job 下载上述产物并核对 SHA-256；npm 发布直接消费验收 tarball，GitHub Release 附带同一个包、四个二进制归档和 `SHA256SUMS`。macOS 为 ad-hoc 签名而非公证，Windows 未签名。目标平台的成功以实际 CI 运行结果为准。
+构建 job 运行 `pnpm check`，只打包一次 npm tarball，并在 Node 24/26 上从同一 tarball 实际独立安装验证；四个平台原生构建 SEA、归档许可材料并从解包归档运行 smoke。发布 job 下载上述产物并核对 SHA-256；npm 发布直接消费验收 tarball，GitHub Release 附带同一个包、四个二进制归档和 `SHA256SUMS`。macOS 为 ad-hoc 签名而非公证，Windows 未签名。目标平台的成功以实际 CI 运行结果为准。
 
 发布前的外部配置，均未由本仓库自动完成：
 
