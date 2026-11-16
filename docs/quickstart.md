@@ -1,22 +1,22 @@
 # Quickstart：从源码试用
 
-当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。前半部分介绍声明检查、工具检测与共享锁；文末的 macOS uv-only setup 会安装或复用 uv，并记录本机绑定。完整 coding 和配置应用仍未实现。`pnpm install` 安装的是 CLI 自身的依赖。
+当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。前半部分介绍声明检查、工具检测与共享锁；文末的 macOS uv-only/Herdr-only setup 会安装或复用对应工具，并记录本机绑定。完整 coding 和配置应用仍未实现。`pnpm install` 安装的是 CLI 自身的依赖。
 
 ## 准备与获取源码
 
 准备 Node.js 24 或更高版本（含 npm）、Git，以及 `packageManager` 指定的 pnpm 12.15.0。先用 `node --version`、`npm --version`、`git --version` 检查。尚未安装 pnpm 时，可通过 npm 安装对应版本；已有 pnpm 时，先检查版本并沿用自己的安装渠道：
 
 ```sh
-npm install --global pnpm@12.15.0 --ignore-scripts
+npm install --global pnpm@12.15.0
 pnpm --version
 ```
 
 确认输出为 `12.15.0` 后继续。版本不符时先检查 PATH 中的 pnpm 入口；项目不会替你安装前置工具。
 
-基础 CLI 已合入 `master`；试用本指南中的 macOS uv 安装、Herdr 外部复用与 v2 设备状态，请检出 PR #3 的 `native-tool-research` 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
+基础 CLI 已合入 `master`；试用本指南中的原生 macOS uv/Herdr 按锁安装与 v2 设备状态，请检出 `herdr-macos-install` 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
 
 ```sh
-git clone --branch native-tool-research https://github.com/ShawnDen-coder/agent-stack.git
+git clone --branch herdr-macos-install https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
 pnpm install --frozen-lockfile
 pnpm build
@@ -71,7 +71,7 @@ $LASTEXITCODE
 
 Windows 原生与 WSL 应使用各自环境中的 Node、pnpm 和 checkout，不共享本机配置路径。已审查基线 `c6cea45` 的 [CI 运行](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43606679733) 在 macOS/Linux/Windows 与 Node 24/26 六组通过；后续版本候选切片需以其自己的 CI 结果为准。Windows PTY、WSL 与真实外部工具安装尚未由该运行验证。
 
-继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。原生 macOS 的 uv-only setup 可安装或复用 uv，Herdr-only 可复用匹配的已有入口；Herdr managed 安装、其他安装、`run coding`、锁更新和配置应用尚未实现。
+继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。原生 macOS 的 uv-only setup 可安装或复用 uv，Herdr-only 可按锁安装或复用匹配的已有入口；其他安装、`run coding`、锁更新和配置应用尚未实现。
 
 指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 Pi、pnpm 顶层与 pnpm native 包的 npm tarball 及预期 SHA-512，以及 uv release 归档、herdr 发行物 URL 和预期 SHA-256；选项可重复。不指定目标时仅报告版本。pnpm native 预览识别 12.15.0 起的 pnpm 12 发行契约，依赖映射或 native 平台元数据不符时阻塞；CLI 自身使用的 pnpm 版本仍由 packageManager 固定。使用 `--dry-run` 时，若四个部件的目标元数据均完整可返回 0，但不会生成锁；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。
 
@@ -123,3 +123,33 @@ pnpm cli setup --repo . --profile uv-only --lock ./uv-only.lock.json
 交互式 setup 展示计划并要求确认；脚本可用 `--yes`。`--dry-run` 不下载或持久写入（版本观察使用并清理临时目录）；执行只下载锁中资产、核对 SHA-256 和归档，再验证 `uv`/`uvx` 版本。已有相同版本的外部入口只读复用，来源仍为 unknown；未知或冲突入口不覆盖。示例 `export` 只影响当前 shell；请自行确保后续 shell 也包含该目录，setup 不编辑 shell 配置。成功才登记本机绑定；重复执行会核对受管文件并 no-op。
 
 Windows zip、Linux/WSL、仿真、完整 coding 和其他安装 adapter 尚不可应用。异常中断后重跑可恢复已记录的受管操作；若本机记录不完整或目标已被更改，保留文件并提示人工检查。
+
+## macOS 的 Herdr-only setup
+
+在独立 checkout 的 `stack/profiles/herdr-only.yaml` 创建组合：
+
+```yaml
+schemaVersion: 1
+id: herdr-only
+description: Herdr workspace
+platforms: [darwin]
+components:
+  - component: herdr
+    channel: stable
+integrations: []
+requires: [workspace]
+```
+
+沿用上文的受管 bin 目录准备方式，在没有默认共享锁的 checkout 中为本机原生架构生成锁。以下示例使用 Intel macOS；Apple Silicon 将 target 改为 `darwin-arm64`。
+
+```sh
+mkdir -p "$HOME/.agent-stack/bin"
+export PATH="$HOME/.agent-stack/bin:$PATH"
+pnpm cli lock --repo . --profile herdr-only --target darwin-x64 --out ./herdr-only.lock.json
+pnpm cli setup --repo . --profile herdr-only --lock ./herdr-only.lock.json --dry-run
+pnpm cli setup --repo . --profile herdr-only --lock ./herdr-only.lock.json
+```
+
+脚本执行可加 `--yes`。安装核对锁中的 SHA-256、Mach-O 架构及版本，发布 Herdr 受管入口和 v2 回执；匹配的已有原生入口可 external 复用，来源仍为 unknown。重复执行会复核文件与锁，不重新下载匹配的受管安装。下载、确认后漂移或恢复冲突会失败并保留需要人工核查的证据；`--yes` 不覆盖未知入口或本地修改。
+
+此 profile 只安装 workspace 工具，不启用 Pi 集成或 coding 配置。setup 不启动、停止或迁移用户的 Herdr server，也不导入会话或认证。Windows ZIP 安装尚未实现；未知、仿真宿主或锁中缺少当前目标时继续阻塞。

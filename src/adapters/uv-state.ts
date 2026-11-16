@@ -36,7 +36,7 @@ import {
   type UvReceipt,
 } from "./setup-state.js";
 import { readUvArchive } from "./uv-archive.js";
-import { downloadUv } from "./uv-download.js";
+import { downloadRelease, downloadUv } from "./uv-download.js";
 import { verifyUvVersion } from "./uv-version.js";
 
 export class UvCommittedError extends Error {}
@@ -99,6 +99,42 @@ const pendingV2Schema = z
         x.bindingIno === null) ||
       (x.bindingTmp !== null && x.bindingDev !== null && x.bindingIno !== null),
   );
+const herdrPendingSchema = z
+  .strictObject({
+    schemaVersion: z.literal(2),
+    kind: z.literal("herdr-install"),
+    stage: z
+      .string()
+      .regex(/^herdr-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/),
+    stageDev: z.string(),
+    stageIno: z.string(),
+    entryDev: z.string(),
+    entryIno: z.string(),
+    entryHash: z.string().regex(/^[a-f0-9]{64}$/),
+    beforeHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    beforeIdentity: z
+      .strictObject({ dev: z.string(), ino: z.string() })
+      .nullable(),
+    afterHash: z.string().regex(/^[a-f0-9]{64}$/),
+    bindingTmp: z
+      .string()
+      .regex(/^binding-[a-f0-9]{32}\.tmp$/)
+      .nullable(),
+    bindingIdentity: z
+      .strictObject({ dev: z.string(), ino: z.string() })
+      .nullable(),
+  })
+  .refine((x) => (x.beforeHash === null) === (x.beforeIdentity === null))
+  .refine((x) => x.beforeHash !== x.afterHash)
+  .refine((x) => x.bindingTmp !== null || x.bindingIdentity === null);
+const allPendingSchema = z.union([
+  pendingSchema,
+  pendingV2Schema,
+  herdrPendingSchema,
+]);
 const anyPendingSchema = z.union([pendingSchema, pendingV2Schema]);
 type Pending = z.infer<typeof anyPendingSchema>;
 const identitySchema = z.strictObject({ dev: z.string(), ino: z.string() });
@@ -115,16 +151,25 @@ const ownerSchema = z.strictObject({
     })
     .nullable(),
   stage: z
-    .strictObject({
-      name: z
-        .string()
-        .regex(/^uv-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/),
-      identity: identitySchema.nullable(),
-      files: z.partialRecord(
-        z.enum(["archive.tar.gz", "uv", "uvx"]),
-        stagedFileSchema,
-      ),
-    })
+    .union([
+      z.strictObject({
+        name: z
+          .string()
+          .regex(/^uv-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/),
+        identity: identitySchema.nullable(),
+        files: z.partialRecord(
+          z.enum(["archive.tar.gz", "uv", "uvx"]),
+          stagedFileSchema,
+        ),
+      }),
+      z.strictObject({
+        name: z
+          .string()
+          .regex(/^herdr-\d+\.\d+\.\d+-darwin-(?:arm64|x64)-[a-f0-9]{32}$/),
+        identity: identitySchema.nullable(),
+        files: z.partialRecord(z.enum(["herdr"]), stagedFileSchema),
+      }),
+    ])
     .nullable(),
 });
 type Owner = z.infer<typeof ownerSchema>;
@@ -193,6 +238,11 @@ async function recover(root: string, bin: string) {
       throw new Error("Recovery journal changed; manual review required");
     await removeOwned(path, journalIdentity.dev, journalIdentity.ino);
   };
+  const allPending = decodeState(allPendingSchema, raw);
+  if (allPending.schemaVersion === 2 && allPending.kind === "herdr-install") {
+    await recoverHerdr(root, bin, allPending, path, raw, journalIdentity);
+    return;
+  }
   const pending = decodeState(anyPendingSchema, raw);
   const statePath = join(root, "binding.json");
   const stateBytes = await optionalBytes(statePath);
@@ -317,6 +367,99 @@ async function recover(root: string, bin: string) {
   if (!uvOwned || !uvxOwned)
     throw new Error("Conflicting uv entry was preserved during recovery");
 }
+async function recoverHerdr(
+  root: string,
+  bin: string,
+  pending: z.infer<typeof herdrPendingSchema>,
+  journalPath: string,
+  journalRaw: string,
+  journalIdentity: { dev: string; ino: string },
+) {
+  const statePath = join(root, "binding.json"),
+    stateBytes = await optionalBytes(statePath);
+  const stateIdentity = stateBytes === null ? null : await inode(statePath);
+  const stateHash = stateBytes === null ? null : hash(stateBytes);
+  if (stateHash !== pending.beforeHash && stateHash !== pending.afterHash)
+    throw new Error("Setup state changed; manual recovery required");
+  const committed = stateHash === pending.afterHash;
+  if (
+    !committed &&
+    stateBytes !== null &&
+    (!pending.beforeIdentity ||
+      stateIdentity?.dev !== pending.beforeIdentity.dev ||
+      stateIdentity.ino !== pending.beforeIdentity.ino)
+  )
+    throw new Error("Setup state identity changed; manual recovery required");
+  const stage = join(root, pending.stage),
+    stageId = await directoryInode(stage);
+  if (stageId.dev !== pending.stageDev || stageId.ino !== pending.stageIno)
+    throw new Error(
+      "Herdr staging directory changed; manual recovery required",
+    );
+  const entry = { dev: pending.entryDev, ino: pending.entryIno };
+  if (
+    (await boundedFileHash(join(stage, "herdr"), entry)) !== pending.entryHash
+  )
+    throw new Error("Staged Herdr changed; manual recovery required");
+  if ((await readdir(stage)).sort().join(",") !== "herdr")
+    throw new Error("Unexpected staged Herdr files; manual recovery required");
+  const installedPath = join(bin, "herdr");
+  if (committed) {
+    const state = stateBytes && decodeSetupState(stateBytes.toString("utf8"));
+    if (
+      state?.installations.herdr?.mode !== "managed" ||
+      state.installations.herdr.directory !== pending.stage ||
+      state.installations.herdr.entryHash !== pending.entryHash ||
+      (await boundedFileHash(installedPath, entry)) !== pending.entryHash
+    )
+      throw new Error("Published Herdr changed; manual recovery required");
+  } else if (!(await uvEntryAbsent(installedPath))) {
+    const current = await inode(installedPath);
+    if (current.dev !== entry.dev || current.ino !== entry.ino)
+      throw new Error(
+        "Conflicting Herdr entry preserved; manual recovery required",
+      );
+  }
+  if (
+    pending.bindingTmp &&
+    !(await uvEntryAbsent(join(root, pending.bindingTmp)))
+  ) {
+    const temp = await inode(join(root, pending.bindingTmp));
+    if (
+      !pending.bindingIdentity ||
+      temp.dev !== pending.bindingIdentity.dev ||
+      temp.ino !== pending.bindingIdentity.ino
+    )
+      throw new Error(
+        "Temporary binding ownership is incomplete; manual recovery required",
+      );
+  }
+  if (stateIdentity && stateBytes)
+    await assertFileUnchanged(statePath, stateIdentity, stateBytes);
+  else if ((await optionalBytes(statePath)) !== null)
+    throw new Error("Setup state changed; manual recovery required");
+  if ((await optional(journalPath)) !== journalRaw)
+    throw new Error("Recovery journal changed; manual review required");
+  const currentJournal = await inode(journalPath);
+  if (
+    currentJournal.dev !== journalIdentity.dev ||
+    currentJournal.ino !== journalIdentity.ino
+  )
+    throw new Error("Recovery journal changed; manual review required");
+  if (pending.bindingTmp && pending.bindingIdentity)
+    await removeOwned(
+      join(root, pending.bindingTmp),
+      pending.bindingIdentity.dev,
+      pending.bindingIdentity.ino,
+    );
+  if (!committed) {
+    await removeOwned(installedPath, entry.dev, entry.ino);
+    await removeOwned(join(stage, "herdr"), entry.dev, entry.ino);
+    await rmdir(stage);
+  }
+  await removeOwned(journalPath, journalIdentity.dev, journalIdentity.ino);
+}
+
 type Operation = {
   tempIntent(name: string): Promise<void>;
   tempIdentity(identity: z.infer<typeof identitySchema>): Promise<void>;
@@ -324,7 +467,7 @@ type Operation = {
   stageIntent(name: string): Promise<void>;
   stage(name: string, identity: z.infer<typeof identitySchema>): Promise<void>;
   file(name: string, identity: StagedFile | null): Promise<void>;
-  release(committed?: boolean): Promise<void>;
+  release(committed?: boolean, component?: "uv" | "Herdr"): Promise<void>;
 };
 
 async function acquire(root: string): Promise<Operation> {
@@ -367,7 +510,7 @@ async function acquireGuarded(root: string): Promise<Operation> {
         throw probe;
     }
     const pendingRaw = await optional(join(root, "pending.json"));
-    if (pendingRaw !== null) decodeState(anyPendingSchema, pendingRaw);
+    if (pendingRaw !== null) decodeState(allPendingSchema, pendingRaw);
     if (old.temporary) {
       const tmp = join(root, old.temporary.name);
       if (old.temporary.identity)
@@ -385,8 +528,10 @@ async function acquireGuarded(root: string): Promise<Operation> {
       const binding = await readSetupState(dirname(root));
       if (
         !(
-          binding?.installations.uv?.mode === "managed" &&
-          binding.installations.uv.directory === old.stage.name
+          (binding?.installations.uv?.mode === "managed" &&
+            binding.installations.uv.directory === old.stage.name) ||
+          (binding?.installations.herdr?.mode === "managed" &&
+            binding.installations.herdr.directory === old.stage.name)
         )
       ) {
         const stage = join(root, old.stage.name);
@@ -460,14 +605,23 @@ async function acquireGuarded(root: string): Promise<Operation> {
       await update({ ...owner, stage: { name, identity, files: {} } });
     },
     async file(name: string, identity: StagedFile | null) {
-      if (!owner.stage || !["archive.tar.gz", "uv", "uvx"].includes(name))
+      if (
+        !owner.stage ||
+        !(
+          owner.stage.name.startsWith("herdr-")
+            ? ["herdr"]
+            : ["archive.tar.gz", "uv", "uvx"]
+        ).includes(name)
+      )
         throw new Error("Invalid staging record");
-      const files = { ...owner.stage.files };
-      if (identity) files[name as "uv" | "uvx" | "archive.tar.gz"] = identity;
-      else delete files[name as "uv" | "uvx" | "archive.tar.gz"];
-      await update({ ...owner, stage: { ...owner.stage, files } });
+      const files: Record<string, StagedFile> = { ...owner.stage.files };
+      if (identity) files[name] = identity;
+      else delete files[name];
+      await update(
+        ownerSchema.parse({ ...owner, stage: { ...owner.stage, files } }),
+      );
     },
-    async release(committed = false) {
+    async release(committed = false, component = "uv") {
       try {
         if ((await optional(path)) !== raw)
           throw new Error("Operation lock changed; manual recovery required");
@@ -475,7 +629,7 @@ async function acquireGuarded(root: string): Promise<Operation> {
       } catch (error) {
         if (committed)
           throw new UvCommittedError(
-            "uv binding was published; operation lock cleanup needs manual review",
+            `${component} binding was published; operation lock cleanup needs manual review`,
           );
         throw error;
       }
@@ -1070,7 +1224,7 @@ export async function hasPendingUv(home: string): Promise<boolean> {
     join(resolve(home), ".agent-stack", "pending.json"),
   );
   if (raw === null) return false;
-  decodeState(anyPendingSchema, raw);
+  decodeState(allPendingSchema, raw);
   return true;
 }
 export async function recoverPendingUv(
@@ -1136,6 +1290,10 @@ export async function bindExternalHerdr(input: {
   target: string;
   path: string;
   fingerprint: string;
+  managed?: Extract<
+    NonNullable<SetupState["installations"]["herdr"]>,
+    { mode: "managed" }
+  >;
   rootIdentity: string | null;
   signal: AbortSignal;
   recheck: () => Promise<void>;
@@ -1166,7 +1324,7 @@ export async function bindExternalHerdr(input: {
     try {
       const pendingRaw = await optional(join(root, "pending.json"));
       if (pendingRaw !== null) {
-        decodeState(anyPendingSchema, pendingRaw);
+        decodeState(allPendingSchema, pendingRaw);
         throw new Error(
           "Pending uv operation requires recovery before Herdr setup",
         );
@@ -1188,7 +1346,7 @@ export async function bindExternalHerdr(input: {
         },
         installations: {
           ...old?.installations,
-          herdr: {
+          herdr: input.managed ?? {
             mode: "external",
             source: "unknown",
             version: input.version,
@@ -1229,7 +1387,7 @@ export async function bindExternalHerdr(input: {
       });
       return binding;
     } finally {
-      await operation.release(completed);
+      await operation.release(completed, "Herdr");
     }
   } finally {
     if (!completed && createdRoot) {
@@ -1241,5 +1399,326 @@ export async function bindExternalHerdr(input: {
       )
         await rmdir(root);
     }
+  }
+}
+
+function verifyHerdrBinaryIdentity(binary: Buffer, target: string) {
+  if (binary.length < 32) throw new Error("Herdr binary header is incomplete");
+  const magic = binary.subarray(0, 4).toString("hex");
+  if (magic !== "cffaedfe" && magic !== "feedfacf")
+    throw new Error("Herdr asset is not a standalone 64-bit Mach-O binary");
+  const cpu =
+    magic === "cffaedfe" ? binary.readUInt32LE(4) : binary.readUInt32BE(4);
+  const expected =
+    target === "darwin-arm64"
+      ? 0x0100000c
+      : target === "darwin-x64"
+        ? 0x01000007
+        : -1;
+  if (cpu !== expected)
+    throw new Error(
+      "Herdr binary architecture does not match the locked target",
+    );
+}
+
+export async function applyHerdr(input: {
+  home: string;
+  path: string;
+  repo: string;
+  profile: string;
+  lock: string;
+  version: string;
+  target: string;
+  asset: {
+    assetKey: string;
+    name: string;
+    url: string;
+    sha256: string;
+    digestSource: string;
+  };
+  signal: AbortSignal;
+  recheck: () => Promise<void>;
+  checkReachable: () => Promise<void>;
+}) {
+  const { root, bin } = await inspectUvPath(input.home, input.path);
+  const operation = await acquire(root);
+  let stage: string | undefined,
+    stageIdentity: { dev: string; ino: string } | undefined;
+  const created = new Map<string, StagedFile>();
+  let journalCreated = false,
+    published = false;
+  const finishHerdrOperation = async () => {
+    if (!published) {
+      try {
+        if (journalCreated) await recover(root, bin);
+        else if (stage && stageIdentity)
+          await cleanupStage(stage, stageIdentity, created);
+        else if (stage && !(await uvEntryAbsent(stage)))
+          throw new Error(
+            "Staging ownership is incomplete; manual recovery required",
+          );
+      } catch (error) {
+        if (
+          (await optional(join(root, "pending.json"))) === null &&
+          (!stage || (await uvEntryAbsent(stage)))
+        )
+          await operation.release();
+        throw error;
+      }
+    }
+    await operation.release(published, "Herdr");
+  };
+  try {
+    await recover(root, bin);
+    await input.recheck();
+    if (!(await uvEntryAbsent(join(bin, "herdr"))))
+      throw new Error("Herdr entry already exists; refusing to overwrite");
+    const stageName = `herdr-${input.version}-${input.target}-${randomBytes(16).toString("hex")}`;
+    stage = join(root, stageName);
+    await operation.stageIntent(stageName);
+    await mkdir(stage, { mode: 0o700 });
+    stageIdentity = await directoryInode(stage);
+    await operation.stage(stageName, stageIdentity);
+    const binary = await downloadRelease(
+      input.asset.url,
+      input.asset.sha256,
+      input.signal,
+      "herdr",
+    );
+    verifyHerdrBinaryIdentity(binary, input.target);
+    await createOwned(
+      join(stage, "herdr"),
+      binary,
+      0o755,
+      created,
+      "herdr",
+      operation.file,
+    );
+    await verifyUvVersion(
+      join(stage, "herdr"),
+      "herdr",
+      input.version,
+      stage,
+      input.signal,
+    );
+    if ((await readdir(stage)).sort().join(",") !== "herdr")
+      throw new Error("Unexpected staged files; manual recovery required");
+    const entry = await inode(join(stage, "herdr"));
+    if (
+      (await boundedFileHash(join(stage, "herdr"), entry)) !==
+      input.asset.sha256
+    )
+      throw new Error("Staged Herdr changed during verification");
+    const bindingPath = join(root, "binding.json"),
+      beforeBytes = await optionalBytes(bindingPath);
+    const beforeIdentity =
+      beforeBytes === null ? null : await inode(bindingPath);
+    const old =
+      beforeBytes === null
+        ? null
+        : decodeSetupState(beforeBytes.toString("utf8"));
+    if (old?.installations.herdr)
+      throw new Error("Existing Herdr receipt requires review");
+    const binding = setupStateSchema.parse({
+      schemaVersion: 2,
+      defaultBinding: {
+        repo: input.repo,
+        profile: input.profile,
+        lock: input.lock,
+      },
+      installations: {
+        ...old?.installations,
+        herdr: {
+          mode: "managed",
+          version: input.version,
+          target: input.target,
+          directory: stageName,
+          entryHash: input.asset.sha256,
+          asset: input.asset,
+        },
+      },
+    });
+    const bindingBytes = Buffer.from(JSON.stringify(binding));
+    let pending = herdrPendingSchema.parse({
+      schemaVersion: 2,
+      kind: "herdr-install",
+      stage: stageName,
+      stageDev: stageIdentity.dev,
+      stageIno: stageIdentity.ino,
+      entryDev: entry.dev,
+      entryIno: entry.ino,
+      entryHash: input.asset.sha256,
+      beforeHash: beforeBytes === null ? null : hash(beforeBytes),
+      beforeIdentity,
+      afterHash: hash(bindingBytes),
+      bindingTmp: null,
+      bindingIdentity: null,
+    });
+    const journalPath = join(root, "pending.json"),
+      journal = await open(journalPath, "wx", 0o600);
+    const journalInfo = await journal.stat({ bigint: true });
+    try {
+      await journal.writeFile(JSON.stringify(pending));
+      await journal.sync();
+      journalCreated = true;
+    } catch (error) {
+      await journal.close();
+      await removeOwned(
+        journalPath,
+        String(journalInfo.dev),
+        String(journalInfo.ino),
+      );
+      throw error;
+    }
+    await journal.close();
+    const updateJournal = async (next: typeof pending) => {
+      if ((await optional(journalPath)) !== JSON.stringify(pending))
+        throw new Error("Recovery journal changed");
+      const handle = await open(
+        journalPath,
+        constants.O_RDWR | constants.O_NOFOLLOW,
+      );
+      try {
+        const info = await handle.stat({ bigint: true });
+        if (info.dev !== journalInfo.dev || info.ino !== journalInfo.ino)
+          throw new Error("Recovery journal changed");
+        const value = Buffer.from(JSON.stringify(next));
+        await handle.truncate(0);
+        let offset = 0;
+        while (offset < value.length) {
+          const { bytesWritten } = await handle.write(
+            value,
+            offset,
+            value.length - offset,
+            offset,
+          );
+          if (!bytesWritten) throw new Error("Cannot write recovery journal");
+          offset += bytesWritten;
+        }
+        await handle.sync();
+        pending = next;
+      } finally {
+        await handle.close();
+      }
+    };
+    await input.recheck();
+    if (input.signal.aborted) throw new Error("Cancelled");
+    await link(join(stage, "herdr"), join(bin, "herdr"));
+    await verifyUvVersion(
+      join(bin, "herdr"),
+      "herdr",
+      input.version,
+      stage,
+      input.signal,
+    );
+    await input.recheck();
+    await input.checkReachable();
+    if (
+      (await boundedFileHash(join(bin, "herdr"), entry)) !== input.asset.sha256
+    )
+      throw new Error("Published Herdr changed");
+    const tmpName = `binding-${randomBytes(16).toString("hex")}.tmp`,
+      tmp = join(root, tmpName);
+    await updateJournal({ ...pending, bindingTmp: tmpName });
+    const file = await open(tmp, "wx", 0o600),
+      tmpInfo = await file.stat({ bigint: true });
+    const cleanupTemporary = async () => {
+      try {
+        await removeOwned(tmp, String(tmpInfo.dev), String(tmpInfo.ino));
+      } catch (error) {
+        if (published)
+          throw new UvCommittedError(
+            "Herdr was installed; temporary state needs manual review",
+          );
+        throw error;
+      }
+    };
+    try {
+      await updateJournal({
+        ...pending,
+        bindingIdentity: { dev: String(tmpInfo.dev), ino: String(tmpInfo.ino) },
+      });
+      await file.writeFile(bindingBytes);
+      await file.sync();
+      await file.close();
+      await input.recheck();
+      await input.checkReachable();
+      await safeDir(stage);
+      if (
+        (await boundedFileHash(join(stage, "herdr"), entry)) !==
+          input.asset.sha256 ||
+        (await boundedFileHash(join(bin, "herdr"), entry)) !==
+          input.asset.sha256
+      )
+        throw new Error("Published Herdr changed before state commit");
+      if (input.signal.aborted) throw new Error("Cancelled");
+      if (beforeIdentity && beforeBytes) {
+        await assertFileUnchanged(bindingPath, beforeIdentity, beforeBytes);
+        await rename(tmp, bindingPath);
+      } else await link(tmp, bindingPath);
+      published = true;
+    } finally {
+      await file.close().catch(() => {});
+      await cleanupTemporary();
+    }
+    try {
+      if ((await optional(journalPath)) !== JSON.stringify(pending))
+        throw new Error("Recovery journal changed");
+      await removeOwned(
+        journalPath,
+        String(journalInfo.dev),
+        String(journalInfo.ino),
+      );
+    } catch {
+      throw new UvCommittedError(
+        "Herdr was installed; recovery journal needs manual review",
+      );
+    }
+    return binding;
+  } finally {
+    await finishHerdrOperation();
+  }
+}
+
+export async function matchesManagedHerdr(
+  home: string,
+  receipt: Extract<
+    NonNullable<SetupState["installations"]["herdr"]>,
+    { mode: "managed" }
+  >,
+  version: string,
+  target: string,
+  asset: {
+    assetKey: string;
+    name: string;
+    url: string;
+    sha256: string;
+    digestSource: string;
+  },
+) {
+  if (
+    receipt.version !== version ||
+    receipt.target !== target ||
+    JSON.stringify(receipt.asset) !== JSON.stringify(asset)
+  )
+    return false;
+  const root = join(resolve(home), ".agent-stack"),
+    bin = join(root, "bin"),
+    stage = join(root, receipt.directory);
+  try {
+    await safeDir(root);
+    await safeDir(bin);
+    await safeDir(stage);
+    const source = await inode(join(stage, "herdr")),
+      entry = await inode(join(bin, "herdr"));
+    return (
+      source.dev === entry.dev &&
+      source.ino === entry.ino &&
+      (await boundedFileHash(join(stage, "herdr"), source)) ===
+        receipt.entryHash &&
+      receipt.entryHash === asset.sha256
+    );
+  } catch {
+    return false;
   }
 }

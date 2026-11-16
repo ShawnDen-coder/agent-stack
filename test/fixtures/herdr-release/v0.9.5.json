@@ -1,0 +1,14 @@
+{
+  "source": "https://herdr.dev/latest.json",
+  "evidenceDate": "2026-11-15",
+  "version": "0.9.5",
+  "protocol": 22,
+  "assets": {
+    "macos-x86_64": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-aarch64"
+  },
+  "sha256": {
+    "macos-x86_64": "5fb0a908ec7f6745e3e245738b06bfad56c46391c391ab3c0955fbead01f1369",
+    "macos-aarch64": "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2"
+  }
+}

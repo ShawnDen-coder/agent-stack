@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 export async function verifyUvVersion(
   path: string,
-  name: "uv" | "uvx",
+  name: "uv" | "uvx" | "herdr",
   version: string,
   home: string,
   signal: AbortSignal,
