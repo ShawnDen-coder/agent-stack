@@ -34,7 +34,7 @@
 
 ## 5. doctor 与 run coding：待实现，setup 审查通过后开始
 
-在已有有限只读 `doctor` 基础上验证应用结果，补足 coding Agent 与 `shape`、`implement`、`verify` 的真实资源及加载路径。`run coding` 保留原生入口，透传参数、退出码、TTY 和中断。验收须从真实 CLI 完成 setup → doctor → run coding，并区分静态声明、工具观察与实际集成运行；Otty、Rex 和尚未实现的集成不得报告为已检查。
+在已有有限只读 `doctor` 基础上验证应用结果，补足 coding Agent 与 `implement`、`verify` 的真实资源，并核对已编写的 `shape` 及三者的加载路径。`run coding` 保留原生入口，透传参数、退出码、TTY 和中断。验收须从真实 CLI 完成 setup → doctor → run coding，并区分静态声明、工具观察与实际集成运行；Otty、Rex 和尚未实现的集成不得报告为已检查。
 
 ## 共同验收与后续扩展
 
