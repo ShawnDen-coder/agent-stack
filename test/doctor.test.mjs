@@ -286,6 +286,30 @@ test(
   },
 );
 test(
+  "doctor preserves Git for Windows vendor version and rejects malformed suffixes",
+  unix,
+  async (t) => {
+    const { root, bin } = await fixture(t);
+    for (const [output, expected] of [
+      ["git version 2.56.0.windows.4", "2.56.0+windows.4"],
+      ["git version 2.56.0.windows.bad", null],
+      ["git version 2.56.0.windows.4.extra", null],
+      ["git version 2.56.0.windows.4 extra", null],
+      ["git version 2.42.0", "2.42.0"],
+      ["git version 2.39.5 (Apple Git-154)", "2.39.5"],
+    ]) {
+      await fake(bin, "git", `echo '${output}'`);
+      const git = check(JSON.parse(run(root, bin).stdout), "git");
+      assert.equal(git.version, expected);
+      assert.equal(git.evidence, "version_command");
+      assert.equal(
+        git.status,
+        expected === null ? "unparseable_version" : "ok",
+      );
+    }
+  },
+);
+test(
   "doctor distinguishes missing, mismatch, prerelease, invalid output and command failure",
   unix,
   async (t) => {

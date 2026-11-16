@@ -49,7 +49,7 @@ const externalHerdrReceiptSchema = z.strictObject({
   mode: z.literal("external"),
   source: z.literal("unknown"),
   version: z.string().refine((value) => semver.valid(value) === value),
-  target: z.enum(["darwin-arm64", "darwin-x64"]),
+  target: z.enum(["darwin-arm64", "darwin-x64", "win32-x64"]),
   path: z.string().refine(isAbsolute),
   fingerprint: z.string().min(1),
 });
@@ -69,9 +69,53 @@ const managedHerdrReceiptSchema = z.strictObject({
     digestSource: z.url(),
   }),
 });
-const herdrReceiptSchema = z.discriminatedUnion("mode", [
+export const windowsHerdrFileSchema = z.strictObject({
+  dev: z.string().min(1),
+  ino: z.string().min(1),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const windowsHerdrDirs = [
+  "conpty",
+  "conpty/arm64",
+  "conpty/x64",
+  "THIRD-PARTY-NOTICES",
+] as const;
+export const windowsHerdrDirectorySchema = z.strictObject({
+  name: z.enum(windowsHerdrDirs),
+  dev: z.string().min(1),
+  ino: z.string().min(1),
+});
+const windowsHerdrReceiptSchema = z
+  .strictObject({
+    mode: z.literal("managed"),
+    version: z.string().refine((value) => semver.valid(value) === value),
+    target: z.literal("win32-x64"),
+    directory: z.string().regex(/^herdr-\d+\.\d+\.\d+-win32-x64-[a-f0-9]{32}$/),
+    entryHash: z.string().regex(/^[a-f0-9]{64}$/),
+    stageIdentity: z.strictObject({
+      dev: z.string().min(1),
+      ino: z.string().min(1),
+    }),
+    files: z.array(windowsHerdrFileSchema).length(7),
+    directories: z
+      .array(windowsHerdrDirectorySchema)
+      .length(4)
+      .refine((dirs) =>
+        dirs.every((dir, index) => dir.name === windowsHerdrDirs[index]),
+      ),
+    asset: z.strictObject({
+      assetKey: z.literal("windows-x86_64"),
+      name: z.string(),
+      url: z.url(),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      digestSource: z.url(),
+    }),
+  })
+  .refine((receipt) => receipt.files[4]?.sha256 === receipt.entryHash);
+const herdrReceiptSchema = z.union([
   externalHerdrReceiptSchema,
   managedHerdrReceiptSchema,
+  windowsHerdrReceiptSchema,
 ]);
 export type HerdrReceipt = z.infer<typeof herdrReceiptSchema>;
 export const setupStateSchema = z.strictObject({
@@ -102,6 +146,12 @@ export function decodeSetupState(raw: string): SetupState {
   const v2 = setupStateSchema.safeParse(value);
   if (!v2.success) throw new Error("Invalid local setup state");
   return v2.data;
+}
+export function localSetupHome() {
+  return (
+    process.env.HOME ??
+    (process.platform === "win32" ? process.env.USERPROFILE : undefined)
+  );
 }
 export async function readSetupState(
   home: string | undefined,

@@ -1,0 +1,61 @@
+name: Herdr Windows installation
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Official Herdr / win32-x64 / Node ${{ matrix.node }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm install --global pnpm@12.15.0
+      - name: Verify pinned pnpm
+        shell: pwsh
+        run: |
+          if ((pnpm --version) -ne '12.15.0') { throw 'Unexpected pnpm version' }
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+      - name: Exercise controlled Windows bundle and ACL boundaries
+        run: node --test test/herdr-windows-archive.test.mjs test/windows-managed-acl.test.mjs
+      - name: Inspect generic ACL inheritance on NTFS
+        run: node scripts/probe-windows-generic-acl.mjs dist/adapters/managed-operation.js
+      - name: Install packed CLI in isolation
+        shell: pwsh
+        run: |
+          $packDir = Join-Path $env:RUNNER_TEMP ("herdr-pack-" + [guid]::NewGuid())
+          $cliDir = Join-Path $env:RUNNER_TEMP ("herdr-cli-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $packDir,$cliDir | Out-Null
+          $pack = npm pack --ignore-scripts --json --pack-destination $packDir | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @($pack.files.path)
+          if ('dist/cli.js' -notin $files) { throw 'Packed CLI is missing' }
+          if (@($files | Where-Object { $_ -match '^(stack|src|test|scripts|docs)/' }).Count) { throw 'Package includes checkout resources' }
+          $env:npm_config_userconfig = Join-Path $cliDir 'empty.npmrc'
+          $env:npm_config_cache = Join-Path $cliDir 'cache'
+          New-Item -ItemType File -Path $env:npm_config_userconfig | Out-Null
+          npm install --prefix $cliDir --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false (Join-Path $packDir $pack.filename)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cli = Join-Path $cliDir 'node_modules/agent-stack/dist/cli.js'
+          node --check $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "HERDR_SMOKE_CLI=$cli" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install and exercise official Herdr
+        run: node scripts/smoke-herdr-windows.mjs --cli "$env:HERDR_SMOKE_CLI"

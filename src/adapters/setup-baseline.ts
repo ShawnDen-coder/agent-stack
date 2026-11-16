@@ -7,7 +7,7 @@ import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
 import { readLock } from "./lock-reader.js";
 import { readRepository } from "./repository.js";
-import { setupStateFingerprint } from "./setup-state.js";
+import { localSetupHome, setupStateFingerprint } from "./setup-state.js";
 
 async function digest(path: string, maxBytes: number) {
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -67,8 +67,17 @@ export async function setupBaseline(
   return JSON.stringify({
     paths,
     values,
-    binding: await setupStateFingerprint(process.env.HOME),
-    home: process.env.HOME ?? null,
+    binding: await setupStateFingerprint(localSetupHome()),
+    home: localSetupHome() ?? null,
+    userProfile:
+      process.platform === "win32" ? (process.env.USERPROFILE ?? null) : null,
+    systemRoot:
+      process.platform === "win32" ? (process.env.SystemRoot ?? null) : null,
+    pathExt:
+      process.platform === "win32" ? (process.env.PATHEXT ?? null) : null,
+    temp: process.platform === "win32" ? (process.env.TEMP ?? null) : null,
+    tmp: process.platform === "win32" ? (process.env.TMP ?? null) : null,
+    tmpdir: process.platform === "win32" ? (process.env.TMPDIR ?? null) : null,
     path: process.env.PATH ?? null,
     platform: process.platform,
     arch: process.arch,

@@ -67,7 +67,7 @@
 
 当前只读预览在 macOS x64 使用 `/usr/bin/arch -x86_64` 启动同架构的固定 sysctl 查询；这确保子进程与 Node 一样需要或不需要 Rosetta。仅接受 `0` 或精确的 ENOENT 输出；其他错误阻塞。macOS arm64 进程为原生。Windows x64 使用固定 Windows PowerShell 与 .NET Framework [Reflection.Emit](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.emit.typebuilder.definepinvokemethod?view=netframework-4.8.1) 在内存中定义 P/Invoke，调用 [`IsWow64Process2`](https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process2) 检查 Node 进程与系统原生架构，不再依赖 `Add-Type` 的 C# 编译步骤；调用不可用或返回仿真均阻塞。查询使用临时目录、受限环境、固定参数和有界超时/输出，并在结束时清理。Apple 的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 是进程属性；不能使用未控制架构的子进程推断 Node 状态。Windows Node 24/26 原生 CI 验证实际进程、重复查询与无效 PID；本地桌面、Rosetta 和 ARM64 仿真仍须另外验证。
 
-当前进度：macOS uv-only/Herdr-only 计划显示锁定资产；执行按锁下载并核对 SHA-256，uv 限制解包，Herdr 检查 Mach-O 架构，再验证版本、创建受管硬链接、记录绑定，并恢复可证明归属的未完成操作。受管目录必须预先存在于 PATH；不修改 shell 配置。Windows、其他部件和完整 coding 仍阻塞。
+当前进度：macOS uv-only/Herdr-only 计划显示锁定资产；执行按锁下载并核对 SHA-256，uv 限制解包，Herdr 检查 Mach-O 架构，再验证版本、创建受管硬链接、记录绑定，并恢复可证明归属的未完成操作。受管目录必须预先存在于 PATH；不修改 shell 配置。Windows x64 Herdr-only 整包安装与 external 复用已实现，Node 24/26 原生 CI 已验证官方 ZIP 安装、幂等及隔离 IPC；Windows 其他部件和完整 coding 仍阻塞。
 
 发行布局核验：以锁中 uv 0.13.8 为例，临时下载的 Intel macOS tar.gz 包含 `uv` 与 `uvx`，Windows x64 zip 还包含 `uvw.exe`；两份 SHA-256 与锁一致。该观察不证明其他版本的布局或安装兼容性；发行格式参见[该版本官方配置](https://github.com/astral-sh/uv/blob/0.13.8/dist-workspace.toml)。
 
@@ -89,8 +89,10 @@
 
 ## 本机 v2 状态与复用
 
-`binding.json` 的 v1 输入严格校验后只在内存归一化；读取不写迁移，旧 uv 回执的资产证据原样保留，缺失时不补造。成功写入使用单份 v2 快照：`defaultBinding` 记录最后完整成功的 repo/profile/lock，`installations` 分别保存 uv 与 Herdr 回执。Herdr external 复用适用于原生 macOS 上与锁定版本匹配的已有入口，回执的 `source` 为 `unknown`，入口指纹不代表发行资产摘要已验证。原生 macOS 还支持按锁安装独立 Herdr binary；Windows 执行尚未实现。
+`binding.json` 的 v1 输入严格校验后只在内存归一化；读取不写迁移，旧 uv 回执的资产证据原样保留，缺失时不补造。成功写入使用单份 v2 快照：`defaultBinding` 记录最后完整成功的 repo/profile/lock，`installations` 分别保存 uv 与 Herdr 回执。Herdr external 复用适用于原生 macOS 或 Windows x64 上与锁定版本匹配的已有入口，回执的 `source` 为 `unknown`，入口指纹不代表发行资产摘要已验证。原生 macOS 还支持按锁安装独立 Herdr binary；Windows x64 整包消费者已接入候选，尚待原生 CI 验收。
 
 旧 uv v1 journal 继续按旧协议恢复；新 uv v2 journal 在发布入口前记录提交前原始状态摘要和将提交的完整快照摘要，以及 stage、入口和临时文件的身份。当前状态匹配 before 时只撤销可证明归属的本次文件；匹配 after 且回执、stage、入口身份及摘要均一致时保留安装并清理 journal；其他状态或文件变化保留证据并阻塞。状态替换前复核身份与原始字节，但非协作进程仍可能在检查与文件操作之间竞争，这不是文件系统级 CAS。临时文件意图已记录而身份尚不明时，若文件存在则保留并要求人工检查。
 
-Herdr managed 安装仅支持原生 macOS arm64/x64。它下载锁中 raw binary，核对 SHA-256、Mach-O 架构、版本、stage 与公开入口身份和摘要；使用独立 `herdr-install` journal，在状态发布前记录 before/after 摘要。恢复仅对可证明归属的文件执行清理；未知身份、损坏 journal 或第三态保留并阻塞。受管目录须已在 PATH，不修改 shell 配置，也不启动或停止用户 server。
+Herdr managed 安装在 macOS 支持 arm64/x64 单文件；Windows x64 整包候选待原生 CI。它下载锁中 raw binary，核对 SHA-256、Mach-O 架构、版本、stage 与公开入口身份和摘要；使用独立 `herdr-install` journal，在状态发布前记录 before/after 摘要。恢复仅对可证明归属的文件执行清理；未知身份、损坏 journal 或第三态保留并阻塞。受管目录须已在 PATH，不修改 shell 配置，也不启动或停止用户 server。
+
+Windows x64 的 `herdr-windows-install` journal 记录归档中七个已暂存文件的身份与摘要，以及 `conpty` 和 notices 目录从未尝试、创建意图到可验证身份的状态。公开入口及旁侧目录均不覆盖已有内容；仅在目录身份确定后计算目标 v2 快照原始字节摘要，首个公开文件发布前必须记录该摘要；创建目录阶段的 `afterHash` 为 null。恢复先分类 before/after/第三态并核对所有权，未知目录身份、第三态、漂移或损坏 journal 原地保留并阻塞；已提交保留整包。ZIP 摘要证明发行压缩包，回执逐文件摘要证明实际落地内容，不把二者混为一谈。Windows 安全目录检查拒绝无法确定所有权、空 DACL 或不受信任主体的写权限；POSIX mode 不用于推断 Windows ACL。本方案不声明跨工具原子事务。

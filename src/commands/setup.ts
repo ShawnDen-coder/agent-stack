@@ -1,5 +1,6 @@
 import { join, resolve } from "node:path";
 import { Command, InvalidArgumentError, Option } from "commander";
+import { verifyWindowsHerdrEntry } from "../adapters/herdr-windows-archive.js";
 import { observeHost } from "../adapters/host.js";
 import { readLock } from "../adapters/lock-reader.js";
 import { profileOption, shared } from "../adapters/options.js";
@@ -17,11 +18,16 @@ import {
   recheckSetupBaseline,
   setupBaseline,
 } from "../adapters/setup-baseline.js";
-import { readSetupState, type SetupState } from "../adapters/setup-state.js";
+import {
+  localSetupHome,
+  readSetupState,
+  type SetupState,
+} from "../adapters/setup-state.js";
 import { findExecutable, observe } from "../adapters/toolchain.js";
 import {
   applyHerdr,
   applyUv,
+  applyWindowsHerdr,
   bindExternalHerdr,
   bindExternalUv,
   hasPendingUv,
@@ -45,7 +51,7 @@ export function createSetupCommand(): Command {
   let lockSeen = false;
   return shared(
     new Command("setup").description(
-      "Preview or apply locked macOS uv or Herdr setup",
+      "Preview or apply locked macOS uv or macOS/Windows Herdr setup",
     ),
   )
     .addOption(profileOption())
@@ -81,7 +87,7 @@ export function createSetupCommand(): Command {
       const json = Boolean(options.json);
       if (!options.dryRun && !options.yes && json)
         command.error("error: --yes is required in JSON mode");
-      const home = process.env.HOME;
+      const home = localSetupHome();
       let state: SetupState | null;
       try {
         state = await readSetupState(home);
@@ -367,7 +373,7 @@ export function createSetupCommand(): Command {
         const herdrAsset =
           lockedHerdr?.artifact.type === "herdr" &&
           lockedHerdr.digest.algorithm === "sha256" &&
-          lockedHerdr.format === "binary"
+          lockedHerdr.format === (target === "win32-x64" ? "zip" : "binary")
             ? {
                 assetKey: lockedHerdr.artifact.assetKey,
                 name: lockedHerdr.artifact.assetName,
@@ -382,8 +388,10 @@ export function createSetupCommand(): Command {
         const herdrPending =
           herdrOnly && home ? await hasPendingUv(home) : false;
         if (herdrOnly) {
-          if (process.platform !== "darwin")
-            uvBlockers.push("Herdr setup is only supported on native macOS");
+          if (process.platform !== "darwin" && target !== "win32-x64")
+            uvBlockers.push(
+              "Herdr setup is only supported on native macOS or Windows x64",
+            );
           if (!home) uvBlockers.push("HOME is required for Herdr setup");
           const receipt = state?.installations.herdr;
           if (
@@ -400,8 +408,17 @@ export function createSetupCommand(): Command {
                 target,
                 herdrAsset,
               )) &&
-              herdr?.path ===
-                join(resolve(home), ".agent-stack", "bin", "herdr") &&
+              herdr?.path &&
+              (target === "win32-x64"
+                ? herdr.path.toLowerCase() ===
+                  join(
+                    resolve(home),
+                    ".agent-stack",
+                    "bin",
+                    "herdr.exe",
+                  ).toLowerCase()
+                : herdr.path ===
+                  join(resolve(home), ".agent-stack", "bin", "herdr")) &&
               herdr.status === "ok"
             )
               herdrMode = "managed";
@@ -417,11 +434,17 @@ export function createSetupCommand(): Command {
             try {
               const paths = await inspectUvPath(home, process.env.PATH ?? "");
               herdrPathIdentity = paths.identity;
-              if (
-                !herdrPending &&
-                !(await uvEntryAbsent(join(paths.bin, "herdr")))
-              )
-                throw new Error("Managed Herdr entry already exists");
+              if (!herdrPending) {
+                const names =
+                  target === "win32-x64"
+                    ? ["herdr.exe", "conpty", "THIRD-PARTY-NOTICES"]
+                    : ["herdr"];
+                for (const name of names)
+                  if (!(await uvEntryAbsent(join(paths.bin, name))))
+                    throw new Error(
+                      "Managed Herdr entry or runtime already exists",
+                    );
+              }
               herdrMode = "install";
             } catch (error) {
               uvBlockers.push(
@@ -440,6 +463,8 @@ export function createSetupCommand(): Command {
           ) {
             try {
               herdrFingerprint = await uvEntryFingerprint(herdr.path);
+              if (target === "win32-x64")
+                await verifyWindowsHerdrEntry(herdr.path);
             } catch {
               uvBlockers.push("Cannot verify existing Herdr entry identity");
             }
@@ -666,7 +691,9 @@ export function createSetupCommand(): Command {
           };
           let result: SetupState | null;
           if (herdrMode === "install") {
-            result = await applyHerdr({
+            const apply =
+              target === "win32-x64" ? applyWindowsHerdr : applyHerdr;
+            result = await apply({
               home,
               path: process.env.PATH ?? "",
               repo,
@@ -678,9 +705,18 @@ export function createSetupCommand(): Command {
               signal: controller.signal,
               recheck: verifyInput,
               checkReachable: async () => {
+                const actual = await findExecutable("herdr");
+                const expected = join(
+                  resolve(home),
+                  ".agent-stack",
+                  "bin",
+                  target === "win32-x64" ? "herdr.exe" : "herdr",
+                );
                 if (
-                  (await findExecutable("herdr")) !==
-                  join(resolve(home), ".agent-stack", "bin", "herdr")
+                  !actual ||
+                  (target === "win32-x64"
+                    ? actual.toLowerCase() !== expected.toLowerCase()
+                    : actual !== expected)
                 )
                   throw new Error(
                     "Published Herdr entry is not the first PATH candidate",
@@ -694,6 +730,7 @@ export function createSetupCommand(): Command {
               fingerprint = herdrFingerprint;
             const verifyHerdr = async () => {
               await verifyInput();
+              if (target === "win32-x64") await verifyWindowsHerdrEntry(entry);
               if (
                 (await findExecutable("herdr")) !== entry ||
                 (await uvEntryFingerprint(entry)) !== fingerprint

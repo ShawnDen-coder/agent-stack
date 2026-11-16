@@ -14,6 +14,10 @@ import {
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import {
+  herdrWindowsNames,
+  readHerdrWindowsArchive,
+} from "./herdr-windows-archive.js";
+import {
   assertFileUnchanged,
   boundedFileHash,
   decodeState,
@@ -34,6 +38,8 @@ import {
   type SetupState,
   setupStateSchema,
   type UvReceipt,
+  windowsHerdrDirs,
+  windowsHerdrFileSchema,
 } from "./setup-state.js";
 import { readUvArchive } from "./uv-archive.js";
 import { downloadRelease, downloadUv } from "./uv-download.js";
@@ -130,10 +136,54 @@ const herdrPendingSchema = z
   .refine((x) => (x.beforeHash === null) === (x.beforeIdentity === null))
   .refine((x) => x.beforeHash !== x.afterHash)
   .refine((x) => x.bindingTmp !== null || x.bindingIdentity === null);
+const windowsDirectoryPendingSchema = z
+  .strictObject({
+    name: z.enum(windowsHerdrDirs),
+    phase: z.enum(["unattempted", "intent", "created"]),
+    identity: z.strictObject({ dev: z.string(), ino: z.string() }).nullable(),
+  })
+  .refine((value) => (value.phase === "created") === (value.identity !== null));
+const windowsHerdrPendingSchema = z
+  .strictObject({
+    schemaVersion: z.literal(2),
+    kind: z.literal("herdr-windows-install"),
+    stage: z.string().regex(/^herdr-\d+\.\d+\.\d+-win32-x64-[a-f0-9]{32}$/),
+    stageDev: z.string(),
+    stageIno: z.string(),
+    files: z.array(windowsHerdrFileSchema).length(7),
+    directories: z
+      .array(windowsDirectoryPendingSchema)
+      .length(4)
+      .refine((dirs) =>
+        dirs.every((dir, index) => dir.name === windowsHerdrDirs[index]),
+      ),
+    beforeHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    beforeIdentity: z
+      .strictObject({ dev: z.string(), ino: z.string() })
+      .nullable(),
+    afterHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    bindingTmp: z
+      .string()
+      .regex(/^binding-[a-f0-9]{32}\.tmp$/)
+      .nullable(),
+    bindingIdentity: z
+      .strictObject({ dev: z.string(), ino: z.string() })
+      .nullable(),
+  })
+  .refine((x) => (x.beforeHash === null) === (x.beforeIdentity === null))
+  .refine((x) => x.afterHash === null || x.beforeHash !== x.afterHash)
+  .refine((x) => x.bindingTmp !== null || x.bindingIdentity === null);
 const allPendingSchema = z.union([
   pendingSchema,
   pendingV2Schema,
   herdrPendingSchema,
+  windowsHerdrPendingSchema,
 ]);
 const anyPendingSchema = z.union([pendingSchema, pendingV2Schema]);
 type Pending = z.infer<typeof anyPendingSchema>;
@@ -169,6 +219,22 @@ const ownerSchema = z.strictObject({
         identity: identitySchema.nullable(),
         files: z.partialRecord(z.enum(["herdr"]), stagedFileSchema),
       }),
+      z.strictObject({
+        name: z.string().regex(/^herdr-\d+\.\d+\.\d+-win32-x64-[a-f0-9]{32}$/),
+        identity: identitySchema.nullable(),
+        files: z.partialRecord(
+          z.enum([
+            "f0.exe",
+            "f1.exe",
+            "f2.exe",
+            "f3.exe",
+            "f4.exe",
+            "f5.exe",
+            "f6.exe",
+          ]),
+          stagedFileSchema,
+        ),
+      }),
     ])
     .nullable(),
 });
@@ -190,7 +256,8 @@ async function cleanupStage(
   const actual = await directoryInode(stage);
   if (actual.dev !== expected.dev || actual.ino !== expected.ino)
     throw new Error("Staging directory changed; manual recovery required");
-  for (const name of await readdir(stage)) {
+  const entries = (await readdir(stage)).sort();
+  for (const name of entries) {
     const identity = created.get(name);
     if (!identity)
       throw new Error("Unexpected staging file; manual recovery required");
@@ -198,6 +265,18 @@ async function cleanupStage(
       (await boundedFileHash(join(stage, name), identity)) !== identity.sha256
     )
       throw new Error("Staging file changed; manual recovery required");
+  }
+  const checked = await directoryInode(stage);
+  if (
+    checked.dev !== expected.dev ||
+    checked.ino !== expected.ino ||
+    JSON.stringify((await readdir(stage)).sort()) !== JSON.stringify(entries)
+  )
+    throw new Error("Staging directory changed; manual recovery required");
+  for (const name of entries) {
+    const identity = created.get(name);
+    if (!identity)
+      throw new Error("Missing staging identity; manual recovery required");
     await removeOwned(join(stage, name), identity.dev, identity.ino);
   }
   await rmdir(stage);
@@ -239,6 +318,20 @@ async function recover(root: string, bin: string) {
     await removeOwned(path, journalIdentity.dev, journalIdentity.ino);
   };
   const allPending = decodeState(allPendingSchema, raw);
+  if (
+    allPending.schemaVersion === 2 &&
+    allPending.kind === "herdr-windows-install"
+  ) {
+    await recoverWindowsHerdr(
+      root,
+      bin,
+      allPending,
+      path,
+      raw,
+      journalIdentity,
+    );
+    return;
+  }
   if (allPending.schemaVersion === 2 && allPending.kind === "herdr-install") {
     await recoverHerdr(root, bin, allPending, path, raw, journalIdentity);
     return;
@@ -460,6 +553,193 @@ async function recoverHerdr(
   await removeOwned(journalPath, journalIdentity.dev, journalIdentity.ino);
 }
 
+function windowsStageName(index: number) {
+  return `f${index}.exe`;
+}
+function windowsBundlePath(bin: string, name: string) {
+  return join(bin, ...name.split("/"));
+}
+async function recoverWindowsHerdr(
+  root: string,
+  bin: string,
+  pending: z.infer<typeof windowsHerdrPendingSchema>,
+  journalPath: string,
+  journalRaw: string,
+  journalIdentity: { dev: string; ino: string },
+) {
+  const statePath = join(root, "binding.json");
+  const stateBytes = await optionalBytes(statePath);
+  const stateIdentity = stateBytes === null ? null : await inode(statePath);
+  const stateHash = stateBytes === null ? null : hash(stateBytes);
+  if (
+    stateHash !== pending.beforeHash &&
+    (pending.afterHash === null || stateHash !== pending.afterHash)
+  )
+    throw new Error("Setup state changed; manual recovery required");
+  const committed =
+    pending.afterHash !== null && stateHash === pending.afterHash;
+  if (
+    !committed &&
+    stateBytes !== null &&
+    (!pending.beforeIdentity ||
+      stateIdentity?.dev !== pending.beforeIdentity.dev ||
+      stateIdentity.ino !== pending.beforeIdentity.ino)
+  )
+    throw new Error("Setup state identity changed; manual recovery required");
+  const stage = join(root, pending.stage),
+    stageId = await directoryInode(stage);
+  if (stageId.dev !== pending.stageDev || stageId.ino !== pending.stageIno)
+    throw new Error(
+      "Herdr staging directory changed; manual recovery required",
+    );
+  const stageNames = pending.files
+    .map((_, index) => windowsStageName(index))
+    .sort();
+  if (
+    JSON.stringify((await readdir(stage)).sort()) !== JSON.stringify(stageNames)
+  )
+    throw new Error("Unexpected staged Herdr files; manual recovery required");
+  for (const [index, identity] of pending.files.entries()) {
+    if (
+      (await boundedFileHash(
+        join(stage, windowsStageName(index)),
+        identity,
+      )) !== identity.sha256
+    )
+      throw new Error("Staged Herdr changed; manual recovery required");
+  }
+  for (const directory of pending.directories) {
+    const path = windowsBundlePath(bin, directory.name);
+    if (directory.phase !== "created") {
+      if (!(await uvEntryAbsent(path)))
+        throw new Error(
+          "Unowned Herdr directory preserved; manual recovery required",
+        );
+      if (committed)
+        throw new Error(
+          "Published Herdr directory missing; manual recovery required",
+        );
+      continue;
+    }
+    if (!directory.identity)
+      throw new Error("Missing Herdr directory identity");
+    await safeDir(path);
+    const current = await directoryInode(path);
+    if (
+      current.dev !== directory.identity.dev ||
+      current.ino !== directory.identity.ino
+    )
+      throw new Error("Herdr directory changed; manual recovery required");
+    const allowed = new Set(
+      [...herdrWindowsNames, ...windowsHerdrDirs]
+        .filter((name) => name.startsWith(`${directory.name}/`))
+        .map((name) => name.slice(directory.name.length + 1).split("/")[0]),
+    );
+    for (const entry of await readdir(path))
+      if (!allowed.has(entry))
+        throw new Error(
+          "Unexpected Herdr directory content; manual recovery required",
+        );
+  }
+  for (const [index, name] of herdrWindowsNames.entries()) {
+    const target = windowsBundlePath(bin, name),
+      expected = pending.files[index];
+    if (!expected) throw new Error("Missing staged Herdr identity");
+    if (await uvEntryAbsent(target)) {
+      if (committed)
+        throw new Error(
+          "Published Herdr file missing; manual recovery required",
+        );
+      continue;
+    }
+    if ((await boundedFileHash(target, expected)) !== expected.sha256)
+      throw new Error("Published Herdr changed; manual recovery required");
+  }
+  if (committed) {
+    const state = stateBytes && decodeSetupState(stateBytes.toString("utf8"));
+    const receipt = state?.installations.herdr;
+    const dirs = pending.directories.map(({ name, identity }) => ({
+      name,
+      ...identity,
+    }));
+    if (
+      receipt?.mode !== "managed" ||
+      receipt.target !== "win32-x64" ||
+      receipt.directory !== pending.stage ||
+      receipt.stageIdentity.dev !== pending.stageDev ||
+      receipt.stageIdentity.ino !== pending.stageIno ||
+      JSON.stringify(receipt.files) !== JSON.stringify(pending.files) ||
+      JSON.stringify(receipt.directories) !== JSON.stringify(dirs)
+    )
+      throw new Error(
+        "Published Herdr receipt changed; manual recovery required",
+      );
+  }
+  if (
+    pending.bindingTmp &&
+    !(await uvEntryAbsent(join(root, pending.bindingTmp)))
+  ) {
+    if (!pending.bindingIdentity)
+      throw new Error(
+        "Temporary binding ownership is incomplete; manual recovery required",
+      );
+    const tmp = await inode(join(root, pending.bindingTmp));
+    if (
+      tmp.dev !== pending.bindingIdentity.dev ||
+      tmp.ino !== pending.bindingIdentity.ino
+    )
+      throw new Error("Temporary binding changed; manual recovery required");
+  }
+  if (stateIdentity && stateBytes)
+    await assertFileUnchanged(statePath, stateIdentity, stateBytes);
+  else if ((await optionalBytes(statePath)) !== null)
+    throw new Error("Setup state changed; manual recovery required");
+  if ((await optional(journalPath)) !== journalRaw)
+    throw new Error("Recovery journal changed; manual review required");
+  const journalNow = await inode(journalPath);
+  if (
+    journalNow.dev !== journalIdentity.dev ||
+    journalNow.ino !== journalIdentity.ino
+  )
+    throw new Error("Recovery journal changed; manual review required");
+  if (pending.bindingTmp && pending.bindingIdentity)
+    await removeOwned(
+      join(root, pending.bindingTmp),
+      pending.bindingIdentity.dev,
+      pending.bindingIdentity.ino,
+    );
+  if (!committed) {
+    for (const [index, name] of herdrWindowsNames.entries()) {
+      const identity = pending.files[index];
+      if (!identity) throw new Error("Missing staged Herdr identity");
+      await removeOwned(
+        windowsBundlePath(bin, name),
+        identity.dev,
+        identity.ino,
+      );
+    }
+    for (const dir of [...pending.directories].reverse())
+      if (dir.phase === "created" && dir.identity) {
+        const path = windowsBundlePath(bin, dir.name),
+          current = await directoryInode(path);
+        if (
+          current.dev !== dir.identity.dev ||
+          current.ino !== dir.identity.ino
+        )
+          throw new Error("Herdr directory changed; manual recovery required");
+        await rmdir(path);
+      }
+    for (const [index, identity] of pending.files.entries())
+      await removeOwned(
+        join(stage, windowsStageName(index)),
+        identity.dev,
+        identity.ino,
+      );
+    await rmdir(stage);
+  }
+  await removeOwned(journalPath, journalIdentity.dev, journalIdentity.ino);
+}
+
 type Operation = {
   tempIntent(name: string): Promise<void>;
   tempIdentity(identity: z.infer<typeof identitySchema>): Promise<void>;
@@ -608,9 +888,19 @@ async function acquireGuarded(root: string): Promise<Operation> {
       if (
         !owner.stage ||
         !(
-          owner.stage.name.startsWith("herdr-")
-            ? ["herdr"]
-            : ["archive.tar.gz", "uv", "uvx"]
+          owner.stage.name.includes("-win32-x64-")
+            ? [
+                "f0.exe",
+                "f1.exe",
+                "f2.exe",
+                "f3.exe",
+                "f4.exe",
+                "f5.exe",
+                "f6.exe",
+              ]
+            : owner.stage.name.startsWith("herdr-")
+              ? ["herdr"]
+              : ["archive.tar.gz", "uv", "uvx"]
         ).includes(name)
       )
         throw new Error("Invalid staging record");
@@ -1680,6 +1970,404 @@ export async function applyHerdr(input: {
   }
 }
 
+export async function applyWindowsHerdr(
+  input: Parameters<typeof applyHerdr>[0],
+) {
+  if (
+    process.platform !== "win32" ||
+    process.arch !== "x64" ||
+    input.target !== "win32-x64"
+  )
+    throw new Error("Windows Herdr installation requires native Windows x64");
+  const { root, bin } = await inspectUvPath(input.home, input.path);
+  const operation = await acquire(root);
+  let stage: string | undefined,
+    stageIdentity: { dev: string; ino: string } | undefined;
+  const created = new Map<string, StagedFile>();
+  let journalCreated = false,
+    published = false;
+  const finish = async () => {
+    if (!published) {
+      try {
+        if (journalCreated) await recover(root, bin);
+        else if (stage && stageIdentity)
+          await cleanupStage(stage, stageIdentity, created);
+        else if (stage && !(await uvEntryAbsent(stage)))
+          throw new Error(
+            "Staging ownership is incomplete; manual recovery required",
+          );
+      } catch (error) {
+        if (
+          (await optional(join(root, "pending.json"))) === null &&
+          (!stage || (await uvEntryAbsent(stage)))
+        )
+          await operation.release();
+        throw error;
+      }
+    }
+    await operation.release(published, "Herdr");
+  };
+  try {
+    await recover(root, bin);
+    await input.recheck();
+    for (const name of ["herdr.exe", "conpty", "THIRD-PARTY-NOTICES"])
+      if (!(await uvEntryAbsent(windowsBundlePath(bin, name))))
+        throw new Error(
+          "Windows Herdr entry or runtime already exists; refusing to overwrite",
+        );
+    const stageName = `herdr-${input.version}-${input.target}-${randomBytes(16).toString("hex")}`;
+    stage = join(root, stageName);
+    await operation.stageIntent(stageName);
+    await mkdir(stage, { mode: 0o700 });
+    stageIdentity = await directoryInode(stage);
+    await operation.stage(stageName, stageIdentity);
+    const archive = await downloadRelease(
+      input.asset.url,
+      input.asset.sha256,
+      input.signal,
+      "herdr",
+    );
+    await input.recheck();
+    if (input.signal.aborted) throw new Error("Cancelled");
+    const bundle = readHerdrWindowsArchive(archive);
+    for (const [index, name] of herdrWindowsNames.entries()) {
+      if (input.signal.aborted) throw new Error("Cancelled");
+      const data = bundle.get(name);
+      if (!data) throw new Error("Missing validated Herdr bundle entry");
+      const stageFile = windowsStageName(index);
+      await createOwned(
+        join(stage, stageFile),
+        data,
+        0o700,
+        created,
+        stageFile,
+        operation.file,
+      );
+    }
+    const files = herdrWindowsNames.map((_, index) => {
+      const item = created.get(windowsStageName(index));
+      if (!item) throw new Error("Missing staged Herdr identity");
+      return item;
+    });
+    await safeDir(stage);
+    for (const [index, identity] of files.entries())
+      if (
+        (await boundedFileHash(
+          join(stage, windowsStageName(index)),
+          identity,
+        )) !== identity.sha256
+      )
+        throw new Error("Staged Herdr changed before version verification");
+    await verifyUvVersion(
+      join(stage, windowsStageName(herdrWindowsNames.indexOf("herdr.exe"))),
+      "herdr",
+      input.version,
+      stage,
+      input.signal,
+    );
+    for (const [index, identity] of files.entries())
+      if (
+        (await boundedFileHash(
+          join(stage, windowsStageName(index)),
+          identity,
+        )) !== identity.sha256
+      )
+        throw new Error("Staged Herdr changed during verification");
+    const bindingPath = join(root, "binding.json"),
+      beforeBytes = await optionalBytes(bindingPath);
+    const beforeIdentity =
+      beforeBytes === null ? null : await inode(bindingPath);
+    const old =
+      beforeBytes === null
+        ? null
+        : decodeSetupState(beforeBytes.toString("utf8"));
+    if (old?.installations.herdr)
+      throw new Error("Existing Herdr receipt requires review");
+    let pending = windowsHerdrPendingSchema.parse({
+      schemaVersion: 2,
+      kind: "herdr-windows-install",
+      stage: stageName,
+      stageDev: stageIdentity.dev,
+      stageIno: stageIdentity.ino,
+      files,
+      directories: windowsHerdrDirs.map((name) => ({
+        name,
+        phase: "unattempted",
+        identity: null,
+      })),
+      beforeHash: beforeBytes === null ? null : hash(beforeBytes),
+      beforeIdentity,
+      afterHash: null,
+      bindingTmp: null,
+      bindingIdentity: null,
+    });
+    const journalPath = join(root, "pending.json"),
+      journal = await open(journalPath, "wx", 0o600);
+    const journalInfo = await journal.stat({ bigint: true });
+    try {
+      await journal.writeFile(JSON.stringify(pending));
+      await journal.sync();
+      journalCreated = true;
+    } catch (error) {
+      await journal.close();
+      await removeOwned(
+        journalPath,
+        String(journalInfo.dev),
+        String(journalInfo.ino),
+      );
+      throw error;
+    }
+    await journal.close();
+    const updateJournal = async (next: typeof pending) => {
+      if ((await optional(journalPath)) !== JSON.stringify(pending))
+        throw new Error("Recovery journal changed");
+      const handle = await open(
+        journalPath,
+        constants.O_RDWR | constants.O_NOFOLLOW,
+      );
+      try {
+        const info = await handle.stat({ bigint: true });
+        if (info.dev !== journalInfo.dev || info.ino !== journalInfo.ino)
+          throw new Error("Recovery journal changed");
+        const value = Buffer.from(JSON.stringify(next));
+        await handle.truncate(0);
+        let offset = 0;
+        while (offset < value.length) {
+          const { bytesWritten } = await handle.write(
+            value,
+            offset,
+            value.length - offset,
+            offset,
+          );
+          if (!bytesWritten) throw new Error("Cannot write recovery journal");
+          offset += bytesWritten;
+        }
+        await handle.sync();
+        pending = next;
+      } finally {
+        await handle.close();
+      }
+    };
+    for (const [index, dir] of pending.directories.entries()) {
+      await input.recheck();
+      if (input.signal.aborted) throw new Error("Cancelled");
+      let directories = pending.directories.map((item, i) =>
+        i === index ? { ...item, phase: "intent" as const } : item,
+      );
+      await updateJournal({ ...pending, directories });
+      const path = windowsBundlePath(bin, dir.name);
+      await mkdir(path, { mode: 0o700 });
+      const identity = await directoryInode(path);
+      directories = pending.directories.map((item, i) =>
+        i === index ? { ...item, phase: "created" as const, identity } : item,
+      );
+      await updateJournal({ ...pending, directories });
+    }
+    const directories = pending.directories.map(({ name, identity }) => {
+      if (!identity) throw new Error("Incomplete Herdr directory ownership");
+      return { name, ...identity };
+    });
+    const entryIndex = herdrWindowsNames.indexOf("herdr.exe"),
+      entry = files[entryIndex];
+    if (!entry) throw new Error("Missing Herdr entry");
+    const binding = setupStateSchema.parse({
+      schemaVersion: 2,
+      defaultBinding: {
+        repo: input.repo,
+        profile: input.profile,
+        lock: input.lock,
+      },
+      installations: {
+        ...old?.installations,
+        herdr: {
+          mode: "managed",
+          version: input.version,
+          target: "win32-x64",
+          directory: stageName,
+          entryHash: entry.sha256,
+          stageIdentity,
+          files,
+          directories,
+          asset: input.asset,
+        },
+      },
+    });
+    const bindingBytes = Buffer.from(JSON.stringify(binding));
+    const receipt = binding.installations.herdr;
+    if (receipt?.mode !== "managed" || receipt.target !== "win32-x64")
+      throw new Error("Invalid Windows Herdr receipt");
+    await updateJournal({ ...pending, afterHash: hash(bindingBytes) });
+    await input.recheck();
+    for (const [index, name] of herdrWindowsNames.entries()) {
+      if (input.signal.aborted) throw new Error("Cancelled");
+      await link(
+        join(stage, windowsStageName(index)),
+        windowsBundlePath(bin, name),
+      );
+    }
+    await input.checkReachable();
+    await safeDir(bin);
+    if (
+      (await boundedFileHash(
+        join(stage, windowsStageName(entryIndex)),
+        entry,
+      )) !== entry.sha256 ||
+      (await boundedFileHash(windowsBundlePath(bin, "herdr.exe"), entry)) !==
+        entry.sha256
+    )
+      throw new Error("Published Herdr changed before version verification");
+    await verifyUvVersion(
+      windowsBundlePath(bin, "herdr.exe"),
+      "herdr",
+      input.version,
+      stage,
+      input.signal,
+    );
+    const tmpName = `binding-${randomBytes(16).toString("hex")}.tmp`,
+      tmp = join(root, tmpName);
+    await updateJournal({ ...pending, bindingTmp: tmpName });
+    const file = await open(tmp, "wx", 0o600),
+      tmpInfo = await file.stat({ bigint: true });
+    const cleanupTemporary = async () => {
+      try {
+        await removeOwned(tmp, String(tmpInfo.dev), String(tmpInfo.ino));
+      } catch (error) {
+        if (published)
+          throw new UvCommittedError(
+            "Herdr was installed; temporary state needs manual review",
+          );
+        throw error;
+      }
+    };
+    try {
+      await updateJournal({
+        ...pending,
+        bindingIdentity: { dev: String(tmpInfo.dev), ino: String(tmpInfo.ino) },
+      });
+      await file.writeFile(bindingBytes);
+      await file.sync();
+      await file.close();
+      await input.recheck();
+      await input.checkReachable();
+      for (const [index, name] of herdrWindowsNames.entries()) {
+        const identity = files[index];
+        if (
+          !identity ||
+          (await boundedFileHash(
+            join(stage, windowsStageName(index)),
+            identity,
+          )) !== identity.sha256 ||
+          (await boundedFileHash(windowsBundlePath(bin, name), identity)) !==
+            identity.sha256
+        )
+          throw new Error("Published Herdr changed before state commit");
+      }
+      for (const directory of directories) {
+        await safeDir(windowsBundlePath(bin, directory.name));
+        const actual = await directoryInode(
+          windowsBundlePath(bin, directory.name),
+        );
+        if (actual.dev !== directory.dev || actual.ino !== directory.ino)
+          throw new Error(
+            "Published Herdr directory changed before state commit",
+          );
+      }
+      if (!(await windowsHerdrMatches(root, bin, receipt)))
+        throw new Error("Published Herdr bundle changed before state commit");
+      if (input.signal.aborted) throw new Error("Cancelled");
+      if (beforeIdentity && beforeBytes) {
+        await assertFileUnchanged(bindingPath, beforeIdentity, beforeBytes);
+        await rename(tmp, bindingPath);
+      } else await link(tmp, bindingPath);
+      published = true;
+    } finally {
+      await file.close().catch(() => {});
+      await cleanupTemporary();
+    }
+    try {
+      if ((await optional(journalPath)) !== JSON.stringify(pending))
+        throw new Error("Recovery journal changed");
+      await removeOwned(
+        journalPath,
+        String(journalInfo.dev),
+        String(journalInfo.ino),
+      );
+    } catch {
+      throw new UvCommittedError(
+        "Herdr was installed; recovery journal needs manual review",
+      );
+    }
+    return binding;
+  } finally {
+    await finish();
+  }
+}
+
+async function windowsHerdrMatches(
+  root: string,
+  bin: string,
+  receipt: Extract<
+    NonNullable<SetupState["installations"]["herdr"]>,
+    { mode: "managed"; target: "win32-x64" }
+  >,
+) {
+  try {
+    const stage = join(root, receipt.directory);
+    await safeDir(stage);
+    const stageId = await directoryInode(stage);
+    if (
+      stageId.dev !== receipt.stageIdentity.dev ||
+      stageId.ino !== receipt.stageIdentity.ino
+    )
+      return false;
+    const stageNames = receipt.files
+      .map((_, index) => windowsStageName(index))
+      .sort();
+    if (
+      JSON.stringify((await readdir(stage)).sort()) !==
+      JSON.stringify(stageNames)
+    )
+      return false;
+    for (const dir of receipt.directories) {
+      const path = windowsBundlePath(bin, dir.name);
+      await safeDir(path);
+      const actual = await directoryInode(path);
+      if (actual.dev !== dir.dev || actual.ino !== dir.ino) return false;
+      const expected = [
+        ...new Set(
+          [...herdrWindowsNames, ...windowsHerdrDirs]
+            .filter((name) => name.startsWith(`${dir.name}/`))
+            .map((name) => name.slice(dir.name.length + 1).split("/")[0]),
+        ),
+      ].sort();
+      if (
+        JSON.stringify((await readdir(path)).sort()) !==
+        JSON.stringify(expected)
+      )
+        return false;
+    }
+    for (const [index, name] of herdrWindowsNames.entries()) {
+      const identity = receipt.files[index];
+      if (
+        !identity ||
+        (await boundedFileHash(
+          join(stage, windowsStageName(index)),
+          identity,
+        )) !== identity.sha256 ||
+        (await boundedFileHash(windowsBundlePath(bin, name), identity)) !==
+          identity.sha256
+      )
+        return false;
+    }
+    return (
+      receipt.files[herdrWindowsNames.indexOf("herdr.exe")]?.sha256 ===
+      receipt.entryHash
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function matchesManagedHerdr(
   home: string,
   receipt: Extract<
@@ -1708,6 +2396,8 @@ export async function matchesManagedHerdr(
   try {
     await safeDir(root);
     await safeDir(bin);
+    if (receipt.target === "win32-x64")
+      return await windowsHerdrMatches(root, bin, receipt);
     await safeDir(stage);
     const source = await inode(join(stage, "herdr")),
       entry = await inode(join(bin, "herdr"));
