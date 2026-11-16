@@ -14,7 +14,7 @@
 
 ## 待完成
 
-1. 完成当前候选的根会话审查、`pnpm check` 与 npm pack 验收；运行并记录 macOS arm64/x64、Linux x64、Windows x64 的原生 SEA CI。矩阵定义本身不是运行证据。
+1. 每次交付继续执行根会话审查、`pnpm check`、实际 npm tarball 与原生 SEA 验收；本轮准确 SHA 和作业结果记录在 [PR #7](https://github.com/ShawnDen-coder/agent-stack/pull/7)。矩阵定义本身不是运行证据。
 2. 在确认支持契约和原生证据后扩展 Windows、Linux/WSL 的完整 coding，以及 Windows uv、其他平台的安装和交互；现有 Windows x64 Herdr-only 能力继续保留。不能用 Linux runner 替代 WSL 原生证据。
 3. 实现锁更新与离线解析、单部件升级、配置恢复和程序回退。共享锁记录顶层发行资产；本机 npm 传递依赖树回执不表示共享锁固定完整闭包。
 4. 完善真实用户终端、ConPTY、GUI 及模型调用的独立验收。隔离 TUI 和静态检查不能代替这些场景；认证、会话和凭证留在原生工具本机目录。
