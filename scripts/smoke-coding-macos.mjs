@@ -15,7 +15,10 @@ import {
 import { machine } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { codingMetadataPreload } from "./lib/coding-metadata.mjs";
+import {
+  codingMetadataPreload,
+  retryCodingMetadataLock,
+} from "./lib/coding-metadata.mjs";
 import { smokeCodingRun } from "./lib/smoke-coding-run.mjs";
 
 const project = fileURLToPath(new URL("..", import.meta.url));
@@ -153,11 +156,26 @@ async function call(name, args, mode = "normal") {
         killSignal: "SIGINT",
       },
       async (error, stdout, stderr) => {
-        await writeFile(join(root, `${name}.stdout`), stdout);
-        await writeFile(join(root, `${name}.stderr`), stderr);
-        if (error)
-          reject(Error(`${name}: ${error.message}\n${stdout}\n${stderr}`));
-        else resolve(JSON.parse(stdout));
+        try {
+          await writeFile(join(root, `${name}.stdout`), stdout);
+          await writeFile(join(root, `${name}.stderr`), stderr);
+          if (error) {
+            reject(
+              Object.assign(
+                Error(`${name}: ${error.message}\n${stdout}\n${stderr}`),
+                {
+                  stdout,
+                  stderr,
+                  code: error.code,
+                  signal: error.signal,
+                  killed: error.killed,
+                },
+              ),
+            );
+          } else resolve(JSON.parse(stdout));
+        } catch (writeOrParseError) {
+          reject(writeOrParseError);
+        }
       },
     ),
   );
@@ -166,11 +184,15 @@ const common = ["--repo", repo, "--profile", "coding", "--json"];
 try {
   assert.equal(
     (
-      await call(
-        "lock",
-        ["lock", ...common, "--target", `darwin-${process.arch}`],
-        "metadata",
-      )
+      await retryCodingMetadataLock({
+        lockPath: join(repo, "stack", "stack.lock.json"),
+        call: (name) =>
+          call(
+            name,
+            ["lock", ...common, "--target", `darwin-${process.arch}`],
+            "metadata",
+          ),
+      })
     ).kind,
     "shared-lock-created",
   );
