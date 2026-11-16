@@ -98,6 +98,25 @@ Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询
 
 `pnpm build:binary` 使用 Node 26 的 SEA 构建当前平台的 `binary/agent-stack`（Windows 为 `.exe`）；普通 npm CLI 仍要求 Node 24+。`pnpm verify:binary` 将二进制和声明复制到临时目录，在没有外部 Node 的 PATH 中检查 help、version 和 validate。CI 定义了四个平台的原生构建；以具体 CI 运行结果为准。macOS 构建使用 ad-hoc 签名，不是 Apple 公证；Windows 构建未签名。共享配置与 skills 仍由独立 Git checkout 提供。安装外部工具仍可能需要外部 Node、npm 和 Git。
 
-二进制构建目前尚未准备发布：尚需整理 Node 和打包依赖的许可材料，并实现和验证受控发布流水线。不要分发构建结果作为正式发行物。
+二进制构建把 Node 自带 LICENSE 和所有声明的运行依赖许可及 NOTICE 放进 `binary/licenses/`；依据 esbuild 输入图与运行依赖闭包收集，以覆盖依赖自身预打包的代码。`node scripts/package-binary.mjs <platform-arch>` 把二进制和这些材料归档，解包后在隔离目录重跑 smoke，并生成 SHA-256。Node 安装目录找不到 LICENSE 时构建失败；如本地 Node 发行方式将许可放在其他位置，可用 `NODE_LICENSE_FILE` 指向该 Node 发行包的原始 LICENSE。
 
 `cog.toml` 使用裸 SemVer tag 与 pre-bump hook 同步 package version，Cocogitto 生成 changelog 和版本提交。首次建立版本时须先核对发布基线，再显式运行 `cog bump --version 0.1.0`；后续可使用 `cog bump --auto`。这些命令会创建本地提交和 tag，但不会推送或发布。pre-bump 失败时检查 Cocogitto 留下的 stash，不能假定修改已自动恢复。当前项目尚无正式发布 tag；发布前仍需明确 npm 名称、许可和受信任发布配置。
+
+### 受控发布流程
+
+仓库尚未正式发布；`agent-stack` 只是当前包名，发布前必须确认其 npm 所有权、最终名称与授权。`UNLICENSED` 不表示项目已授予开源许可。发布名称改变时同时修改 `package.json` 并重新核对 npm trusted publisher；不改变 `bin.agent-stack` 入口。
+
+发布 workflow `.github/workflows/release.yml` 只在本仓库推送裸 SemVer tag 时运行；PR 和 fork 只运行普通验证。支持正式版及预发布后缀，不接受 `v` 前缀或 build metadata。它要求 tag 指向本次事件的确切 commit、package version 与 tag 相同、该 commit 是远端 `master` 的祖先。此校验依赖仓库管理员保护 `master`、限制 tag 创建/修改及确保合入经过审查；祖先关系本身不证明审查已经发生。发布前两次重新抓取并核对 tag 与 master，tag 在操作期间发生变更将失败。
+
+版本流程：本地运行 `cog bump --auto`（首次显式版本），检查生成的版本提交、tag 和 changelog；将版本提交通过受审 PR 合入 `master`，保留该 commit 身份；确认 tag 指向已合入的确切 commit 后，再按另行授权推送 tag。不可在版本提交进入 `master` 前推送 tag。PR squash 或 rebase 会改变 commit，必须重新核对版本和 tag 身份。该 workflow 不创建或推送 tag。
+
+构建 job 运行 `pnpm check`，只打包一次 npm tarball 并从该 tarball 实际独立安装验证；四个平台原生构建 SEA、归档许可材料并从解包归档运行 smoke。发布 job 下载上述产物并核对 SHA-256；npm 发布直接消费验收 tarball，GitHub Release 附带同一个包、四个二进制归档和 `SHA256SUMS`。macOS 为 ad-hoc 签名而非公证，Windows 未签名。目标平台的成功以实际 CI 运行结果为准。
+
+发布前的外部配置，均未由本仓库自动完成：
+
+1. 确认 npm 包名和账号/组织拥有权，处理首次包注册及最终许可；当前不能假定 `agent-stack` 可注册或属于本项目。
+2. 在 GitHub 配置并保护 `release` environment，限制可信 tag、配置必要审批；保护 `master` 及 tag。限制可执行 Actions 为本 workflow 所需的固定 SHA。
+3. 在 npm 包设置添加 GitHub Actions trusted publisher：owner `ShawnDen-coder`、repository `agent-stack`、workflow 文件 `release.yml`、environment `release`，并明确允许 `npm publish`。npm 要求 Node >=22.14 和 npm >=11.5.1；发布 job 使用 Node 26 并检查 npm 版本。新 trusted publisher 配置需在 npm 规定期限内完成首次成功发布。无需在仓库保存 token；首次注册是否可直接使用 OIDC 取决于 npm 账户和包状态，先按 npm 当前流程完成配置。
+4. tag 推送和正式发布须另行授权。本地 `cog bump`、构建及校验不会推送或发布。
+
+npm 查询只把明确的 HTTP 404 视为版本不存在；已有版本只有 registry `dist.integrity` 与待发布 tarball 的 SHA-512 完全一致时才跳过。权限、限流、网络、错误响应和内容不一致均中止。预发布进入 `next` dist-tag，正式版进入 `latest`。若 npm 已发布但 GitHub Release 创建失败，重跑会先核对 npm integrity；已存在的 GitHub Release 不会覆盖，需由维护者检查处理。

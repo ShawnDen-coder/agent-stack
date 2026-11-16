@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as tar from "tar";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 if (process.platform === "win32") {
@@ -26,14 +27,23 @@ const run = (command, args, cwd) =>
   });
 try {
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  const packed = JSON.parse(
-    run(npm, ["pack", "--json", "--pack-destination", temp], root),
-  );
-  assert.equal(packed.length, 1);
-  const files = packed[0].files.map((file) => file.path);
-  assert(files.includes("dist/cli.js"));
+  const supplied = process.argv[2];
+  if (process.argv.length > 3)
+    throw new Error("Expected at most one tarball path");
+  let tarball;
+  if (supplied) tarball = resolve(supplied);
+  else {
+    const packed = JSON.parse(
+      run(npm, ["pack", "--json", "--pack-destination", temp], root),
+    );
+    assert.equal(packed.length, 1);
+    tarball = join(temp, packed[0].filename);
+  }
+  const files = [];
+  await tar.list({ file: tarball, onentry: (entry) => files.push(entry.path) });
+  assert(files.includes("package/dist/cli.js"));
   assert(
-    !files.some((file) => file.startsWith("stack/")),
+    !files.some((file) => file.startsWith("package/stack/")),
     "checkout resources must not be bundled",
   );
   const install = join(temp, "install");
@@ -49,7 +59,7 @@ try {
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
-      join(temp, packed[0].filename),
+      tarball,
     ],
     install,
   );
@@ -69,7 +79,7 @@ try {
     readdirSync(join(install, "node_modules", manifest.name)).includes("dist"),
   );
   console.log(
-    `Verified ${packed[0].filename}: isolated install, version ${manifest.version}, and help`,
+    `Verified ${tarball}: isolated install, version ${manifest.version}, and help`,
   );
 } finally {
   rmSync(temp, { recursive: true, force: true });
