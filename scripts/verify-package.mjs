@@ -55,7 +55,13 @@ try {
     run(process.execPath, [cli, "--version"], install).trim(),
     manifest.version,
   );
-  assert.match(run(process.execPath, [cli, "--help"], install), /agent-stack/);
+  const bin = join(install, "node_modules", ".bin", "agent-stack");
+  assert.equal(run(bin, ["--version"], install).trim(), manifest.version);
+  assert.match(run(bin, ["--help"], install), /agent-stack/);
+  const validation = JSON.parse(
+    run(bin, ["validate", "--repo", root, "--json"], install),
+  );
+  assert.equal(validation.valid, true);
   assert(
     readdirSync(join(install, "node_modules", manifest.name)).includes("dist"),
   );
