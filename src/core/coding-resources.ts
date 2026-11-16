@@ -17,6 +17,7 @@ export const codingResourcePlanSchema = z.strictObject({
   kind: z.literal("coding-resources-plan"),
   repo: z.string(),
   home: z.string(),
+  backupRoot: z.string(),
   profile: z.string(),
   target: z.string(),
   piVersion: z.string(),

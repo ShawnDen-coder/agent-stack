@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +32,16 @@ test("external Node observation does not execute an unknown script", {
       /not a verified native entry/,
     );
     await assert.rejects(readFile(marker), { code: "ENOENT" });
+    const fifo = join(dir, "node.pipe");
+    assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
+    await assert.rejects(
+      assertNodeTarget(
+        { path: fifo, version: "24.15.0" },
+        `${process.platform}-${process.arch}`,
+        new AbortController().signal,
+      ),
+      /not a verified native entry/,
+    );
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;

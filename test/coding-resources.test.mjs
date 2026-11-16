@@ -182,7 +182,23 @@ test("resource apply preserves unknown data and is idempotent", async () => {
       if (previousOverride === undefined) delete process.env.HERDR_CONFIG_PATH;
       else process.env.HERDR_CONFIG_PATH = previousOverride;
     }
-    await applyCodingResources(first, options);
+    const applied = await applyCodingResources(first, options);
+    assert(applied.backupDirectory);
+    const backupMap = JSON.parse(
+      await readFile(join(applied.backupDirectory, "backup-map.json"), "utf8"),
+    );
+    assert(
+      backupMap.items.some((item) => item.target === join(pi, "settings.json")),
+    );
+    assert.equal(
+      JSON.parse(
+        await readFile(
+          join(home, ".agent-stack", "coding-resources.json"),
+          "utf8",
+        ),
+      ).backupDirectory,
+      backupMap.directory,
+    );
     const settings = JSON.parse(
       await readFile(join(pi, "settings.json"), "utf8"),
     );

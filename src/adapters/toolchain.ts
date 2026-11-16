@@ -13,10 +13,19 @@ import {
 
 export async function isNativeExecutable(path: string): Promise<boolean> {
   try {
-    const file = await open(path, "r");
+    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
     try {
+      const info = await file.stat({ bigint: true });
+      if (!info.isFile() || !info.ino || info.size < 4n) return false;
       const header = Buffer.alloc(4);
       if ((await file.read(header, 0, 4, 0)).bytesRead !== 4) return false;
+      const current = await stat(path, { bigint: true });
+      if (
+        !current.isFile() ||
+        current.dev !== info.dev ||
+        current.ino !== info.ino
+      )
+        return false;
       if (process.platform === "linux")
         return header.equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
       if (process.platform === "win32")

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -20,6 +20,11 @@ const legacyReceiptSchema = z.strictObject({
   schemaVersion: z.literal(1),
   skills: z.array(z.string()),
   herdr: z.record(z.string(), z.boolean()),
+  backupDirectory: z
+    .string()
+    .regex(/^resource-stage-[a-f0-9]{32}$/)
+    .nullable()
+    .optional(),
   extensionHash: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -47,6 +52,7 @@ function previousOwnership(
   // unowned values; a different target can never inherit a previous write grant.
   const previous = value?.schemaVersion === 2 ? value : null;
   return {
+    backupDirectory: value?.backupDirectory ?? null,
     skills: previous?.targets.pi === targets.pi ? previous.skills : [],
     herdr: previous?.targets.herdr === targets.herdr ? previous.herdr : {},
     extensionHash:
@@ -305,6 +311,7 @@ export async function planCodingResources(input: CodingResourceInput) {
     kind: "coding-resources-plan",
     repo,
     home,
+    backupRoot: join(home, ".agent-stack"),
     profile: input.profile,
     target: input.target,
     piVersion: input.piVersion,
@@ -433,21 +440,29 @@ export async function applyCodingResources(
     JSON.stringify(config.owned) !== JSON.stringify(plan.managedHerdr)
   )
     throw new Error("Resource ownership changed after planning");
-  const receipt = Buffer.from(
-    JSON.stringify({
-      schemaVersion: 2,
-      targets: receiptTargets,
-      skills: pi.owned,
-      herdr: config.owned,
-      extensionHash: plan.managedExtension ? digest(extension) : null,
-    }),
-  );
-  const after = [
+  const resourceAfter = [
     Buffer.from(pi.text),
     Buffer.from(config.text),
     extension,
-    receipt,
   ];
+  const baseReceipt = {
+    schemaVersion: 2,
+    targets: receiptTargets,
+    skills: pi.owned,
+    herdr: config.owned,
+    extensionHash: plan.managedExtension ? digest(extension) : null,
+    backupDirectory: previous.backupDirectory,
+  };
+  const changed =
+    resourceAfter.some((bytes, index) => !before[index]?.equals(bytes)) ||
+    !receiptBytes?.equals(Buffer.from(JSON.stringify(baseReceipt)));
+  const backupDirectory = changed
+    ? `resource-stage-${randomBytes(16).toString("hex")}`
+    : previous.backupDirectory;
+  const receipt = Buffer.from(
+    JSON.stringify({ ...baseReceipt, backupDirectory }),
+  );
+  const after = [...resourceAfter, receipt];
   const prior = [...before, receiptBytes];
   const files = allowed.flatMap((target, index) => {
     const old = prior[index] ?? null,
@@ -485,6 +500,7 @@ export async function applyCodingResources(
   if (files.length)
     await publishCodingResources({
       home: plan.home,
+      ...(backupDirectory ? { directory: backupDirectory } : {}),
       files,
       signal: options.signal,
       recheck,
@@ -505,5 +521,8 @@ export async function applyCodingResources(
   return {
     kind: "coding-resources-applied" as const,
     files: files.map((file) => file.target),
+    backupDirectory: backupDirectory
+      ? join(plan.home, ".agent-stack", backupDirectory)
+      : null,
   };
 }

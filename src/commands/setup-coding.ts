@@ -140,6 +140,10 @@ export async function setupCoding(input: {
       ),
     })),
   );
+  if (signal.aborted) {
+    stop(true);
+    throw Error("Cancelled");
+  }
   const check = (name: string) => {
     const value = checks.find((c) => c.name === name);
     if (!value) throw Error(`Missing ${name} observation`);
@@ -317,6 +321,10 @@ export async function setupCoding(input: {
     env: process.env,
   };
   const resources = await planCodingResources(resourceInput);
+  if (signal.aborted) {
+    stop(true);
+    throw Error("Cancelled");
+  }
   blockers.push(...resources.blockers);
   const plan = setupPlanSchema.parse({
     kind: "setup-plan",
@@ -366,6 +374,7 @@ export async function setupCoding(input: {
       "Locked digest is expected metadata until downloaded and checked. Components and resources are prepared before isolated Pi TUI verification; default binding is committed last. User sessions and model calls are not tested.",
   });
   stop(signal.aborted);
+  if (signal.aborted) throw Error("Cancelled");
   if (input.dryRun || !json) setup(plan, json);
   const resourceRecoveryOnly =
     resources.blockers.length === 1 &&
@@ -554,6 +563,8 @@ export async function setupCoding(input: {
       lock,
       state,
       node: nodeRuntime,
+      allowActiveOperation: true,
+      signal,
     };
     const inputHash = await codingInputHash(signatureInput);
     let verification: {

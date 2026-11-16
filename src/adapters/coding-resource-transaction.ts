@@ -269,6 +269,7 @@ export async function recoverCodingResources(home: string, allowed: string[]) {
 
 export async function publishCodingResources(input: {
   home: string;
+  directory?: string;
   files: Array<{
     target: string;
     before: Buffer | null;
@@ -294,8 +295,11 @@ export async function publishCodingResources(input: {
     await input.recheck();
     await ensureParent(input.home, file.target, input.recheck, input.signal);
   }
-  const directory = `resource-stage-${randomBytes(16).toString("hex")}`,
-    stage = join(root, directory);
+  const directory =
+    input.directory ?? `resource-stage-${randomBytes(16).toString("hex")}`;
+  if (!/^resource-stage-[a-f0-9]{32}$/.test(directory))
+    throw Error("Invalid resource backup directory");
+  const stage = join(root, directory);
   if (input.signal.aborted) throw new Error("Cancelled");
   await input.recheck();
   await mkdir(stage, { mode: 0o700 });
@@ -345,6 +349,7 @@ export async function publishCodingResources(input: {
       items,
     });
     const raw = Buffer.from(JSON.stringify(journal));
+    await create(join(stage, "backup-map.json"), raw);
     const pending = await create(join(stage, "journal"), raw);
     await input.recheck();
     if (input.signal.aborted) throw new Error("Cancelled");

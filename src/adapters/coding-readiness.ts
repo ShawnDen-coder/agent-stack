@@ -1,7 +1,8 @@
 import { join, resolve } from "node:path";
 import type { FreshLock } from "../core/fresh-lock.js";
 import { inspectCodingResources } from "./coding-resources.js";
-import { hash } from "./managed-operation.js";
+import { assertNodeTarget } from "./external-node.js";
+import { hash, optional } from "./managed-operation.js";
 import { matchesManagedNpm } from "./npm-state.js";
 import type { SetupState } from "./setup-state.js";
 import { findExecutable } from "./toolchain.js";
@@ -20,11 +21,18 @@ export async function codingInputHash(input: {
   lock: FreshLock;
   state: SetupState;
   node: { path: string; version: string };
+  allowActiveOperation?: boolean;
+  signal?: AbortSignal;
 }) {
   const { repo, home, lock, state, node } = input;
   const target = `${process.platform}-${process.arch}`;
   if (process.platform !== "darwin" || lock.profile !== "coding")
     throw Error("Coding readiness requires the native macOS coding profile");
+  await assertNodeTarget(
+    node,
+    target,
+    input.signal ?? new AbortController().signal,
+  );
   const version = (name: string) => {
     const value = lock.components.find((c) => c.component === name)?.version;
     if (!value) throw Error(`Missing locked ${name}`);
@@ -42,6 +50,17 @@ export async function codingInputHash(input: {
   if (!resources.ready)
     throw Error(
       "Coding resources are missing, changed or awaiting recovery; run setup",
+    );
+  if (
+    !input.allowActiveOperation &&
+    ((await optional(join(resolve(home), ".agent-stack", "pending.json"))) !==
+      null ||
+      (await optional(
+        join(resolve(home), ".agent-stack", "operation.lock"),
+      )) !== null)
+  )
+    throw Error(
+      "Coding setup or recovery is pending; run setup before starting coding",
     );
   for (const component of ["pi", "pnpm"] as const) {
     const receipt = state.installations[component];
@@ -169,7 +188,10 @@ export async function inspectCodingReadiness(
       reason: "No matching completed coding setup; run setup",
     };
   try {
-    const current = await codingInputHash(input);
+    const current = await codingInputHash({
+      ...input,
+      allowActiveOperation: false,
+    });
     return current === binding.codingVerification.inputHash
       ? { ready: true, scope, reason: null }
       : {

@@ -4858,7 +4858,7 @@ test("setup reuses matching external uv without taking ownership", {
   await assert.rejects(readFile(f.marker));
   assert.deepEqual(await readdir(f.bin), []);
 });
-test("setup preserves unknown entries and blocks full coding before download", {
+test("setup preserves unknown entries and blocks incomplete coding prerequisites before download", {
   skip: process.platform === "win32",
 }, async (t) => {
   const f = await uvInstallFixture(t);
@@ -4893,8 +4893,9 @@ test("setup preserves unknown entries and blocks full coding before download", {
   assert.equal(coding.status, 1, coding.stdout + coding.stderr);
   assert.match(
     JSON.stringify(JSON.parse(coding.stdout).blockers),
-    /complete profile/,
+    /node: not_found/,
   );
+  assert(JSON.parse(coding.stdout).integrations.includes("pi-herdr"));
   await assert.rejects(readFile(f.marker));
   assert.deepEqual(await readdir(f.bin), []);
 });

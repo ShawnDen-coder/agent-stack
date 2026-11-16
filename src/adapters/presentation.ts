@@ -487,6 +487,10 @@ export function setup(
   line();
   line(`Integrations: ${plan.integrations.map(clean).join(", ") || "none"}`);
   line(`Resources: ${plan.resources.map(clean).join(", ")}`);
+  if (plan.codingResources) {
+    line("Resource backup root:");
+    line(clean(plan.codingResources.backupRoot), "  ", true);
+  }
   line();
   line("Blockers");
   for (const item of plan.blockers) line(`[BLOCKED] ${clean(item)}`, "  ");
