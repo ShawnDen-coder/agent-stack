@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -132,7 +132,7 @@ test("Pi staging isolates npm configuration and verifies installed entry", {
 }, async () => {
   const { chmod, mkdir } = await import("node:fs/promises");
   const { stagePi } = await import("../dist/adapters/pi-staging.js");
-  const dir = await mkdtemp(join(tmpdir(), "pi-stage-test-"));
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "pi-stage-test-")));
   const stage = join(dir, "stage");
   const npm = join(dir, "npm");
   await mkdir(stage);
@@ -232,18 +232,24 @@ test("npm archive rejects symlinks and incompatible Pi identity", async () => {
   }
 });
 
-test("staged tree fingerprint detects drift and rejects escaping links", async () => {
-  const { stagedTreeDigest } = await import("../dist/adapters/staged-tree.js");
-  const { symlink } = await import("node:fs/promises");
-  const root = await mkdtemp(join(tmpdir(), "staged-tree-test-"));
+test("staged tree fingerprint detects drift and rejects escaping links", {
+  skip: process.platform === "win32",
+}, async () => {
+  const { managedTreeDigest } = await import(
+    "../dist/adapters/managed-tree.js"
+  );
+  const { symlink, realpath } = await import("node:fs/promises");
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "staged-tree-test-")),
+  );
   try {
     await writeFile(join(root, "item"), "before");
-    const before = await stagedTreeDigest(root);
-    assert.equal(await stagedTreeDigest(root), before);
+    const before = await managedTreeDigest(root);
+    assert.equal(await managedTreeDigest(root), before);
     await writeFile(join(root, "item"), "after");
-    assert.notEqual(await stagedTreeDigest(root), before);
+    assert.notEqual(await managedTreeDigest(root), before);
     await symlink("../outside", join(root, "escape"));
-    await assert.rejects(stagedTreeDigest(root), /escapes/);
+    await assert.rejects(managedTreeDigest(root), /manual recovery/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

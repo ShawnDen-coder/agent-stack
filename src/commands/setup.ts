@@ -4,6 +4,12 @@ import { Command, InvalidArgumentError, Option } from "commander";
 import { verifyWindowsHerdrEntry } from "../adapters/herdr-windows-archive.js";
 import { observeHost } from "../adapters/host.js";
 import { readLock } from "../adapters/lock-reader.js";
+import { optional } from "../adapters/managed-operation.js";
+import {
+  applyNpmComponent,
+  matchesManagedNpm,
+  observeInstalledNpm,
+} from "../adapters/npm-state.js";
 import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
 import {
@@ -44,7 +50,12 @@ import {
 import { verifyObservedUv } from "../adapters/uv-version.js";
 import { assess } from "../core/doctor.js";
 import { freshLockSchema } from "../core/fresh-lock.js";
-import { componentAction, setupPlanSchema } from "../core/setup-plan.js";
+import { npmPendingSchema } from "../core/npm-state.js";
+import {
+  componentAction,
+  type SetupPlan,
+  setupPlanSchema,
+} from "../core/setup-plan.js";
 import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
 
@@ -159,6 +170,10 @@ export function createSetupCommand(): Command {
           profile.components[0]?.component === "herdr" &&
           profile.integrations.length === 0 &&
           profile.requires.includes("workspace");
+        const npmOnly =
+          profile.components.length === 1 &&
+          ["pi", "pnpm"].includes(profile.components[0]?.component ?? "") &&
+          profile.integrations.length === 0;
         const componentIds = profile.components.map((item) => item.component);
         const baseline = await setupBaseline(
           repo,
@@ -187,7 +202,7 @@ export function createSetupCommand(): Command {
         const node = {
           name: "node",
           ...assess(
-            isSea()
+            isSea() || npmOnly
               ? await observe("node", controller.signal)
               : {
                   path: process.execPath,
@@ -217,13 +232,17 @@ export function createSetupCommand(): Command {
               const component = lock.components.find(
                 (item) => item.component === name,
               );
+              const installed =
+                home && (name === "pi" || name === "pnpm")
+                  ? await observeInstalledNpm(home, name)
+                  : null;
               return {
                 name,
                 ...assess(
                   ["npm", "git", "pi", "pnpm", "uv", "uvx", "herdr"].includes(
                     name,
                   )
-                    ? await observe(name, controller.signal)
+                    ? (installed ?? (await observe(name, controller.signal)))
                     : {
                         path: null,
                         version: null,
@@ -507,6 +526,99 @@ export function createSetupCommand(): Command {
           uvBlockers.push(
             "Existing setup binding is stale; refusing to replace it",
           );
+        let npmInstallation: SetupPlan["npmInstallation"];
+        let npmPathIdentity: string | undefined;
+        let npmNodeFingerprint: string | undefined;
+        let npmExecutableFingerprint: string | undefined;
+        const npmBlockers: string[] = [];
+        if (npmOnly) {
+          const component =
+            profile.components[0]?.component === "pi" ? "pi" : "pnpm";
+          const observation = checks.find((item) => item.name === component);
+          const version = lock.components.find(
+            (item) => item.component === component,
+          )?.version;
+          const assets = lock.assets
+            .filter(
+              (item) => item.component === component && item.target === target,
+            )
+            .map((asset) => {
+              if (
+                asset.artifact.type !== "npm" ||
+                asset.digest.algorithm !== "sha512-sri"
+              )
+                throw new Error("Missing validated npm asset");
+              return {
+                name: asset.artifact.packageName,
+                version: asset.artifact.packageVersion,
+                url: asset.url,
+                integrity: asset.digest.value,
+                role: asset.artifact.role,
+              };
+            });
+          const receipt = state?.installations[component];
+          const mode = receipt?.mode === "managed" ? "managed" : "install";
+          const pendingRaw = home
+            ? await optional(
+                join(resolve(home), ".agent-stack", "pending.json"),
+              )
+            : null;
+          if (pendingRaw !== null && home) await hasPendingUv(home);
+          const pendingNpm =
+            pendingRaw === null
+              ? null
+              : npmPendingSchema.safeParse(JSON.parse(pendingRaw));
+          const ownRecovery =
+            pendingNpm?.success && pendingNpm.data.component === component;
+          npmInstallation = {
+            component,
+            mode,
+            assets,
+            recovery: pendingRaw !== null,
+          };
+          if (process.platform !== "darwin")
+            npmBlockers.push(
+              "npm component installation is supported on native macOS only",
+            );
+          if (!home) npmBlockers.push("HOME is required for npm setup");
+          if (receipt) {
+            if (
+              !home ||
+              !version ||
+              !(await matchesManagedNpm(home, receipt, version, target, assets))
+            )
+              npmBlockers.push(
+                "Existing npm receipt or entry does not match the lock; retain it for review",
+              );
+          } else if (observation?.status !== "not_found" && !ownRecovery)
+            npmBlockers.push(
+              "Existing npm entry has unknown ownership; refusing to overwrite it",
+            );
+          if (
+            component === "pi" &&
+            mode === "install" &&
+            checks.find((item) => item.name === "npm")?.version !== "11.12.1"
+          )
+            npmBlockers.push("Pi staging currently supports npm 11.12.1");
+          if (home) {
+            try {
+              npmPathIdentity = (
+                await inspectUvPath(home, process.env.PATH ?? "")
+              ).identity;
+            } catch (error) {
+              npmBlockers.push(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+        }
+        if (npmOnly) {
+          if (node.path)
+            npmNodeFingerprint = await uvEntryFingerprint(node.path);
+          const npmPath = checks.find((item) => item.name === "npm")?.path;
+          if (npmPath)
+            npmExecutableFingerprint = await uvEntryFingerprint(npmPath);
+        }
         const plan = setupPlanSchema.parse({
           kind: "setup-plan",
           repo: {
@@ -626,9 +738,11 @@ export function createSetupCommand(): Command {
           ...(herdrMode
             ? { herdrInstallation: { mode: herdrMode, recovery: herdrPending } }
             : {}),
+          ...(npmInstallation ? { npmInstallation } : {}),
           integrations: profile.integrations,
           resources:
             !herdrOnly &&
+            !npmOnly &&
             profile.components.some(
               (item) => item.component === "pi" || item.component === "herdr",
             )
@@ -644,15 +758,18 @@ export function createSetupCommand(): Command {
               .filter((item) => item.status !== "ok")
               .map((item) => `${item.name}: ${item.status}`),
             ...uvBlockers,
-            ...(!uvOnly && !herdrOnly
+            ...npmBlockers,
+            ...(!uvOnly && !herdrOnly && !npmOnly
               ? [
                   "Installation adapters are not implemented for the complete profile",
                 ]
               : []),
-            ...(lock.components.some((item) => item.source.type === "npm")
+            ...(!npmOnly &&
+            lock.components.some((item) => item.source.type === "npm")
               ? ["Package-level Node engines are not checked"]
               : []),
             ...((!herdrOnly &&
+              !npmOnly &&
               profile.components.some(
                 (item) => item.component === "pi" || item.component === "herdr",
               )) ||
@@ -678,6 +795,77 @@ export function createSetupCommand(): Command {
             process.exitCode = 130;
             return;
           }
+        }
+        if (npmOnly && npmInstallation) {
+          const npm = checks.find((item) => item.name === "npm");
+          const component = npmInstallation.component;
+          const version = lock.components.find(
+            (item) => item.component === component,
+          )?.version;
+          if (
+            !home ||
+            !version ||
+            !node.path ||
+            !node.version ||
+            !npm?.path ||
+            (target !== "darwin-arm64" && target !== "darwin-x64")
+          )
+            throw new Error("Incomplete npm setup plan");
+          const verify = async () => {
+            await recheck();
+            if (controller.signal.aborted) throw new Error("Cancelled");
+            if (
+              (await inspectUvPath(home, process.env.PATH ?? "")).identity !==
+                npmPathIdentity ||
+              (await uvEntryFingerprint(node.path as string)) !==
+                npmNodeFingerprint ||
+              (await uvEntryFingerprint(npm.path as string)) !==
+                npmExecutableFingerprint ||
+              JSON.stringify(await readSetupState(home)) !==
+                JSON.stringify(state)
+            )
+              throw new Error("npm setup inputs changed after planning");
+          };
+          const result = await applyNpmComponent({
+            home,
+            path: process.env.PATH ?? "",
+            repo,
+            profile: profileId,
+            lock: path,
+            component,
+            version,
+            target,
+            node: { path: node.path, version: node.version },
+            npm: npm.path,
+            assets: npmInstallation.assets,
+            signal: controller.signal,
+            recheck: verify,
+            checkReachable: async () => {
+              if (
+                (await findExecutable(component)) !==
+                join(resolve(home), ".agent-stack", "bin", component)
+              )
+                throw new Error(
+                  "Managed npm entry is not the first PATH candidate",
+                );
+            },
+          });
+          if (json)
+            console.log(
+              JSON.stringify(
+                {
+                  kind: "setup-complete",
+                  profile: profileId,
+                  mode: npmInstallation.mode,
+                  plan,
+                  binding: result,
+                },
+                null,
+                2,
+              ),
+            );
+          else console.log(`[OK] Managed ${component} setup completed.`);
+          return;
         }
         if (herdrOnly) {
           if (!home || !herdrVersion || !herdrMode || !herdrAsset)

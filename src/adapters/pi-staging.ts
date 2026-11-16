@@ -4,8 +4,9 @@ import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import semver from "semver";
 import { z } from "zod";
+import { directoryInode, safeDir } from "./managed-operation.js";
+import { managedTreeDigest } from "./managed-tree.js";
 import { downloadNpm, inspectNpmArchive } from "./npm-archive.js";
-import { stagedTreeDigest } from "./staged-tree.js";
 
 const manifestSchema = z.object({
   name: z.string(),
@@ -28,12 +29,38 @@ const lockSchema = z.object({
 });
 
 async function bounded(path: string, limit: number) {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
-    const stat = await file.stat();
-    if (!stat.isFile() || stat.size > limit)
+    const stat = await file.stat({ bigint: true });
+    if (!stat.isFile() || stat.size > BigInt(limit))
       throw new Error("Invalid staged metadata");
-    return await file.readFile();
+    const buffer = Buffer.alloc(Number(stat.size) + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(
+        buffer,
+        length,
+        buffer.length - length,
+        null,
+      );
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    const after = await file.stat({ bigint: true });
+    const current = await lstat(path, { bigint: true });
+    if (
+      BigInt(length) !== stat.size ||
+      after.size !== stat.size ||
+      after.mtimeNs !== stat.mtimeNs ||
+      current.dev !== stat.dev ||
+      current.ino !== stat.ino ||
+      current.isSymbolicLink()
+    )
+      throw new Error("Staged metadata changed during inspection");
+    return buffer.subarray(0, length);
   } finally {
     await file.close();
   }
@@ -115,6 +142,14 @@ export async function stagePi(input: {
     !semver.satisfies(input.node.version, ">=24.0.0")
   )
     throw new Error("Pi staging requires native macOS and absolute paths");
+  await safeDir(input.stage);
+  const stageIdentity = await directoryInode(input.stage);
+  const checkStage = async () => {
+    await safeDir(input.stage);
+    const current = await directoryInode(input.stage);
+    if (current.dev !== stageIdentity.dev || current.ino !== stageIdentity.ino)
+      throw new Error("Pi staging directory changed");
+  };
   if ((await readdir(input.stage)).length)
     throw new Error("Pi staging directory is not empty");
   const data = await downloadNpm(input.url, input.integrity, input.signal);
@@ -134,6 +169,7 @@ export async function stagePi(input: {
     throw new Error("Unsupported Pi entrypoint");
   const archive = join(input.stage, "pi.tgz");
   const write = async (name: string, bytes: string | Buffer) => {
+    await checkStage();
     const file = await open(join(input.stage, name), "wx", 0o600);
     try {
       await file.writeFile(bytes);
@@ -181,6 +217,7 @@ export async function stagePi(input: {
   ).trim();
   if (npmVersion !== "11.12.1")
     throw new Error("Unsupported npm staging version");
+  await checkStage();
   await command(
     input.npm,
     [
@@ -199,6 +236,7 @@ export async function stagePi(input: {
     input.signal,
     180000,
   );
+  await checkStage();
   const lockBytes = await bounded(
     join(input.stage, "package-lock.json"),
     16 * 1024 * 1024,
@@ -257,8 +295,10 @@ export async function stagePi(input: {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       throw error;
     }
+    await safeDir(modules);
     for (const name of entries) {
       if (name === ".bin" || name === ".package-lock.json") continue;
+      if (name.startsWith("@")) await safeDir(join(modules, name));
       const names = name.startsWith("@")
         ? (await readdir(join(modules, name))).map(
             (child) => `${name}/${child}`,
@@ -297,9 +337,10 @@ export async function stagePi(input: {
   ).trim();
   if (version !== input.version)
     throw new Error("Installed Pi version mismatch");
+  await checkStage();
   return {
     npmVersion,
-    treeDigest: await stagedTreeDigest(input.stage),
+    treeDigest: await managedTreeDigest(input.stage),
     lockBytes,
     projectBytes: await bounded(join(input.stage, "package.json"), 1024 * 1024),
     entry,

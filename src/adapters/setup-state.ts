@@ -1,6 +1,7 @@
 import { isAbsolute, join } from "node:path";
 import semver from "semver";
 import { z } from "zod";
+import { npmReceiptSchema } from "../core/npm-state.js";
 import { hash, optional, optionalBytes } from "./managed-operation.js";
 
 export const uvReceiptSchema = z
@@ -124,6 +125,12 @@ export const setupStateSchema = z.strictObject({
   installations: z.strictObject({
     uv: uvReceiptSchema.optional(),
     herdr: herdrReceiptSchema.optional(),
+    pi: npmReceiptSchema
+      .refine((receipt) => receipt.component === "pi")
+      .optional(),
+    pnpm: npmReceiptSchema
+      .refine((receipt) => receipt.component === "pnpm")
+      .optional(),
   }),
 });
 export type SetupState = z.infer<typeof setupStateSchema>;

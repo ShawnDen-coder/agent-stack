@@ -451,6 +451,22 @@ export function setup(
     if (plan.herdrInstallation.recovery)
       line("Pending operation will be checked for recovery.", "  ");
   }
+  if (plan.npmInstallation) {
+    line();
+    line(
+      `${clean(plan.npmInstallation.component)} action: ${clean(plan.npmInstallation.mode)}`,
+    );
+    if (plan.npmInstallation.recovery)
+      line("Pending operation will be checked for recovery.", "  ");
+    for (const asset of plan.npmInstallation.assets) {
+      line(
+        `${clean(asset.name)} ${clean(asset.version)} (${clean(asset.role)})`,
+        "  ",
+      );
+      line(clean(asset.url), "    ", true);
+      line(`Expected SRI: ${clean(asset.integrity)}`, "    ", true);
+    }
+  }
   if (plan.uvInstallation) {
     line();
     line(`uv action: ${clean(plan.uvInstallation.mode)}`);

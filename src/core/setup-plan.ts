@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { npmAssetReceiptSchema } from "./npm-state.js";
 
 const observation = z.object({
   name: z.string(),
@@ -19,7 +20,12 @@ const observation = z.object({
     ])
     .nullable(),
   evidence: z
-    .enum(["running_process", "version_command", "package_metadata"])
+    .enum([
+      "running_process",
+      "version_command",
+      "package_metadata",
+      "installation_receipt",
+    ])
     .nullable(),
   requirement: z.string().nullable(),
   status: z.enum([
@@ -105,6 +111,14 @@ export const setupPlanSchema = z.object({
   herdrInstallation: z
     .object({
       mode: z.enum(["install", "reuse", "managed"]),
+      recovery: z.boolean(),
+    })
+    .optional(),
+  npmInstallation: z
+    .object({
+      component: z.enum(["pi", "pnpm"]),
+      mode: z.enum(["install", "managed"]),
+      assets: z.array(npmAssetReceiptSchema),
       recovery: z.boolean(),
     })
     .optional(),

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import {
@@ -13,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
+import { npmPendingSchema, npmStageName } from "../core/npm-state.js";
 import {
   herdrWindowsNames,
   readHerdrWindowsArchive,
@@ -32,6 +34,7 @@ import {
   safeDir,
   withOperationGuard,
 } from "./managed-operation.js";
+import { removeManagedTree, treeManifestName } from "./managed-tree.js";
 import {
   decodeSetupState,
   readSetupState,
@@ -184,6 +187,7 @@ const allPendingSchema = z.union([
   pendingV2Schema,
   herdrPendingSchema,
   windowsHerdrPendingSchema,
+  npmPendingSchema,
 ]);
 const anyPendingSchema = z.union([pendingSchema, pendingV2Schema]);
 type Pending = z.infer<typeof anyPendingSchema>;
@@ -202,6 +206,11 @@ const ownerSchema = z.strictObject({
     .nullable(),
   stage: z
     .union([
+      z.strictObject({
+        name: npmStageName,
+        identity: identitySchema.nullable(),
+        files: z.partialRecord(z.literal(".ownership.json"), stagedFileSchema),
+      }),
       z.strictObject({
         name: z
           .string()
@@ -318,6 +327,11 @@ async function recover(root: string, bin: string) {
     await removeOwned(path, journalIdentity.dev, journalIdentity.ino);
   };
   const allPending = decodeState(allPendingSchema, raw);
+  if (allPending.schemaVersion === 2 && allPending.kind === "npm-install") {
+    const { recoverNpmInstallation } = await import("./npm-state.js");
+    await recoverNpmInstallation(root, bin, allPending, raw, journalIdentity);
+    return;
+  }
   if (
     allPending.schemaVersion === 2 &&
     allPending.kind === "herdr-windows-install"
@@ -747,10 +761,45 @@ type Operation = {
   stageIntent(name: string): Promise<void>;
   stage(name: string, identity: z.infer<typeof identitySchema>): Promise<void>;
   file(name: string, identity: StagedFile | null): Promise<void>;
-  release(committed?: boolean, component?: "uv" | "Herdr"): Promise<void>;
+  release(
+    committed?: boolean,
+    component?: "uv" | "Herdr" | "coding",
+  ): Promise<void>;
 };
+const operationScope = new AsyncLocalStorage<{
+  root: string;
+  operation: Operation;
+  active: boolean;
+}>();
+
+export async function withSetupOperation<T>(
+  root: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const enclosing = operationScope.getStore();
+  if (enclosing?.active && enclosing.root === root) return action();
+  const operation = await acquire(root);
+  const scope = { root, operation, active: true };
+  return operationScope.run(scope, async () => {
+    let committed = false;
+    try {
+      const result = await action();
+      committed = true;
+      return result;
+    } finally {
+      scope.active = false;
+      // A failed group can retain an incomplete tree or journal. Keep its PID
+      // and ownership evidence for the next CLI process to classify safely.
+      if (committed) await operation.release(true, "coding");
+    }
+  });
+}
+export { acquire as acquireSetupOperation };
 
 async function acquire(root: string): Promise<Operation> {
+  const enclosing = operationScope.getStore();
+  if (enclosing?.active && enclosing.root === root)
+    return { ...enclosing.operation, async release() {} };
   return withOperationGuard(root, () => acquireGuarded(root));
 }
 
@@ -811,7 +860,11 @@ async function acquireGuarded(root: string): Promise<Operation> {
           (binding?.installations.uv?.mode === "managed" &&
             binding.installations.uv.directory === old.stage.name) ||
           (binding?.installations.herdr?.mode === "managed" &&
-            binding.installations.herdr.directory === old.stage.name)
+            binding.installations.herdr.directory === old.stage.name) ||
+          (binding?.installations.pi?.mode === "managed" &&
+            binding.installations.pi.directory === old.stage.name) ||
+          (binding?.installations.pnpm?.mode === "managed" &&
+            binding.installations.pnpm.directory === old.stage.name)
         )
       ) {
         const stage = join(root, old.stage.name);
@@ -822,11 +875,35 @@ async function acquireGuarded(root: string): Promise<Operation> {
             );
         } else {
           try {
-            await cleanupStage(
-              stage,
-              old.stage.identity,
-              new Map(Object.entries(old.stage.files)),
-            );
+            if (/^(?:pi|pnpm)-/.test(old.stage.name)) {
+              const manifest = (old.stage.files as Record<string, StagedFile>)[
+                treeManifestName
+              ];
+              if (manifest)
+                await removeManagedTree(stage, {
+                  root: old.stage.identity,
+                  manifest,
+                });
+              else if ((await readdir(stage)).length === 0) {
+                const actual = await directoryInode(stage);
+                if (
+                  actual.dev !== old.stage.identity.dev ||
+                  actual.ino !== old.stage.identity.ino
+                )
+                  throw new Error(
+                    "Staging ownership changed; manual recovery required",
+                  );
+                await rmdir(stage);
+              } else
+                throw new Error(
+                  "Incomplete npm tree ownership; manual recovery required",
+                );
+            } else
+              await cleanupStage(
+                stage,
+                old.stage.identity,
+                new Map(Object.entries(old.stage.files)),
+              );
           } catch (cleanup) {
             if (!missing(cleanup)) throw cleanup;
           }
@@ -888,19 +965,21 @@ async function acquireGuarded(root: string): Promise<Operation> {
       if (
         !owner.stage ||
         !(
-          owner.stage.name.includes("-win32-x64-")
-            ? [
-                "f0.exe",
-                "f1.exe",
-                "f2.exe",
-                "f3.exe",
-                "f4.exe",
-                "f5.exe",
-                "f6.exe",
-              ]
-            : owner.stage.name.startsWith("herdr-")
-              ? ["herdr"]
-              : ["archive.tar.gz", "uv", "uvx"]
+          /^(?:pi|pnpm)-/.test(owner.stage.name)
+            ? [treeManifestName]
+            : owner.stage.name.includes("-win32-x64-")
+              ? [
+                  "f0.exe",
+                  "f1.exe",
+                  "f2.exe",
+                  "f3.exe",
+                  "f4.exe",
+                  "f5.exe",
+                  "f6.exe",
+                ]
+              : owner.stage.name.startsWith("herdr-")
+                ? ["herdr"]
+                : ["archive.tar.gz", "uv", "uvx"]
         ).includes(name)
       )
         throw new Error("Invalid staging record");
@@ -955,6 +1034,7 @@ export async function uvEntryAbsent(path: string) {
 }
 export async function applyUv(input: {
   home: string;
+  deferBinding?: boolean;
   path: string;
   repo: string;
   profile: string;
@@ -1105,11 +1185,13 @@ export async function applyUv(input: {
       throw new Error("Existing uv receipt requires review");
     const binding = setupStateSchema.parse({
       schemaVersion: 2,
-      defaultBinding: {
-        repo: input.repo,
-        profile: input.profile,
-        lock: input.lock,
-      },
+      defaultBinding: input.deferBinding
+        ? (oldState?.defaultBinding ?? null)
+        : {
+            repo: input.repo,
+            profile: input.profile,
+            lock: input.lock,
+          },
       installations: {
         ...oldState?.installations,
         uv: {
@@ -1340,7 +1422,7 @@ export async function matchesManagedUv(
   }
 }
 
-async function publishExternalState(input: {
+export async function publishSetupState(input: {
   root: string;
   path: string;
   existingBytes: Buffer | null;
@@ -1403,6 +1485,7 @@ async function publishExternalState(input: {
 
 export async function bindExternalUv(input: {
   home: string;
+  deferBinding?: boolean;
   repo: string;
   profile: string;
   lock: string;
@@ -1464,11 +1547,13 @@ export async function bindExternalUv(input: {
         throw new Error("Existing binding has different uv ownership");
       const binding = setupStateSchema.parse({
         schemaVersion: 2,
-        defaultBinding: {
-          repo: input.repo,
-          profile: input.profile,
-          lock: input.lock,
-        },
+        defaultBinding: input.deferBinding
+          ? (old?.defaultBinding ?? null)
+          : {
+              repo: input.repo,
+              profile: input.profile,
+              lock: input.lock,
+            },
         installations: { ...old?.installations, uv: receipt },
       });
       if (
@@ -1478,7 +1563,7 @@ export async function bindExternalUv(input: {
         completed = true;
         return binding;
       }
-      await publishExternalState({
+      await publishSetupState({
         root,
         path,
         existingBytes,
@@ -1573,6 +1658,7 @@ export async function uvRootIdentity(home: string): Promise<string | null> {
 
 export async function bindExternalHerdr(input: {
   home: string;
+  deferBinding?: boolean;
   repo: string;
   profile: string;
   lock: string;
@@ -1629,11 +1715,13 @@ export async function bindExternalHerdr(input: {
           : decodeSetupState(existingBytes.toString("utf8"));
       const binding = setupStateSchema.parse({
         schemaVersion: 2,
-        defaultBinding: {
-          repo: input.repo,
-          profile: input.profile,
-          lock: input.lock,
-        },
+        defaultBinding: input.deferBinding
+          ? (old?.defaultBinding ?? null)
+          : {
+              repo: input.repo,
+              profile: input.profile,
+              lock: input.lock,
+            },
         installations: {
           ...old?.installations,
           herdr: input.managed ?? {
@@ -1661,7 +1749,7 @@ export async function bindExternalHerdr(input: {
         completed = true;
         return binding;
       }
-      await publishExternalState({
+      await publishSetupState({
         root,
         path,
         existingBytes,
@@ -1713,6 +1801,7 @@ function verifyHerdrBinaryIdentity(binary: Buffer, target: string) {
 
 export async function applyHerdr(input: {
   home: string;
+  deferBinding?: boolean;
   path: string;
   repo: string;
   profile: string;
@@ -1811,11 +1900,13 @@ export async function applyHerdr(input: {
       throw new Error("Existing Herdr receipt requires review");
     const binding = setupStateSchema.parse({
       schemaVersion: 2,
-      defaultBinding: {
-        repo: input.repo,
-        profile: input.profile,
-        lock: input.lock,
-      },
+      defaultBinding: input.deferBinding
+        ? (old?.defaultBinding ?? null)
+        : {
+            repo: input.repo,
+            profile: input.profile,
+            lock: input.lock,
+          },
       installations: {
         ...old?.installations,
         herdr: {
@@ -2172,11 +2263,13 @@ export async function applyWindowsHerdr(
     if (!entry) throw new Error("Missing Herdr entry");
     const binding = setupStateSchema.parse({
       schemaVersion: 2,
-      defaultBinding: {
-        repo: input.repo,
-        profile: input.profile,
-        lock: input.lock,
-      },
+      defaultBinding: input.deferBinding
+        ? (old?.defaultBinding ?? null)
+        : {
+            repo: input.repo,
+            profile: input.profile,
+            lock: input.lock,
+          },
       installations: {
         ...old?.installations,
         herdr: {
