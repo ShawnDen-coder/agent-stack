@@ -29,7 +29,7 @@ agent-stack/
 
 目录对应实际内容和职责，新增能力时再增加模块。当前不拆 workspace 包；以后出现第二个独立发布或部署的应用，再确定需要共享的包边界。
 
-`stack/configs/`、`stack/agents/`、`stack/skills/` 已建立各自的编写约定，尚未放入自动应用的原生配置或可执行工作流。它们不属于当前 `validate` 命令的校验范围。
+`stack/configs/`、`stack/agents/`、`stack/skills/` 已建立各自的编写约定。`stack/skills/` 已包含 [shape 立项与接口体验](../stack/skills/shape/SKILL.md)、项目无关的 [L0–L3 依赖规范 skill](../stack/skills/dependency-layers/SKILL.md)。自动安装、加载以及 `implement`、`verify` 工作流尚未实现。原生配置、Agent 与 skills 不属于当前 `validate` 命令的校验范围。
 
 ## 声明书写格式
 
