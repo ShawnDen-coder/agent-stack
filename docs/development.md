@@ -122,3 +122,7 @@ Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询
 4. tag 推送和正式发布须另行授权。本地 `cog bump`、构建及校验不会推送或发布。
 
 npm 查询只把明确的 HTTP 404 视为版本不存在；已有版本只有 registry `dist.integrity` 与待发布 tarball 的 SHA-512 完全一致时才跳过。权限、限流、网络、错误响应和内容不一致均中止。预发布进入 `next` dist-tag，正式版进入 `latest`。若 npm 已发布但 GitHub Release 创建失败，重跑会先核对 npm integrity；已存在的 GitHub Release 不会覆盖，需由维护者检查处理。
+
+### coding 安装 smoke 的共享锁 fixture
+
+macOS npm/SEA 安装 smoke 使用由生产 CLI 真实解析生成并离线校验的 [双架构 coding 锁 fixture](../test/fixtures/coding-lock/README.md)。CI 复制固定 profile 和锁，核对锁与当前声明，再实际下载并验证锁定发行资产，执行 setup、隔离 TUI、doctor、run 和幂等检查；它不再在每个矩阵任务重复联网解析版本目录。版本来源解析、fixture 生成与每次真实安装/运行属于不同证据；更新 fixture 按链接中的流程生成候选、审查并复核，不手填 digest 或资产 ID。CI 的 setup、npm 和 SEA 不接收 metadata 认证 token。

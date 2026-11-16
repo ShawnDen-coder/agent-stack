@@ -1,5 +1,3 @@
-import { lstat } from "node:fs/promises";
-import { setTimeout as delay } from "node:timers/promises";
 import { uvUrl } from "../../dist/adapters/releases.js";
 
 // CI-only metadata request authentication. The package consumers determine the
@@ -14,41 +12,4 @@ export function codingMetadataPreload(manifest) {
  }
  return original(u,o);
 };`;
-}
-
-// Only the metadata lock operation may retry, and only after this exact CLI failure.
-export async function retryCodingMetadataLock({
-  lockPath,
-  call,
-  wait = () => delay(1000),
-}) {
-  try {
-    return await call("lock-1");
-  } catch (error) {
-    let report;
-    try {
-      report = JSON.parse(error?.stdout);
-    } catch {
-      throw error;
-    }
-    if (
-      error?.code !== 1 ||
-      error?.signal != null ||
-      error?.killed ||
-      !report ||
-      typeof report !== "object" ||
-      Array.isArray(report) ||
-      Object.keys(report).length !== 1 ||
-      report.error !== "Release metadata request timed out"
-    )
-      throw error;
-    await wait();
-    try {
-      await lstat(lockPath);
-    } catch (checkError) {
-      if (checkError?.code === "ENOENT") return await call("lock-2");
-      throw checkError;
-    }
-    throw error;
-  }
 }

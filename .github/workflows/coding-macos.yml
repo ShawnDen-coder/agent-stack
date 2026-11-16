@@ -47,6 +47,4 @@ jobs:
           node --check "$coding_cli_dir/node_modules/.bin/agent-stack"
           printf 'CODING_SMOKE_CLI=%s\n' "$coding_cli_dir/node_modules/.bin/agent-stack" >> "$GITHUB_ENV"
       - name: Verify official coding setup, resources and real Pi TUI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/smoke-coding-macos.mjs --cli "$CODING_SMOKE_CLI" --target "${{ matrix.target }}"

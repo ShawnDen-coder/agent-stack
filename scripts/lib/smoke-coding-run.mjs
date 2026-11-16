@@ -65,9 +65,10 @@ export async function smokeCodingRun({ root, home, repo, env, cliCommand }) {
     const required = ["shape", "implement", "verify"].map((name) =>
       join(repo, "stack", "skills", name, "SKILL.md"),
     );
+    const checkoutSkills = `${join(repo, "stack", "skills")}/`;
     await writeFile(
       probe,
-      `import {writeFileSync} from 'node:fs'; export default function(pi) { let timer; pi.on('session_start',(_e,ctx)=>{timer=setInterval(()=>{const commands=pi.getCommands();const required=${JSON.stringify(required)};const skills=required.filter(path=>commands.some(c=>c.source==='skill'&&c.sourceInfo?.path===path));const agent=ctx.getSystemPrompt().includes(${JSON.stringify(agent)});if(skills.length===3&&agent){writeFileSync(${JSON.stringify(output)},JSON.stringify({tui:ctx.mode==='tui',agent,skills,cwd:ctx.cwd}));clearInterval(timer)}},100)});pi.on('session_shutdown',()=>clearInterval(timer));}`,
+      `import {writeFileSync} from 'node:fs'; export default function(pi) { let timer; pi.on('session_start',(_e,ctx)=>{timer=setInterval(()=>{const commands=pi.getCommands();const required=${JSON.stringify(required)};const skills=required.filter(path=>commands.some(c=>c.source==='skill'&&c.sourceInfo?.path===path));const checkoutSkills=[...new Set(commands.filter(c=>c.source==='skill'&&typeof c.sourceInfo?.path==='string'&&c.sourceInfo.path.startsWith(${JSON.stringify(checkoutSkills)})).map(c=>c.sourceInfo.path))];const agent=ctx.getSystemPrompt().includes(${JSON.stringify(agent)});if(skills.length===3&&agent){writeFileSync(${JSON.stringify(output)},JSON.stringify({tui:ctx.mode==='tui',agent,skills,checkoutSkills,cwd:ctx.cwd}));clearInterval(timer)}},100)});pi.on('session_shutdown',()=>clearInterval(timer));}`,
     );
     const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
     const command = [
@@ -114,6 +115,7 @@ export async function smokeCodingRun({ root, home, repo, env, cliCommand }) {
     assert.equal(probeResult.agent, true);
     assert.equal(probeResult.cwd, cwd);
     assert.deepEqual(probeResult.skills, required);
+    assert.deepEqual(probeResult.checkoutSkills.sort(), [...required].sort());
     let agentState;
     for (let index = 0; index < 100; index++) {
       const agents = JSON.parse(await run(["agent", "list"])).result.agents;

@@ -15,10 +15,7 @@ import {
 import { machine } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  codingMetadataPreload,
-  retryCodingMetadataLock,
-} from "./lib/coding-metadata.mjs";
+import { copyCodingFixture } from "./lib/coding-fixture.mjs";
 import { smokeCodingRun } from "./lib/smoke-coding-run.mjs";
 
 const project = fileURLToPath(new URL("..", import.meta.url));
@@ -61,30 +58,7 @@ const bin = join(home, ".agent-stack", "bin");
 for (const path of [home, repo, tools, bin, join(root, "tmp")])
   await mkdir(path, { recursive: true, mode: 0o700 });
 await cp(join(project, "stack"), join(repo, "stack"), { recursive: true });
-await rm(join(repo, "stack", "profiles", "coding.yaml"), { force: true });
-await writeFile(
-  join(repo, "stack", "profiles", "coding.json"),
-  JSON.stringify({
-    schemaVersion: 1,
-    id: "coding",
-    description: "Fixed official release acceptance",
-    platforms: ["darwin"],
-    components: [
-      { component: "pi", version: "1.5.2" },
-      { component: "pnpm", version: "12.15.0" },
-      { component: "uv", version: "0.13.8" },
-      { component: "herdr", channel: "stable" },
-    ],
-    integrations: ["pi-herdr"],
-    requires: [
-      "agent-runtime",
-      "workspace",
-      "node-packages",
-      "python-tools",
-      "agent-status",
-    ],
-  }),
-);
+await copyCodingFixture(join(project, "test/fixtures/coding-lock"), repo);
 for (const name of ["node", "npm", "git"])
   await symlink(
     await realpath(
@@ -92,15 +66,7 @@ for (const name of ["node", "npm", "git"])
     ),
     join(tools, name),
   );
-const manifest = JSON.parse(
-  await readFile(
-    join(project, "test/fixtures/herdr-release/v0.9.5.json"),
-    "utf8",
-  ),
-);
-const preload = join(root, "metadata.mjs"),
-  offline = join(root, "offline.mjs");
-await writeFile(preload, codingMetadataPreload(manifest));
+const offline = join(root, "offline.mjs");
 await writeFile(
   offline,
   "globalThis.fetch=async()=>{throw Error('Unexpected root asset fetch in repeat setup');};",
@@ -124,32 +90,18 @@ env.npm_config_globalconfig = join(root, "global.npmrc");
 env.npm_config_cache = join(root, "cache");
 
 async function call(name, args, mode = "normal") {
-  const source =
-    mode === "offline" ? offline : mode === "metadata" ? preload : null;
-  // A fixed fixture freezes only the lock metadata. SEA setup/run execute the
-  // moved binary itself; Node preloads are deliberately unavailable there.
-  const metadataOnly = standalone && mode === "metadata";
-  const program = standalone && !metadataOnly ? cli : process.execPath;
-  const programArgs =
-    standalone && !metadataOnly
-      ? args
-      : [
-          ...(source ? ["--import", source] : []),
-          metadataOnly ? join(project, "dist", "cli.js") : cli,
-          ...args,
-        ];
+  // SEA setup/run execute the moved binary; Node preloads are unavailable there.
+  const program = standalone ? cli : process.execPath;
+  const programArgs = standalone
+    ? args
+    : [...(mode === "offline" ? ["--import", offline] : []), cli, ...args];
   return await new Promise((resolve, reject) =>
     execFile(
       program,
       programArgs,
       {
         cwd: repo,
-        env: {
-          ...env,
-          ...(mode === "metadata" && process.env.GITHUB_TOKEN
-            ? { AGENT_STACK_TEST_GITHUB_TOKEN: process.env.GITHUB_TOKEN }
-            : {}),
-        },
+        env,
         encoding: "utf8",
         timeout: 600000,
         maxBuffer: 1024 * 1024,
@@ -160,18 +112,7 @@ async function call(name, args, mode = "normal") {
           await writeFile(join(root, `${name}.stdout`), stdout);
           await writeFile(join(root, `${name}.stderr`), stderr);
           if (error) {
-            reject(
-              Object.assign(
-                Error(`${name}: ${error.message}\n${stdout}\n${stderr}`),
-                {
-                  stdout,
-                  stderr,
-                  code: error.code,
-                  signal: error.signal,
-                  killed: error.killed,
-                },
-              ),
-            );
+            reject(Error(`${name}: ${error.message}\n${stdout}\n${stderr}`));
           } else resolve(JSON.parse(stdout));
         } catch (writeOrParseError) {
           reject(writeOrParseError);
@@ -182,20 +123,15 @@ async function call(name, args, mode = "normal") {
 }
 const common = ["--repo", repo, "--profile", "coding", "--json"];
 try {
-  assert.equal(
-    (
-      await retryCodingMetadataLock({
-        lockPath: join(repo, "stack", "stack.lock.json"),
-        call: (name) =>
-          call(
-            name,
-            ["lock", ...common, "--target", `darwin-${process.arch}`],
-            "metadata",
-          ),
-      })
-    ).kind,
-    "shared-lock-created",
-  );
+  const validation = await call("validate-lock", [
+    "validate",
+    "--repo",
+    repo,
+    "--lock",
+    "--json",
+  ]);
+  assert.equal(validation.valid, true);
+  assert.equal(validation.checked.lock.targets, 2);
   const preview = await call(
     "preview",
     ["setup", ...common, "--dry-run"],

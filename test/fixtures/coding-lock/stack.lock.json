@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "profile": "coding",
+  "integrations": ["pi-herdr"],
+  "definitionDigests": {
+    "algorithm": "sha256-canonical-json-v1",
+    "profile": "8cb5e3bf8dedbf7c4be3c8de2c1e2c4408fd840fadc7f68b38b6b0d0c59347ed",
+    "components": {
+      "herdr": "081655fe059e76f3748995dd97a6c0c26b78afc11b2a6d90849493f9f66c5e91",
+      "pi": "2d746effe8725c6fbe1774a954388b5e389bbf80966b94554fb80761cbf8cae4",
+      "pnpm": "629e87c722e57b86912026e535383aebf23dde492efd7ac042380b59a97be709",
+      "uv": "9b43efa651d9945e4b21844ba9bfee6009375105b5f93c507e62d9caa60e9fb4"
+    },
+    "integrations": {
+      "pi-herdr": "1fce7578b99d0db5f4c837f74b57098a3f9e3bde328e554944cbdae29b4b7b05"
+    }
+  },
+  "node": "24.15.0",
+  "targets": [
+    {
+      "id": "darwin-arm64",
+      "os": "darwin",
+      "arch": "arm64",
+      "abi": "native"
+    },
+    {
+      "id": "darwin-x64",
+      "os": "darwin",
+      "arch": "x64",
+      "abi": "native"
+    }
+  ],
+  "components": [
+    {
+      "component": "herdr",
+      "version": "0.9.5",
+      "source": {
+        "type": "channel-manifest",
+        "manifest": "https://herdr.dev/latest.json",
+        "channel": "stable",
+        "version": "0.9.5"
+      }
+    },
+    {
+      "component": "pi",
+      "version": "1.5.2",
+      "source": {
+        "type": "npm",
+        "registry": "https://registry.npmjs.org",
+        "package": "@earendil-works/pi-coding-agent"
+      }
+    },
+    {
+      "component": "pnpm",
+      "version": "12.15.0",
+      "source": {
+        "type": "npm",
+        "registry": "https://registry.npmjs.org",
+        "package": "pnpm"
+      }
+    },
+    {
+      "component": "uv",
+      "version": "0.13.8",
+      "source": {
+        "type": "github-release",
+        "owner": "astral-sh",
+        "repo": "uv",
+        "releaseId": 443258077,
+        "tag": "0.13.8"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "component": "herdr",
+      "target": "darwin-arm64",
+      "artifact": {
+        "type": "herdr",
+        "assetKey": "macos-aarch64",
+        "assetName": "herdr-macos-aarch64"
+      },
+      "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-aarch64",
+      "format": "binary",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2"
+      },
+      "digestSource": "https://herdr.dev/latest.json"
+    },
+    {
+      "component": "pi",
+      "target": "darwin-arm64",
+      "artifact": {
+        "type": "npm",
+        "packageName": "@earendil-works/pi-coding-agent",
+        "packageVersion": "1.5.2",
+        "role": "top-level"
+      },
+      "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.5.2.tgz",
+      "format": "npm-tarball",
+      "digest": {
+        "algorithm": "sha512-sri",
+        "value": "sha512-mUWI04rqF1Vd/m1q+Ps1XeWsTXEVvRUnsmRa83I3Dzua0Tx5bYS93imeqtIfrXf7PkkaR6ERz+AuQhIJlom5yA=="
+      },
+      "digestSource": "https://registry.npmjs.org/%40earendil-works%2Fpi-coding-agent"
+    },
+    {
+      "component": "pnpm",
+      "target": "darwin-arm64",
+      "artifact": {
+        "type": "npm",
+        "packageName": "@pnpm/exe.darwin-arm64",
+        "packageVersion": "12.15.0",
+        "role": "native"
+      },
+      "url": "https://registry.npmjs.org/@pnpm/exe.darwin-arm64/-/exe.darwin-arm64-12.15.0.tgz",
+      "format": "npm-tarball",
+      "digest": {
+        "algorithm": "sha512-sri",
+        "value": "sha512-N0ZykiDWCvqSBJvt71j7cSoBR993FqvYZFtmpCtqvW3pguiI+NAgraLPA5OTwu5mV+/d8hYpVcPktJA3xFDLtA=="
+      },
+      "digestSource": "https://registry.npmjs.org/%40pnpm%2Fexe.darwin-arm64"
+    },
+    {
+      "component": "pnpm",
+      "target": "darwin-arm64",
+      "artifact": {
+        "type": "npm",
+        "packageName": "pnpm",
+        "packageVersion": "12.15.0",
+        "role": "top-level"
+      },
+      "url": "https://registry.npmjs.org/pnpm/-/pnpm-12.15.0.tgz",
+      "format": "npm-tarball",
+      "digest": {
+        "algorithm": "sha512-sri",
+        "value": "sha512-s5UdbW/0qfE9x89WzSjSuOs328ycaOUuHhGRhz6p+CoBcoerULqtxczElPA2xnwOR+sTYIwvo29HcRth6hKOYQ=="
+      },
+      "digestSource": "https://registry.npmjs.org/pnpm"
+    },
+    {
+      "component": "uv",
+      "target": "darwin-arm64",
+      "artifact": {
+        "type": "uv",
+        "releaseId": 443258077,
+        "assetId": 740313603,
+        "assetName": "uv-aarch64-apple-darwin.tar.gz"
+      },
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.8/uv-aarch64-apple-darwin.tar.gz",
+      "format": "tar.gz",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "6b71028a6b904f2ae3340ef52e595512de807d06c0a20eaef2f692581b246558"
+      },
+      "digestSource": "https://api.github.com/repos/astral-sh/uv/releases"
+    },
+    {
+      "component": "herdr",
+      "target": "darwin-x64",
+      "artifact": {
+        "type": "herdr",
+        "assetKey": "macos-x86_64",
+        "assetName": "herdr-macos-x86_64"
+      },
+      "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-x86_64",
+      "format": "binary",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "5fb0a908ec7f6745e3e245738b06bfad56c46391c391ab3c0955fbead01f1369"
+      },
+      "digestSource": "https://herdr.dev/latest.json"
+    },
+    {
+      "component": "pi",
+      "target": "darwin-x64",
+      "artifact": {
+        "type": "npm",
+        "packageName": "@earendil-works/pi-coding-agent",
+        "packageVersion": "1.5.2",
+        "role": "top-level"
+      },
+      "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.5.2.tgz",
+      "format": "npm-tarball",
+      "digest": {
+        "algorithm": "sha512-sri",
+        "value": "sha512-mUWI04rqF1Vd/m1q+Ps1XeWsTXEVvRUnsmRa83I3Dzua0Tx5bYS93imeqtIfrXf7PkkaR6ERz+AuQhIJlom5yA=="
+      },
+      "digestSource": "https://registry.npmjs.org/%40earendil-works%2Fpi-coding-agent"
+    },
+    {
+      "component": "pnpm",
+      "target": "darwin-x64",
+      "artifact": {
+        "type": "npm",
+        "packageName": "@pnpm/exe.darwin-x64",
+        "packageVersion": "12.15.0",
+        "role": "native"
+      },
+      "url": "https://registry.npmjs.org/@pnpm/exe.darwin-x64/-/exe.darwin-x64-12.15.0.tgz",
+      "format": "npm-tarball",
+      "digest": {
+        "algorithm": "sha512-sri",
+        "value": "sha512-7Ntr2HlBUxzwWOg7NwDxCbRW/3vXuqKO+hcXm+w3SBi9rrHY53li1wLqWVT7Gjxd+lVEHM1QJZo6WJEGFU8C6A=="
+      },
+      "digestSource": "https://registry.npmjs.org/%40pnpm%2Fexe.darwin-x64"
+    },
+    {
+      "component": "pnpm",
+      "target": "darwin-x64",
+      "artifact": {
+        "type": "npm",
+        "packageName": "pnpm",
+        "packageVersion": "12.15.0",
+        "role": "top-level"
+      },
+      "url": "https://registry.npmjs.org/pnpm/-/pnpm-12.15.0.tgz",
+      "format": "npm-tarball",
+      "digest": {
+        "algorithm": "sha512-sri",
+        "value": "sha512-s5UdbW/0qfE9x89WzSjSuOs328ycaOUuHhGRhz6p+CoBcoerULqtxczElPA2xnwOR+sTYIwvo29HcRth6hKOYQ=="
+      },
+      "digestSource": "https://registry.npmjs.org/pnpm"
+    },
+    {
+      "component": "uv",
+      "target": "darwin-x64",
+      "artifact": {
+        "type": "uv",
+        "releaseId": 443258077,
+        "assetId": 740313917,
+        "assetName": "uv-x86_64-apple-darwin.tar.gz"
+      },
+      "url": "https://github.com/astral-sh/uv/releases/download/0.13.8/uv-x86_64-apple-darwin.tar.gz",
+      "format": "tar.gz",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "a04c2ffeac28b2003a2c13caf538ab425fcd7def3e4a41571f4a8fb370a66af3"
+      },
+      "digestSource": "https://api.github.com/repos/astral-sh/uv/releases"
+    }
+  ]
+}
