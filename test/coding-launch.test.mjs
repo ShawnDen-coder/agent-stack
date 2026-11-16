@@ -116,7 +116,10 @@ test("coding launch uses the requested working directory and blocks non-TUI opti
     );
     await assert.rejects(readFile(marker), { code: "ENOENT" });
     assert.equal(await launchCodingPi(input), 0);
-    assert.equal(await readFile(marker, "utf8"), await realpath(root));
+    assert.equal(
+      await realpath(await readFile(marker, "utf8")),
+      await realpath(root),
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

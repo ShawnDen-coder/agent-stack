@@ -67,3 +67,5 @@ uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以
 根会话在原生 macOS 实测 Pi 1.5.2、pnpm 12.15.0、uv 0.13.8、Herdr 0.9.5 的完整 coding setup：部件延迟绑定，配置、Agent、三个 skills 及真实 Pi TUI / Herdr v9 私有 socket 验证通过后才提交绑定；重跑不重新获取 npm 根包，绑定保持不变。本机 npm 传递依赖树回执不等于共享锁固定完整闭包。
 
 另在专用 Herdr server/pane 实测 `run coding`：官方 Pi TUI、Agent 和 `shape`/`implement`/`verify`、Herdr session 与 idle、cwd、Ctrl-C 后退出 0，以及随后 doctor 退出 0。`doctor` 核对的是当前回执、整树、锁、资源与历史 TUI 签名，不启动未知 Pi，也不证明模型调用。此原生结果不替代其他平台的实测，也不代表最终候选的 full check 或四平台二进制 CI 已通过。
+
+macOS 选择 coding 但没有匹配的完成证据（含损坏状态、缺失回执或不匹配绑定）时，doctor 返回未就绪与退出 1；工具链 metadata 全部符合也不能代替完整 setup。TTY 启动通过 POSIX execve 交接原前台终端，真实 PTY 覆盖 900ms 慢清理只收到一次 SIGINT、直接 PID 信号、controlling TTY、resize 和退出状态。

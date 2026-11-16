@@ -7,7 +7,11 @@
     "build": "release"
   },
   "evidenceLevel": "fixed-official-source",
-  "consumer": null,
+  "consumer": {
+    "adapter": "src/adapters/coding-resources.ts",
+    "test": "test/path-native-contracts.test.mjs",
+    "coverage": "macOS configFile and explicit relative-path rejection; configDir/stateDir remain native contracts"
+  },
   "sources": {
     "paths": {
       "url": "https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/config/io.rs",

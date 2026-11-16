@@ -534,20 +534,26 @@ export async function applyCodingResources(
     }
   };
   await recheck();
-  if (files.length)
-    await publishCodingResources({
-      home: plan.home,
-      ...(backupDirectory ? { directory: backupDirectory } : {}),
-      files,
-      signal: options.signal,
-      recheck,
-    });
+  const published = files.length
+    ? await publishCodingResources({
+        home: plan.home,
+        ...(backupDirectory ? { directory: backupDirectory } : {}),
+        files,
+        signal: options.signal,
+        recheck,
+      })
+    : [];
+  const publishedModes = new Map(
+    published.map((item) => [item.target, item.mode]),
+  );
   await recheck();
   for (const [index, target] of allowed.entries()) {
     const expected = after[index];
     const actual = await read(target);
     const mode =
-      (index === 3 ? plan.receiptMode : plan.files[index]?.targetMode) ?? 0o600;
+      publishedModes.get(target) ??
+      (index === 3 ? plan.receiptMode : plan.files[index]?.targetMode) ??
+      0o600;
     if (
       !expected ||
       hash(actual) !== digest(expected) ||

@@ -461,7 +461,7 @@ export async function publishCodingResources(input: {
       throw new Error("Resource journal changed");
     await unlink(journalPath);
     journalPublished = false;
-    return;
+    return items.map((item) => ({ target: item.target, mode: item.afterMode }));
   } catch (error) {
     if (journalPublished)
       await recoverCodingResources(

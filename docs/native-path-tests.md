@@ -1,6 +1,6 @@
 # 路径与本机状态边界测试
 
-本片基于 `b22b6ea2188027ad94fd19d6ea44053c11fd3ecc`，只新增测试与证据 fixtures。它不实现 Herdr/Pi/Otty 路径解析器，也不证明第三方工具已安装或 Windows 已验收。
+最初的边界测试基于 `b22b6ea2188027ad94fd19d6ea44053c11fd3ecc`。当前 macOS coding 资源规划器已消费其中 Pi agentDir 和 Herdr configFile 的 fixture 子集；其他字段和平台仍保留为原生契约，不作为已实现或已验收证据。
 
 ## A：真实消费者的可运行回归
 
@@ -27,7 +27,7 @@ CLI 用例使用空 PATH，故工具缺失返回 1 是明确预期，只核对�
 
 现有 doctor option/env/binding 优先级、空白 option 与损坏绑定，以及 setup 相对候选锁的成功应用仍由原有测试负责；本片没有复制那些大文件或无效 UTF-8 fingerprint 回归。
 
-## B：原生路径契约，尚无生产 consumer
+## B：原生路径契约与当前生产消费者
 
 | 文件                                                   | 证据等级                                                        | 内容                                                         |
 | ------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -35,17 +35,19 @@ CLI 用例使用空 PATH，故工具缺失返回 1 是明确预期，只核对�
 | `test/fixtures/native-paths/pi-v1.5.2.json`            | 固定官方源码，commit `b4afdddf44e059c67ccf5097e5317d913521b470` | 14 项 agentDir、home skills 与独立 session-dir 预期          |
 | `test/fixtures/native-paths/otty-docs-2026-11-15.json` | 未按发行版本冻结的官方在线文档                                  | 4 项主/本机文件及覆盖预期；3 项证据缺口保持 `expected: null` |
 
-每个 case 都有 `input`、独立写出的 `expected`、`status` 与 `sourceRefs`。`sourceRefs` 引用该文件的 `sources`；没有执行第三方源码或复制一份解析算法来生成预期。`consumer: null` 和 `contract-only` 表示仍待接入，不能算功能测试通过。`test/path-native-contracts.test.mjs` 只登记 3 个 `test.todo`，不会把 JSON 自我比较算作通过。
+每个 case 都有 `input`、独立写出的 `expected`、`status` 与 `sourceRefs`。`sourceRefs` 引用固定官方证据，不通过复制解析算法生成预期。`consumer.coverage` 标明当前 adapter 的子集；未覆盖的 `contract-only` 字段不能算通过。
+
+`test/path-native-contracts.test.mjs` 调用真实 `planCodingResources`，核对 macOS Pi 默认、空值、非空覆盖、前导 `~`，以及 Herdr 默认、独立 XDG 和配置文件覆盖。相对 Pi/Herdr 目标及 Herdr 空覆盖明确拒绝，避免随调用 cwd 写入。CLI 的 `localSetupHome` 也覆盖缺失/空 HOME，不静默采用 Herdr 的临时目录 fallback。Windows/WSL 完整 coding、Pi session 选择与 Otty 仍保留两个 TODO；Pi 的独立 home skills、session 和 Herdr C/S 没有因这个子集而被宣称通过。真实 Herdr server 的 socket 路径与 Pi 加载路径另由官方资产烟测验证。
 
 Fixture 约定：
 
 - `input.env` 是完整的受控环境集合，缺失键表示 unset；空字符串表示已设置为空。Pi 的 `homedir` 是 `os.homedir()` 的受控返回值，不把环境变量推断为该返回值。
-- Herdr 只描述 release build；分别记录配置文件 F、配置目录 C 和状态目录 S。`HERDR_CONFIG_PATH` 只覆盖 F；XDG 两根独立；Windows 保留 APPDATA/LOCALAPPDATA → USERPROFILE → HOME → temp fallback 的区别。空值及字面 `~` 是原生规则。拒绝 temp fallback 是另列的 Agent Stack 计划策略，相对覆盖的具体处理尚待定。
+- Herdr 只描述 release build；分别记录配置文件 F、配置目录 C 和状态目录 S。`HERDR_CONFIG_PATH` 只覆盖 F；XDG 两根独立；Windows 保留 APPDATA/LOCALAPPDATA → USERPROFILE → HOME → temp fallback 的区别。空值及字面 `~` 是原生规则。Agent Stack 拒绝隐式 temp fallback，并明确拒绝用于受管资源的相对覆盖。
 - Pi 非空 agentDir 覆盖、空值 fallback、前导 `~`、Windows/WSL 分开；全局 home `.agents/skills` 独立于 agentDir；session CLI/env/settings 单独选择。相对 agentDir 的 `getAgentDir()` 返回值仍为相对值，不给它虚构 cwd 归一化。
 - Windows fixture 统一用 `/` 表达目标路径身份，便于审阅，不承诺 Rust/Node 输出的分隔符拼写。未来 consumer 须按原生语义比较并在 Windows 实跑；当前这些案例没有执行覆盖。
 - Otty 仅记录文档已确认的主/本机位置和后者的覆盖规则。普通对象形式的 `main`/`local` 是有效值输入，不代表通用 TOML parser 能处理它的宽松语法、重复键与 reset marker。XDG/APPDATA、完整状态/socket、Windows 发行支持保持待补证据，不能从其他工具推断。
 
-后续由真实 Herdr 配置/状态 adapter 消费 F/C/S fixtures；Pi 资源 adapter 消费 agentDir、home skills，启动/session adapter 消费独立 session-dir；Otty 先固定 build 与路径/语法证据再接入。接入时应将对应 TODO 替换为对生产消费者的断言，同时保留未知项和平台验收限制。`pending-policy` 没有精确定案的产品行为，`pending-evidence` 没有足够上游证据，两者都不应转成通过断言。
+后续继续接入 Herdr C/S、Pi 独立 home skills/session-dir 与其他平台；Otty 先固定 build 与路径/语法证据再接入。接入时应将对应 TODO 替换为对生产消费者的断言，同时保留未知项和平台验收限制。`pending-policy` 没有精确定案的产品行为，`pending-evidence` 没有足够上游证据，两者都不应转成通过断言。
 
 ## 本地运行
 
