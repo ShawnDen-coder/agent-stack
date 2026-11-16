@@ -15,6 +15,7 @@ import {
 import { machine } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { codingMetadataPreload } from "./lib/coding-metadata.mjs";
 import { smokeCodingRun } from "./lib/smoke-coding-run.mjs";
 
 const project = fileURLToPath(new URL("..", import.meta.url));
@@ -96,17 +97,7 @@ const manifest = JSON.parse(
 );
 const preload = join(root, "metadata.mjs"),
   offline = join(root, "offline.mjs");
-await writeFile(
-  preload,
-  `const original=globalThis.fetch;globalThis.fetch=async(u,o)=>{
- if(String(u)===${JSON.stringify(manifest.source)})return new Response(${JSON.stringify(JSON.stringify(manifest))});
- const url=new URL(String(u));const token=process.env.AGENT_STACK_TEST_GITHUB_TOKEN;
- if(token&&url.origin==='https://api.github.com'&&url.pathname==='/repositories/699532645/releases'){
-  const headers=new Headers(o?.headers);headers.set('Authorization','Bearer '+token);return original(u,{...o,headers});
- }
- return original(u,o);
-};`,
-);
+await writeFile(preload, codingMetadataPreload(manifest));
 await writeFile(
   offline,
   "globalThis.fetch=async()=>{throw Error('Unexpected root asset fetch in repeat setup');};",
