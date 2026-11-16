@@ -43,6 +43,9 @@ try {
     npm,
     [
       "install",
+      "--global=false",
+      "--prefix",
+      install,
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
