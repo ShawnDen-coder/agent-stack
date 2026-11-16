@@ -156,6 +156,7 @@ test("resource apply preserves unknown data and is idempotent", async () => {
       "# personal\nonboarding = true\n",
     );
     await chmod(join(pi, "settings.json"), 0o640);
+    const originalMode = (await stat(join(pi, "settings.json"))).mode & 0o777;
     const input = {
       repo,
       home,
@@ -168,19 +169,20 @@ test("resource apply preserves unknown data and is idempotent", async () => {
     const options = {
       signal: new AbortController().signal,
       recheck: async () => {},
+      env: input.env,
     };
     const first = await planCodingResources(input);
     assert.deepEqual(first.blockers, []);
-    const previousOverride = process.env.HERDR_CONFIG_PATH;
+    const previousOverride = input.env.HERDR_CONFIG_PATH;
     try {
-      process.env.HERDR_CONFIG_PATH = join(root, "changed.toml");
+      input.env.HERDR_CONFIG_PATH = join(root, "changed.toml");
       await assert.rejects(
         applyCodingResources(first, options),
         /environment changed/,
       );
     } finally {
-      if (previousOverride === undefined) delete process.env.HERDR_CONFIG_PATH;
-      else process.env.HERDR_CONFIG_PATH = previousOverride;
+      if (previousOverride === undefined) delete input.env.HERDR_CONFIG_PATH;
+      else input.env.HERDR_CONFIG_PATH = previousOverride;
     }
     const applied = await applyCodingResources(first, options);
     assert(applied.backupDirectory);
@@ -202,7 +204,10 @@ test("resource apply preserves unknown data and is idempotent", async () => {
     const settings = JSON.parse(
       await readFile(join(pi, "settings.json"), "utf8"),
     );
-    assert.equal((await stat(join(pi, "settings.json"))).mode & 0o777, 0o640);
+    assert.equal(
+      (await stat(join(pi, "settings.json"))).mode & 0o777,
+      originalMode,
+    );
     assert.equal(settings.theme, "personal");
     assert(settings.skills.includes("/personal"));
     assert.match(
@@ -217,7 +222,23 @@ test("resource apply preserves unknown data and is idempotent", async () => {
       await readFile(join(home, ".agent-stack", "binding.json"), "utf8"),
       "binding-unchanged",
     );
-    assert.equal((await inspectCodingResources(input)).ready, true);
+    const verified = await inspectCodingResources(input);
+    assert.equal(verified.ready, true);
+    const piSettings = join(pi, "settings.json");
+    const withChangelog = JSON.parse(await readFile(piSettings, "utf8"));
+    withChangelog.lastChangelogVersion = "1.5.2";
+    await writeFile(piSettings, JSON.stringify(withChangelog));
+    const afterChangelog = await inspectCodingResources(input);
+    assert.equal(afterChangelog.ready, true);
+    assert.equal(afterChangelog.verification, verified.verification);
+    withChangelog.theme = "changed-personally";
+    await writeFile(piSettings, JSON.stringify(withChangelog));
+    assert.notEqual(
+      (await inspectCodingResources(input)).verification,
+      verified.verification,
+    );
+    withChangelog.theme = "personal";
+    await writeFile(piSettings, JSON.stringify(withChangelog));
     const again = await planCodingResources(input);
     assert.deepEqual((await applyCodingResources(again, options)).files, []);
     const defaults = join(repo, "stack", "configs", "herdr", "config.toml");
@@ -371,6 +392,7 @@ test("resource apply rolls back verified writes after a partial failure", async 
       applyCodingResources(plan, {
         signal: new AbortController().signal,
         recheck,
+        env: input.env,
       }),
       /injected/,
     );
@@ -433,7 +455,7 @@ test("resource journal recovers a killed process before retry", {
     const moduleUrl = pathToFileURL(
       resolve("dist/adapters/coding-resources.js"),
     ).href;
-    const childScript = `import { readFile } from 'node:fs/promises';\nimport { planCodingResources, applyCodingResources } from ${JSON.stringify(moduleUrl)};\nconst input = ${JSON.stringify(input)};\nconst plan = await planCodingResources(input);\nawait applyCodingResources(plan, {signal: new AbortController().signal, recheck: async () => { if (await readFile(${JSON.stringify(join(pi, "settings.json"))}, 'utf8') !== ${JSON.stringify(original)}) process.kill(process.pid, 'SIGKILL'); }});`;
+    const childScript = `import { readFile } from 'node:fs/promises';\nimport { planCodingResources, applyCodingResources } from ${JSON.stringify(moduleUrl)};\nconst input = ${JSON.stringify(input)};\nconst plan = await planCodingResources(input);\nawait applyCodingResources(plan, {signal: new AbortController().signal, env: input.env, recheck: async () => { if (await readFile(${JSON.stringify(join(pi, "settings.json"))}, 'utf8') !== ${JSON.stringify(original)}) process.kill(process.pid, 'SIGKILL'); }});`;
     const script = join(root, "child.mjs");
     await writeFile(script, childScript);
     const child = spawn(process.execPath, [script], { stdio: "ignore" });
@@ -445,6 +467,7 @@ test("resource journal recovers a killed process before retry", {
     const options = {
       signal: new AbortController().signal,
       recheck: async () => {},
+      env: input.env,
     };
     const changedTarget = join(pi, "settings.json");
     const published = await readFile(changedTarget, "utf8");
@@ -468,6 +491,49 @@ test("resource journal recovers a killed process before retry", {
       "old-binding",
     );
     await applyCodingResources(await planCodingResources(input), options);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resource preparation interruption recovers without touching the target", {
+  skip: process.platform === "win32",
+}, async () => {
+  const { spawn } = await import("node:child_process");
+  const { once } = await import("node:events");
+  const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = await import(
+    "node:fs/promises"
+  );
+  const { tmpdir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+  const { recoverCodingResources } = await import(
+    "../dist/adapters/coding-resource-transaction.js"
+  );
+  const root = await mkdtemp(
+    join(await realpath(tmpdir()), "resource-prepare-"),
+  );
+  try {
+    const home = join(root, "home"),
+      state = join(home, ".agent-stack"),
+      target = join(home, "settings.json");
+    await mkdir(state, { recursive: true });
+    await writeFile(target, "original");
+    const url = pathToFileURL(
+      resolve("dist/adapters/coding-resource-transaction.js"),
+    ).href;
+    const childScript = `import {readFile} from 'node:fs/promises'; import {publishCodingResources} from ${JSON.stringify(url)};\nawait publishCodingResources({home:${JSON.stringify(home)},files:[{target:${JSON.stringify(target)},before:Buffer.from('original'),beforeMode:0o644,after:Buffer.from('changed')}],signal:new AbortController().signal,recheck:async()=>{try{let j=JSON.parse(await readFile(${JSON.stringify(join(state, "resources.pending.json"))},'utf8'));if(j.phase==='preparing')process.kill(process.pid,'SIGKILL')}catch(e){if(e.code!=='ENOENT')throw e}}});`;
+    const script = join(root, "child.mjs");
+    await writeFile(script, childScript);
+    const child = spawn(process.execPath, [script], { stdio: "ignore" });
+    const [code, signal] = await once(child, "exit");
+    assert.equal(code, null);
+    assert.equal(signal, "SIGKILL");
+    assert.equal(await recoverCodingResources(home, [target]), true);
+    assert.equal(await readFile(target, "utf8"), "original");
+    await assert.rejects(readFile(join(state, "resources.pending.json")), {
+      code: "ENOENT",
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -5,6 +5,7 @@ import { shared } from "./adapters/options.js";
 import { helpStyle } from "./adapters/presentation.js";
 import { createDoctorCommand } from "./commands/doctor.js";
 import { createLockCommand } from "./commands/lock.js";
+import { createRunCommand } from "./commands/run.js";
 import { createSetupCommand } from "./commands/setup.js";
 import { createValidateCommand } from "./commands/validate.js";
 
@@ -12,7 +13,13 @@ const { version } = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as { version: string };
 if (process.env.NO_COLOR !== undefined) delete process.env.FORCE_COLOR;
-const wantsJson = process.argv.slice(2).includes("--json");
+const wrapperArguments = process.argv.slice(2);
+const nativeArgumentsAt = wrapperArguments.indexOf("--");
+const wantsJson = (
+  nativeArgumentsAt < 0
+    ? wrapperArguments
+    : wrapperArguments.slice(0, nativeArgumentsAt)
+).includes("--json");
 let errorOutput = "";
 let helpOutput = "";
 const output = {
@@ -41,7 +48,8 @@ const program = shared(new Command())
   .addCommand(createValidateCommand())
   .addCommand(createDoctorCommand())
   .addCommand(createLockCommand())
-  .addCommand(createSetupCommand());
+  .addCommand(createSetupCommand())
+  .addCommand(createRunCommand());
 for (const command of program.commands) {
   command
     .configureOutput(output)

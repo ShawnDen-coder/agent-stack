@@ -35,12 +35,25 @@ const itemSchema = z
       (item.before === null) === (item.beforeMode === null) &&
       (item.before === null) === (item.backup === null),
   );
-const journalSchema = z.strictObject({
+const journalBase = {
   schemaVersion: z.literal(1),
   directory: z.string().regex(/^resource-stage-[a-f0-9]{32}$/),
   stage: identity,
-  items: z.array(itemSchema).min(1).max(4),
-});
+};
+const currentJournalSchema = z.discriminatedUnion("phase", [
+  z.strictObject({ ...journalBase, phase: z.literal("preparing") }),
+  z.strictObject({
+    ...journalBase,
+    phase: z.literal("ready"),
+    items: z.array(itemSchema).min(1).max(4),
+  }),
+]);
+const journalSchema = z.union([
+  currentJournalSchema,
+  z
+    .strictObject({ ...journalBase, items: z.array(itemSchema).min(1).max(4) })
+    .transform((value) => ({ ...value, phase: "ready" as const })),
+]);
 type Identity = z.infer<typeof identity>;
 const hash = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 async function same(
@@ -157,17 +170,23 @@ export async function recoverCodingResources(home: string, allowed: string[]) {
   const journalIdentity = await inode(journalPath);
   const journal = journalSchema.parse(JSON.parse(raw.toString("utf8")));
   if (
-    journal.items.some((item) => !allowed.includes(item.target)) ||
-    new Set(journal.items.map((item) => item.target)).size !==
-      journal.items.length
+    journal.phase === "ready" &&
+    (journal.items.some((item) => !allowed.includes(item.target)) ||
+      new Set(journal.items.map((item) => item.target)).size !==
+        journal.items.length)
   )
     throw new Error("Resource journal target mismatch");
-  await safeDir(root);
   const stage = join(root, journal.directory);
   await safeDir(stage);
   const stageId = await directoryInode(stage);
   if (stageId.dev !== journal.stage.dev || stageId.ino !== journal.stage.ino)
     throw new Error("Resource staging changed; manual recovery required");
+  if (journal.phase === "preparing") {
+    if (!(await same(journalPath, journalIdentity, hash(raw))))
+      throw new Error("Resource journal changed; manual recovery required");
+    await unlink(journalPath);
+    return true;
+  }
   for (let i = journal.items.length - 1; i >= 0; i--) {
     const item = journal.items[i];
     if (!item) throw new Error("Invalid resource journal");
@@ -307,6 +326,24 @@ export async function publishCodingResources(input: {
   const items: z.infer<typeof itemSchema>[] = [];
   let journalPublished = false;
   try {
+    const intent = Buffer.from(
+      JSON.stringify(
+        journalSchema.parse({
+          schemaVersion: 1,
+          phase: "preparing",
+          directory,
+          stage: stageId,
+        }),
+      ),
+    );
+    const intentIdentity = await create(
+      join(stage, "journal-preparing"),
+      intent,
+    );
+    await input.recheck();
+    if (input.signal.aborted) throw new Error("Cancelled");
+    await link(join(stage, "journal-preparing"), journalPath);
+    journalPublished = true;
     for (const [i, file] of input.files.entries()) {
       if (input.signal.aborted) throw new Error("Cancelled");
       await input.recheck();
@@ -331,11 +368,17 @@ export async function publishCodingResources(input: {
           ? null
           : await create(join(stage, `before-${i}`), file.before, mode);
       const after = await create(join(stage, `after-${i}`), file.after, mode);
+      // Windows exposes only its supported permission bits. Record the actual
+      // staged mode so subsequent drift checks compare observable metadata.
+      const afterMode = Number(
+        (await lstat(join(stage, `after-${i}`), { bigint: true })).mode &
+          0o777n,
+      );
       items.push({
         target: file.target,
         beforeHash: file.before === null ? null : hash(file.before),
         beforeMode: file.beforeMode,
-        afterMode: mode,
+        afterMode,
         before,
         backup,
         afterHash: hash(file.after),
@@ -344,6 +387,7 @@ export async function publishCodingResources(input: {
     }
     const journal = journalSchema.parse({
       schemaVersion: 1,
+      phase: "ready",
       directory,
       stage: stageId,
       items,
@@ -353,8 +397,9 @@ export async function publishCodingResources(input: {
     const pending = await create(join(stage, "journal"), raw);
     await input.recheck();
     if (input.signal.aborted) throw new Error("Cancelled");
-    await link(join(stage, "journal"), journalPath);
-    journalPublished = true;
+    if (!(await same(journalPath, intentIdentity, hash(intent))))
+      throw new Error("Resource journal changed");
+    await rename(join(stage, "journal"), journalPath);
     for (const [i, item] of items.entries()) {
       if (input.signal.aborted) throw new Error("Cancelled");
       await input.recheck();

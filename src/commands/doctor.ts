@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import { isSea } from "node:sea";
 import { Command } from "commander";
+import { readCodingContext } from "../adapters/coding-context.js";
+import { observeInstalledNpm } from "../adapters/npm-state.js";
 import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
 import {
@@ -11,8 +13,12 @@ import {
   start,
 } from "../adapters/presentation.js";
 import { readRepository } from "../adapters/repository.js";
-import { localSetupHome, readDefaultBinding } from "../adapters/setup-state.js";
-import { observe } from "../adapters/toolchain.js";
+import {
+  localSetupHome,
+  readDefaultBinding,
+  readSetupState,
+} from "../adapters/setup-state.js";
+import { findExecutable, observe } from "../adapters/toolchain.js";
 import { assess } from "../core/doctor.js";
 import { validateRepository } from "../core/validate.js";
 
@@ -63,6 +69,22 @@ export function createDoctorCommand(): Command {
           (item) => item.id === profileId,
         );
         if (!profile) throw new Error(`Unknown profile: ${profileId}`);
+        let localState: Awaited<ReturnType<typeof readSetupState>> = null;
+        try {
+          localState = await readSetupState(localSetupHome());
+        } catch (error) {
+          if (requestedRepo === undefined || requestedProfile === undefined)
+            throw error;
+        }
+        if (
+          profile.id === "coding" &&
+          process.platform === "darwin" &&
+          localState?.defaultBinding?.codingVerification &&
+          localState.defaultBinding.repo === repo
+        ) {
+          await doctorCoding(repo, Boolean(options.json));
+          return;
+        }
         const engine = await cliNodeRequirement();
         const node = assess(
           isSea()
@@ -107,8 +129,18 @@ export function createDoctorCommand(): Command {
                   profile.platforms.includes(process.platform as never) &&
                   (!component ||
                     component.platforms.includes(process.platform as never));
+                const installation =
+                  platformSupported &&
+                  (name === "pi" || name === "pnpm") &&
+                  localState &&
+                  localSetupHome()
+                    ? await observeInstalledNpm(
+                        localSetupHome() as string,
+                        name,
+                      )
+                    : null;
                 const observation = platformSupported
-                  ? await observe(name, controller.signal)
+                  ? (installation ?? (await observe(name, controller.signal)))
                   : {
                       path: null,
                       version: null,
@@ -169,4 +201,79 @@ export function createDoctorCommand(): Command {
         process.exitCode = 1;
       }
     });
+}
+
+async function doctorCoding(repo: string, json: boolean) {
+  const controller = new AbortController(),
+    interrupt = () => controller.abort();
+  process.once("SIGINT", interrupt);
+  start("Agent Stack · Doctor", json);
+  const stop = progress(
+    "Checking locked coding installation and resources",
+    json,
+  );
+  try {
+    const context = await readCodingContext({
+      repo,
+      signal: controller.signal,
+    });
+    const prerequisites = await Promise.all(
+      ["npm", "git"].map(async (name) => ({
+        name,
+        ...assess(await observe(name, controller.signal), null),
+        channel: null,
+      })),
+    );
+    const components = await Promise.all(
+      context.lock.components.map(async (component) => ({
+        name: component.component,
+        ...assess(
+          {
+            path: await findExecutable(component.component),
+            version: context.readiness.ready
+              ? (context.state.installations[
+                  component.component as "pi" | "pnpm" | "uv" | "herdr"
+                ]?.version ?? null)
+              : null,
+            failure: context.readiness.ready ? null : "not_checked",
+            evidence: context.readiness.ready ? "installation_receipt" : null,
+          },
+          `=${component.version}`,
+        ),
+        channel: null,
+      })),
+    );
+    if (controller.signal.aborted) throw Error("Cancelled");
+    const report = {
+      profile: "coding",
+      platform: process.platform,
+      checks: [
+        { name: "node", ...context.nodeCheck, channel: null },
+        ...prerequisites,
+        ...components,
+      ],
+      unchecked: {
+        components: [],
+        integrations: context.readiness.ready ? [] : context.lock.integrations,
+      },
+      readiness: context.readiness,
+      scope: context.readiness.scope,
+    };
+    doctor(report, repo, json);
+    if (
+      !context.readiness.ready ||
+      report.checks.some((check) => check.status !== "ok")
+    )
+      process.exitCode = 1;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      process.exitCode = 130;
+      failure("Cancelled.", json);
+      return;
+    }
+    throw error;
+  } finally {
+    stop(controller.signal.aborted);
+    process.removeListener("SIGINT", interrupt);
+  }
 }

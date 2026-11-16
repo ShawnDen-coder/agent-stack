@@ -106,6 +106,18 @@ async function read(path: string, required = false): Promise<Buffer | null> {
   }
 }
 const hash = (bytes: Buffer | null) => (bytes === null ? null : digest(bytes));
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  const result = JSON.stringify(value);
+  if (result === undefined) throw new Error("Invalid resource setting");
+  return result;
+}
+
 async function fileMode(path: string, exists: boolean) {
   if (!exists) return null;
   const info = await lstat(path);
@@ -332,11 +344,31 @@ export async function planCodingResources(input: CodingResourceInput) {
 }
 export async function inspectCodingResources(input: CodingResourceInput) {
   const plan = await planCodingResources(input);
+  const ready =
+    plan.receiptHash !== null &&
+    !plan.blockers.length &&
+    plan.files.every((file) => file.action === "unchanged");
+  let verification: string | null = null;
+  if (ready) {
+    const settingsPath = plan.files[0]?.target;
+    if (!settingsPath) throw new Error("Missing Pi settings target");
+    const bytes = await read(settingsPath, true);
+    if (!bytes) throw new Error("Missing Pi settings");
+    const settings = z
+      .record(z.string(), z.unknown())
+      .parse(JSON.parse(bytes.toString("utf8")));
+    // Pi 1.5.2 writes this informational field during ordinary startup. It is
+    // not a resource-loading input; every other settings field remains bound.
+    delete settings.lastChangelogVersion;
+    const settingsHash = digest(Buffer.from(canonicalJson(settings)));
+    const files = plan.files.map((file, index) =>
+      index === 0 ? { ...file, targetHash: settingsHash } : file,
+    );
+    verification = digest(Buffer.from(canonicalJson({ ...plan, files })));
+  }
   return {
-    ready:
-      plan.receiptHash !== null &&
-      !plan.blockers.length &&
-      plan.files.every((file) => file.action === "unchanged"),
+    ready,
+    verification,
     scope:
       "files only; runtime resource loading and integration are not verified",
     plan,
@@ -347,7 +379,11 @@ export async function inspectCodingResources(input: CodingResourceInput) {
 // snapshot; every source, target and receipt is re-read before publication.
 export async function applyCodingResources(
   planInput: CodingResourcePlan,
-  options: { signal: AbortSignal; recheck: () => Promise<void> },
+  options: {
+    signal: AbortSignal;
+    recheck: () => Promise<void>;
+    env?: NodeJS.ProcessEnv;
+  },
 ) {
   const plan = codingResourcePlanSchema.parse(planInput);
   if (plan.files.length !== 7) throw new Error("Invalid coding resource plan");
@@ -380,10 +416,11 @@ export async function applyCodingResources(
   if (new Set(allowed).size !== allowed.length)
     throw new Error("Coding resource targets overlap");
   const verifyEnvironment = () => {
+    const env = options.env ?? process.env;
     if (
-      (process.env.PI_CODING_AGENT_DIR ?? null) !== plan.environment.pi ||
-      (process.env.HERDR_CONFIG_PATH ?? null) !== plan.environment.herdr ||
-      (process.env.XDG_CONFIG_HOME ?? null) !== plan.environment.xdg
+      (env.PI_CODING_AGENT_DIR ?? null) !== plan.environment.pi ||
+      (env.HERDR_CONFIG_PATH ?? null) !== plan.environment.herdr ||
+      (env.XDG_CONFIG_HOME ?? null) !== plan.environment.xdg
     )
       throw new Error("Coding resource environment changed after planning");
   };

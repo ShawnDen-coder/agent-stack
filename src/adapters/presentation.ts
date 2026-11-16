@@ -14,6 +14,7 @@ import { createColors } from "picocolors";
 import type { assess } from "../core/doctor.js";
 import type { ResolutionReport } from "../core/resolution-report.js";
 import type { Profile, ValidationReport } from "../core/schema.js";
+import type { inspectCodingReadiness } from "./coding-readiness.js";
 
 const interactive = () =>
   Boolean(
@@ -170,6 +171,7 @@ type DoctorReport = {
   >;
   unchecked: { components: Profile["components"]; integrations: string[] };
   scope: string;
+  readiness?: Awaited<ReturnType<typeof inspectCodingReadiness>>;
 };
 export function helpStyle(json: boolean) {
   return { styleTitle: (text: string) => (json ? text : colors.bold(text)) };
@@ -244,6 +246,12 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
   line("Summary");
   line(`Matched: ${matched}  Observed: ${observed}`, "  ");
   line(`Failed: ${failed}  Unknown: ${unknown}`, "  ");
+  if (report.readiness)
+    line(
+      report.readiness.ready
+        ? "[OK] Locked coding installation and resources"
+        : `[FAIL] ${clean(report.readiness.reason ?? "Coding installation is not ready")}`,
+    );
   if (report.checks.some((item) => item.status === "not_found"))
     line(
       "Next: Check PATH or install missing tools through their native channels.",

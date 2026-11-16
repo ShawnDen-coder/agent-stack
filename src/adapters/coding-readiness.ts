@@ -51,6 +51,8 @@ export async function codingInputHash(input: {
     throw Error(
       "Coding resources are missing, changed or awaiting recovery; run setup",
     );
+  if (!resources.verification)
+    throw Error("Coding resources have no verification signature");
   if (
     !input.allowActiveOperation &&
     ((await optional(join(resolve(home), ".agent-stack", "pending.json"))) !==
@@ -164,7 +166,7 @@ export async function codingInputHash(input: {
         node: { ...node, fingerprint: await uvEntryFingerprint(node.path) },
         installations: state.installations,
         entries,
-        resources: resources.plan,
+        resources: resources.verification,
       }),
     ),
   );
