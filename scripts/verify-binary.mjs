@@ -9,7 +9,19 @@ const temp = mkdtempSync(join(tmpdir(), "agent-stack-binary-"));
 try {
   const name = process.platform === "win32" ? "agent-stack.exe" : "agent-stack";
   const executable = join(temp, name);
-  cpSync(join(root, "binary", name), executable);
+  const binaryDirectory = process.argv[2]
+    ? resolve(process.argv[2])
+    : join(root, "binary");
+  if (process.argv.length > 3)
+    throw new Error("Expected at most one binary directory");
+  cpSync(join(binaryDirectory, name), executable);
+  assert.match(
+    readFileSync(join(binaryDirectory, "licenses", "INDEX.txt"), "utf8"),
+    /NODE-LICENSE/,
+  );
+  assert(
+    readFileSync(join(binaryDirectory, "licenses", "NODE-LICENSE")).length > 0,
+  );
   const repo = join(temp, "checkout");
   mkdirSync(repo);
   cpSync(join(root, "stack"), join(repo, "stack"), { recursive: true });

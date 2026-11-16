@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
+import { writeBinaryLicenses } from "./lib/binary-licenses.mjs";
 
 if (Number(process.versions.node.split(".")[0]) < 26) {
   throw new Error(
@@ -25,7 +26,8 @@ const output = resolve(
 );
 try {
   const main = join(temp, "main.mjs");
-  await build({
+  const result = await build({
+    metafile: true,
     entryPoints: [join(root, "src/cli.ts")],
     bundle: true,
     platform: "node",
@@ -43,6 +45,14 @@ try {
     },
   });
   mkdirSync(resolve(root, "binary"), { recursive: true });
+  const licenses = resolve(root, "binary", "licenses");
+  rmSync(licenses, { recursive: true, force: true });
+  writeBinaryLicenses({
+    inputs: result.metafile.inputs,
+    root,
+    nodeExecutable: process.execPath,
+    destination: licenses,
+  });
   const config = join(temp, "sea.json");
   writeFileSync(
     config,
