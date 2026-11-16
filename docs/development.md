@@ -61,7 +61,7 @@ pnpm check
 
 ## 打包与发布
 
-当前 `private: true`、`license: UNLICENSED`，尚未确定 npm 发布名称和授权；不运行 publish。可以本地检查包内容：
+当前保留 `license: UNLICENSED`，尚未确定 npm 发布名称和授权；尚未正式发布。可以本地检查包内容：
 
 ```sh
 pnpm build
