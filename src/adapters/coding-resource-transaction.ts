@@ -52,7 +52,10 @@ async function same(
   try {
     const id = await inode(path);
     if (id.dev !== expected.dev || id.ino !== expected.ino) return false;
-    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
     try {
       const info = await file.stat({ bigint: true });
       if (
@@ -63,13 +66,27 @@ async function same(
         (mode !== undefined && Number(info.mode & 0o777n) !== mode)
       )
         return false;
-      const bytes = await file.readFile();
+      const buffer = Buffer.alloc(Number(info.size) + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(
+          buffer,
+          length,
+          buffer.length - length,
+          null,
+        );
+        if (!bytesRead) break;
+        length += bytesRead;
+      }
+      const bytes = buffer.subarray(0, length);
       const after = await file.stat({ bigint: true });
       const finalIdentity = await inode(path);
       return (
         finalIdentity.dev === id.dev &&
         finalIdentity.ino === id.ino &&
         info.size === after.size &&
+        BigInt(length) === info.size &&
+        info.mode === after.mode &&
         info.mtimeNs === after.mtimeNs &&
         hash(bytes) === digest
       );

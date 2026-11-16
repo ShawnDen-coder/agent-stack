@@ -16,7 +16,7 @@ import {
   recoverCodingResources,
 } from "./coding-resource-transaction.js";
 
-const receiptSchema = z.strictObject({
+const legacyReceiptSchema = z.strictObject({
   schemaVersion: z.literal(1),
   skills: z.array(z.string()),
   herdr: z.record(z.string(), z.boolean()),
@@ -25,6 +25,36 @@ const receiptSchema = z.strictObject({
     .regex(/^[a-f0-9]{64}$/)
     .nullable(),
 });
+const receiptSchema = legacyReceiptSchema.extend({
+  schemaVersion: z.literal(2),
+  targets: z.strictObject({
+    pi: z.string().refine(isAbsolute),
+    herdr: z.string().refine(isAbsolute),
+    extension: z.string().refine(isAbsolute),
+  }),
+});
+function previousOwnership(
+  bytes: Buffer | null,
+  targets: z.infer<typeof receiptSchema>["targets"],
+) {
+  const value =
+    bytes === null
+      ? null
+      : z
+          .union([receiptSchema, legacyReceiptSchema])
+          .parse(JSON.parse(bytes.toString("utf8")));
+  // Legacy receipts have no destination identity. Read them conservatively as
+  // unowned values; a different target can never inherit a previous write grant.
+  const previous = value?.schemaVersion === 2 ? value : null;
+  return {
+    skills: previous?.targets.pi === targets.pi ? previous.skills : [],
+    herdr: previous?.targets.herdr === targets.herdr ? previous.herdr : {},
+    extensionHash:
+      previous?.targets.extension === targets.extension
+        ? previous.extensionHash
+        : null,
+  };
+}
 const digest = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
 async function read(path: string, required = false): Promise<Buffer | null> {
@@ -37,12 +67,25 @@ async function read(path: string, required = false): Promise<Buffer | null> {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size > 1024 * 1024)
         throw new Error("Invalid coding resource file");
-      const bytes = await file.readFile();
+      const buffer = Buffer.alloc(stat.size + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(
+          buffer,
+          length,
+          buffer.length - length,
+          null,
+        );
+        if (!bytesRead) break;
+        length += bytesRead;
+      }
+      const bytes = buffer.subarray(0, length);
       const after = await file.stat();
       if (
         stat.dev !== after.dev ||
         stat.ino !== after.ino ||
         stat.size !== after.size ||
+        length !== stat.size ||
         stat.mtimeMs !== after.mtimeMs
       )
         throw new Error("Coding resource changed during reading");
@@ -100,9 +143,6 @@ export async function planCodingResources(input: CodingResourceInput) {
   );
   const statePath = join(home, ".agent-stack", "coding-resources.json");
   const stateBytes = await read(statePath);
-  const previous = stateBytes
-    ? receiptSchema.parse(JSON.parse(stateBytes.toString("utf8")))
-    : { schemaVersion: 1 as const, skills: [], herdr: {}, extensionHash: null };
   const sources = [
     "stack/configs/pi/settings.json",
     "stack/configs/herdr/config.toml",
@@ -123,6 +163,11 @@ export async function planCodingResources(input: CodingResourceInput) {
     join(pi, "extensions", "herdr-agent-state.ts"),
     ...sources.slice(3).map((name) => join(repo, name)),
   ];
+  const previous = previousOwnership(stateBytes, {
+    pi: join(pi, "settings.json"),
+    herdr,
+    extension: join(pi, "extensions", "herdr-agent-state.ts"),
+  });
   const current = await Promise.all(targets.map((target) => read(target)));
   const modes = await Promise.all(
     targets.map((target, index) => fileMode(target, current[index] != null)),
@@ -347,9 +392,8 @@ export async function applyCodingResources(
     throw new Error("Coding resource plan changed before application");
   if (plan.blockers.length) throw new Error("Coding resource plan is blocked");
   const receiptBytes = await read(receiptPath);
-  const previous = receiptBytes
-    ? receiptSchema.parse(JSON.parse(receiptBytes.toString("utf8")))
-    : { schemaVersion: 1 as const, skills: [], herdr: {}, extensionHash: null };
+  const receiptTargets = { pi: piSettings, herdr, extension: extensionPath };
+  const previous = previousOwnership(receiptBytes, receiptTargets);
   const before = await Promise.all(
     allowed.slice(0, 3).map((path) => read(path)),
   );
@@ -391,7 +435,8 @@ export async function applyCodingResources(
     throw new Error("Resource ownership changed after planning");
   const receipt = Buffer.from(
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      targets: receiptTargets,
       skills: pi.owned,
       herdr: config.owned,
       extensionHash: plan.managedExtension ? digest(extension) : null,
@@ -423,6 +468,18 @@ export async function applyCodingResources(
       if (!source || digest(source) !== file.sourceHash)
         throw new Error("Coding resource source changed after planning");
     }
+    for (const [index, target] of allowed.entries()) {
+      if (files.some((file) => file.target === target)) continue;
+      const expected = prior[index] ?? null;
+      const actual = await read(target);
+      const expectedMode =
+        index === 3 ? plan.receiptMode : plan.files[index]?.targetMode;
+      if (
+        hash(actual) !== hash(expected) ||
+        (await fileMode(target, actual !== null)) !== expectedMode
+      )
+        throw Error("Unchanged coding resource target changed after planning");
+    }
   };
   await recheck();
   if (files.length)
@@ -432,6 +489,19 @@ export async function applyCodingResources(
       signal: options.signal,
       recheck,
     });
+  await recheck();
+  for (const [index, target] of allowed.entries()) {
+    const expected = after[index];
+    const actual = await read(target);
+    const mode =
+      (index === 3 ? plan.receiptMode : plan.files[index]?.targetMode) ?? 0o600;
+    if (
+      !expected ||
+      hash(actual) !== digest(expected) ||
+      (await fileMode(target, actual !== null)) !== mode
+    )
+      throw Error("Coding resource target changed before completion");
+  }
   return {
     kind: "coding-resources-applied" as const,
     files: files.map((file) => file.target),

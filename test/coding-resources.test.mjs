@@ -209,8 +209,72 @@ test("resource apply preserves unknown data and is idempotent", async () => {
       defaults,
       "[update]\nversion_check = true\nmanifest_check = false\n",
     );
+    const movedHerdr = join(home, "other-herdr.toml");
+    const personalTarget =
+      "[update]\nversion_check = false\nmanifest_check = false\n";
+    await writeFile(movedHerdr, personalTarget);
+    const moved = await planCodingResources({
+      ...input,
+      env: { HERDR_CONFIG_PATH: movedHerdr },
+    });
+    assert(
+      moved.blockers.some((message) => /conflicts/.test(message)),
+      "old ownership must not authorize a different native config target",
+    );
+    assert.equal(await readFile(movedHerdr, "utf8"), personalTarget);
+    const receiptPath = join(home, ".agent-stack", "coding-resources.json");
+    const anchoredBytes = await readFile(receiptPath, "utf8");
+    const anchored = JSON.parse(anchoredBytes);
+    assert.equal(anchored.schemaVersion, 2);
+    assert.equal(anchored.targets.herdr, join(herdr, "config.toml"));
+    await writeFile(
+      receiptPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        skills: anchored.skills,
+        herdr: anchored.herdr,
+        extensionHash: anchored.extensionHash,
+      }),
+    );
+    assert(
+      (await planCodingResources(input)).blockers.some((message) =>
+        /conflicts/.test(message),
+      ),
+      "unanchored legacy receipts are not write grants",
+    );
+    await writeFile(receiptPath, anchoredBytes);
     const changedSource = await planCodingResources(input);
     assert.deepEqual(changedSource.blockers, []);
+    const extensionPath = join(pi, "extensions", "herdr-agent-state.ts");
+    const originalExtension = await readFile(extensionPath);
+    let driftInjected = false;
+    await assert.rejects(
+      applyCodingResources(changedSource, {
+        ...options,
+        recheck: async () => {
+          if (
+            !driftInjected &&
+            /version_check = true/.test(
+              await readFile(join(herdr, "config.toml"), "utf8"),
+            )
+          ) {
+            driftInjected = true;
+            await writeFile(extensionPath, "local extension drift\n");
+          }
+        },
+      }),
+      /Unchanged coding resource target changed/,
+    );
+    assert.equal(driftInjected, true);
+    assert.equal(
+      await readFile(extensionPath, "utf8"),
+      "local extension drift\n",
+    );
+    assert.match(
+      await readFile(join(herdr, "config.toml"), "utf8"),
+      /version_check = false/,
+    );
+    await writeFile(extensionPath, originalExtension);
     await applyCodingResources(changedSource, options);
     assert.match(
       await readFile(join(herdr, "config.toml"), "utf8"),
