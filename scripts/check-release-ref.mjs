@@ -35,4 +35,12 @@ git("merge-base", "--is-ancestor", expected, master);
 const manifest = JSON.parse(readFileSync("package.json", "utf8"));
 if (manifest.version !== tag)
   throw new Error("Tag differs from package version");
+if (
+  manifest.repository?.type !== "git" ||
+  manifest.repository?.url !==
+    "git+https://github.com/ShawnDen-coder/agent-stack.git"
+)
+  throw new Error(
+    "Package repository must match the trusted publishing repository",
+  );
 console.log(expected);

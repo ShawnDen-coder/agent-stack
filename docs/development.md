@@ -119,7 +119,8 @@ Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询
 1. 确认 npm 包名和账号/组织拥有权，处理首次包注册及最终许可；当前不能假定 `agent-stack` 可注册或属于本项目。
 2. 在 GitHub 配置并保护 `release` environment，限制可信 tag、配置必要审批；保护 `master` 及 tag。限制可执行 Actions 为本 workflow 所需的固定 SHA。
 3. 在 npm 包设置添加 GitHub Actions trusted publisher：owner `ShawnDen-coder`、repository `agent-stack`、workflow 文件 `release.yml`、environment `release`，并明确允许 `npm publish`。npm 要求 Node >=22.14 和 npm >=11.5.1；发布 job 使用 Node 26 并检查 npm 版本。新 trusted publisher 配置需在 npm 规定期限内完成首次成功发布。无需在仓库保存 token；首次注册是否可直接使用 OIDC 取决于 npm 账户和包状态，先按 npm 当前流程完成配置。
-4. tag 推送和正式发布须另行授权。本地 `cog bump`、构建及校验不会推送或发布。
+4. `package.json` 的 `repository.url` 必须与 GitHub 仓库精确匹配；发布门禁和 tarball 独立安装验收会核对该身份。通过 OIDC 从公开仓库发布公开包时，npm 自动生成 provenance，无需额外传 `--provenance`；其他可见性条件以 [npm 官方说明](https://docs.npmjs.com/trusted-publishers/)为准。
+5. tag 推送和正式发布须另行授权。本地 `cog bump`、构建及校验不会推送或发布。
 
 npm 查询只把明确的 HTTP 404 视为版本不存在；已有版本只有 registry `dist.integrity` 与待发布 tarball 的 SHA-512 完全一致时才跳过。权限、限流、网络、错误响应和内容不一致均中止。预发布进入 `next` dist-tag，正式版进入 `latest`。若 npm 已发布但 GitHub Release 创建失败，重跑会先核对 npm integrity；已存在的 GitHub Release 不会覆盖，需由维护者检查处理。
 

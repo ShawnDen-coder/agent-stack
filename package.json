@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "My personal agent stack for one-command setup, reusable skills, and custom agents.",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShawnDen-coder/agent-stack.git"
+  },
   "type": "module",
   "bin": {
     "agent-stack": "dist/cli.js"

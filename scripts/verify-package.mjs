@@ -63,6 +63,17 @@ try {
     ],
     install,
   );
+  const installedManifest = JSON.parse(
+    readFileSync(
+      join(install, "node_modules", manifest.name, "package.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(installedManifest.repository, manifest.repository);
+  assert.equal(
+    installedManifest.repository?.url,
+    "git+https://github.com/ShawnDen-coder/agent-stack.git",
+  );
   const cli = join(install, "node_modules", manifest.name, "dist", "cli.js");
   assert.equal(
     run(process.execPath, [cli, "--version"], install).trim(),

@@ -18,7 +18,19 @@ test("release gate binds tag, manifest, checkout and reviewed master history", (
     git("init", "-q");
     git("config", "user.email", "test@example.invalid");
     git("config", "user.name", "Test");
-    writeFileSync(join(cwd, "package.json"), '{"version":"1.2.3"}\n');
+    const validRepository = {
+      type: "git",
+      url: "git+https://github.com/ShawnDen-coder/agent-stack.git",
+    };
+    const manifest = (version, repository = validRepository) =>
+      writeFileSync(
+        join(cwd, "package.json"),
+        `${JSON.stringify({
+          version,
+          ...(repository === null ? {} : { repository }),
+        })}\n`,
+      );
+    manifest("1.2.3");
     git("add", "package.json");
     git("commit", "-qm", "chore: initial");
     const sha = git("rev-parse", "HEAD");
@@ -34,6 +46,17 @@ test("release gate binds tag, manifest, checkout and reviewed master history", (
     for (const tag of ["v1.2.3", "01.2.3", "1.2.3-01", "1.2.4", "1.2.3+build"])
       assert.notEqual(check(tag).status, 0);
     assert.notEqual(check("1.2.3", "0".repeat(40)).status, 0);
+    for (const repository of [
+      null,
+      { type: "git", url: "git+https://github.com/other/agent-stack.git" },
+      { type: "git", url: "git+https://github.com/ShawnDen-coder/other.git" },
+    ]) {
+      manifest("1.2.3", repository);
+      const rejected = check("1.2.3");
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /repository must match/);
+    }
+    manifest("1.2.3");
     git("commit", "--allow-empty", "-qm", "feat: later");
     assert.notEqual(check("1.2.3").status, 0);
     const later = git("rev-parse", "HEAD");
@@ -45,7 +68,7 @@ test("release gate binds tag, manifest, checkout and reviewed master history", (
     );
     git("update-ref", "refs/remotes/origin/master", later);
     assert.equal(check("1.2.3", later).status, 0);
-    writeFileSync(join(cwd, "package.json"), '{"version":"1.2.4"}\n');
+    manifest("1.2.4");
     assert.notEqual(check("1.2.3", later).status, 0);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
