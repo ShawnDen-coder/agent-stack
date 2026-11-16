@@ -159,6 +159,29 @@ test("Pi staging isolates npm configuration and verifies installed entry", {
       signal: signal(),
     });
     assert.equal(result.npmVersion, "11.12.1");
+    const { inspectPiInstallation } = await import(
+      "../dist/adapters/pi-staging.js"
+    );
+    await inspectPiInstallation(stage, "1.5.2", process.versions.node);
+    await assert.rejects(
+      inspectPiInstallation(stage, "1.5.2", "22.18.0"),
+      /engines mismatch/,
+    );
+    const lockPath = join(stage, "package-lock.json");
+    const actualLock = JSON.parse(await readFile(lockPath, "utf8"));
+    actualLock.packages["node_modules/windows-only"] = {
+      version: "1.0.0",
+      optional: true,
+      os: ["win32"],
+    };
+    await writeFile(lockPath, JSON.stringify(actualLock));
+    await inspectPiInstallation(stage, "1.5.2", process.versions.node);
+    actualLock.packages["node_modules/windows-only"].optional = false;
+    await writeFile(lockPath, JSON.stringify(actualLock));
+    await assert.rejects(
+      inspectPiInstallation(stage, "1.5.2", process.versions.node),
+      { code: "ENOENT" },
+    );
     const invocation = JSON.parse(
       await readFile(join(stage, "invocation.json"), "utf8"),
     );

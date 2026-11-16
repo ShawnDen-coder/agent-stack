@@ -11,7 +11,7 @@ import {
   packageVersion,
 } from "./package-metadata.js";
 
-async function isNativeExecutable(path: string): Promise<boolean> {
+export async function isNativeExecutable(path: string): Promise<boolean> {
   try {
     const file = await open(path, "r");
     try {

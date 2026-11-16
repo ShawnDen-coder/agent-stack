@@ -3,6 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { assertNodeTarget } from "../dist/adapters/external-node.js";
 import { observe } from "../dist/adapters/toolchain.js";
 
 test("external Node observation does not execute an unknown script", {
@@ -21,6 +22,14 @@ test("external Node observation does not execute an unknown script", {
     process.env.PATH = dir;
     const result = await observe("node");
     assert.equal(result.failure, "unverified_entrypoint");
+    await assert.rejects(
+      assertNodeTarget(
+        { path: entry, version: "24.15.0" },
+        `${process.platform}-${process.arch}`,
+        new AbortController().signal,
+      ),
+      /not a verified native entry/,
+    );
     await assert.rejects(readFile(marker), { code: "ENOENT" });
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
@@ -42,6 +51,20 @@ test("external Node observation reads a native Node version", {
     assert.equal(result.failure, null);
     assert.equal(result.version, process.versions.node);
     assert.equal(result.evidence, "version_command");
+    const runtime = await assertNodeTarget(
+      { path: result.path, version: result.version },
+      `${process.platform}-${process.arch}`,
+      new AbortController().signal,
+    );
+    assert.equal(runtime.arch, process.arch);
+    await assert.rejects(
+      assertNodeTarget(
+        { path: result.path, version: result.version },
+        `${process.platform}-${process.arch === "arm64" ? "x64" : "arm64"}`,
+        new AbortController().signal,
+      ),
+      /architecture/,
+    );
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;

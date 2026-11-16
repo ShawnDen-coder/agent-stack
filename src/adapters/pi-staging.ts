@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import semver from "semver";
 import { z } from "zod";
+import { assertNodeTarget } from "./external-node.js";
 import { directoryInode, safeDir } from "./managed-operation.js";
 import { managedTreeDigest } from "./managed-tree.js";
 import { downloadNpm, inspectNpmArchive } from "./npm-archive.js";
@@ -23,6 +24,7 @@ const lockSchema = z.object({
         resolved: z.string().optional(),
         integrity: z.string().optional(),
         link: z.boolean().optional(),
+        optional: z.boolean().optional(),
       })
       .passthrough(),
   ),
@@ -123,6 +125,116 @@ async function command(
 }
 
 // Caller owns and journals the empty staging directory. This function does not publish it.
+// Read-only verification used both after npm installation and when reusing a
+// receipt under a possibly different external Node version.
+export async function inspectPiInstallation(
+  stage: string,
+  expectedVersion: string,
+  nodeVersion: string,
+) {
+  await safeDir(stage);
+  const lockBytes = await bounded(
+    join(stage, "package-lock.json"),
+    16 * 1024 * 1024,
+  );
+  const lock = lockSchema.parse(JSON.parse(lockBytes.toString("utf8")));
+  const root = await realpath(stage);
+  const piKey = "node_modules/@earendil-works/pi-coding-agent";
+  if (lock.packages[piKey]?.version !== expectedVersion)
+    throw new Error("Installed Pi lock identity mismatch");
+  for (const [key, record] of Object.entries(lock.packages)) {
+    if (!key) continue;
+    if (
+      record.link ||
+      !key.startsWith("node_modules/") ||
+      key.split("/").some((part) => !part || part === "." || part === "..")
+    )
+      throw new Error("Unsupported installed npm package path");
+    const dir = join(stage, ...key.split("/"));
+    let info: import("node:fs").Stats;
+    try {
+      info = await lstat(dir);
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code === "ENOENT" &&
+        record.optional === true &&
+        key !== piKey
+      )
+        continue;
+      throw error;
+    }
+    const actual = await realpath(dir);
+    if (
+      !info.isDirectory() ||
+      (actual !== root &&
+        (relative(root, actual).startsWith(`..${sep}`) ||
+          relative(root, actual) === ".."))
+    )
+      throw new Error("Installed npm package escapes staging");
+    const manifest = manifestSchema.parse(
+      JSON.parse(
+        (await bounded(join(dir, "package.json"), 1024 * 1024)).toString(
+          "utf8",
+        ),
+      ),
+    );
+    if (
+      manifest.version !== record.version ||
+      (manifest.engines?.node &&
+        (!semver.validRange(manifest.engines.node) ||
+          !semver.satisfies(nodeVersion, manifest.engines.node)))
+    )
+      throw new Error("Installed npm package version or engines mismatch");
+    if (key === piKey && manifest.name !== "@earendil-works/pi-coding-agent")
+      throw new Error("Installed Pi identity mismatch");
+  }
+  // Check the filesystem as well as the lock: unlisted packages are not evidence
+  // of the installed tree and must not be published as part of this stage.
+  let count = 0;
+  const scanModules = async (
+    modules: string,
+    prefix: string,
+  ): Promise<void> => {
+    let entries: string[];
+    try {
+      entries = await readdir(modules);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    await safeDir(modules);
+    for (const name of entries) {
+      if (name === ".bin" || name === ".package-lock.json") continue;
+      if (name.startsWith("@")) await safeDir(join(modules, name));
+      const names = name.startsWith("@")
+        ? (await readdir(join(modules, name))).map(
+            (child) => `${name}/${child}`,
+          )
+        : [name];
+      for (const item of names) {
+        if (
+          ++count > 50000 ||
+          item.split("/").some((part) => !part || part === "." || part === "..")
+        )
+          throw new Error("Invalid installed npm tree");
+        const key = `${prefix}node_modules/${item}`;
+        if (!lock.packages[key])
+          throw new Error("Installed npm package absent from lock");
+        await scanModules(join(modules, item, "node_modules"), `${key}/`);
+      }
+    }
+  };
+  await scanModules(join(stage, "node_modules"), "");
+  const entry = join(stage, piKey, "dist", "bundle", "cli.js");
+  const entryReal = await realpath(entry);
+  if (
+    !entryReal.startsWith(`${root}${sep}`) ||
+    !(await lstat(entryReal)).isFile()
+  )
+    throw new Error("Invalid installed Pi entry");
+  return { lockBytes, entry: entryReal };
+}
+
 export async function stagePi(input: {
   stage: string;
   npm: string;
@@ -143,6 +255,7 @@ export async function stagePi(input: {
   )
     throw new Error("Pi staging requires native macOS and absolute paths");
   await safeDir(input.stage);
+  await assertNodeTarget(input.node, `darwin-${process.arch}`, input.signal);
   const stageIdentity = await directoryInode(input.stage);
   const checkStage = async () => {
     await safeDir(input.stage);
@@ -237,94 +350,11 @@ export async function stagePi(input: {
     180000,
   );
   await checkStage();
-  const lockBytes = await bounded(
-    join(input.stage, "package-lock.json"),
-    16 * 1024 * 1024,
+  const { lockBytes, entry: entryReal } = await inspectPiInstallation(
+    input.stage,
+    input.version,
+    input.node.version,
   );
-  const lock = lockSchema.parse(JSON.parse(lockBytes.toString("utf8")));
-  const root = await realpath(input.stage);
-  const piKey = "node_modules/@earendil-works/pi-coding-agent";
-  if (lock.packages[piKey]?.version !== input.version)
-    throw new Error("Installed Pi lock identity mismatch");
-  for (const [key, record] of Object.entries(lock.packages)) {
-    if (!key) continue;
-    if (
-      record.link ||
-      !key.startsWith("node_modules/") ||
-      key.split("/").some((part) => !part || part === "." || part === "..")
-    )
-      throw new Error("Unsupported installed npm package path");
-    const dir = join(input.stage, ...key.split("/"));
-    const info = await lstat(dir);
-    const actual = await realpath(dir);
-    if (
-      !info.isDirectory() ||
-      (actual !== root &&
-        (relative(root, actual).startsWith(`..${sep}`) ||
-          relative(root, actual) === ".."))
-    )
-      throw new Error("Installed npm package escapes staging");
-    const manifest = manifestSchema.parse(
-      JSON.parse(
-        (await bounded(join(dir, "package.json"), 1024 * 1024)).toString(
-          "utf8",
-        ),
-      ),
-    );
-    if (
-      manifest.version !== record.version ||
-      (manifest.engines?.node &&
-        (!semver.validRange(manifest.engines.node) ||
-          !semver.satisfies(input.node.version, manifest.engines.node)))
-    )
-      throw new Error("Installed npm package version or engines mismatch");
-    if (key === piKey && manifest.name !== "@earendil-works/pi-coding-agent")
-      throw new Error("Installed Pi identity mismatch");
-  }
-  // Check the filesystem as well as the lock: unlisted packages are not evidence
-  // of the installed tree and must not be published as part of this stage.
-  let count = 0;
-  const scanModules = async (
-    modules: string,
-    prefix: string,
-  ): Promise<void> => {
-    let entries: string[];
-    try {
-      entries = await readdir(modules);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
-    await safeDir(modules);
-    for (const name of entries) {
-      if (name === ".bin" || name === ".package-lock.json") continue;
-      if (name.startsWith("@")) await safeDir(join(modules, name));
-      const names = name.startsWith("@")
-        ? (await readdir(join(modules, name))).map(
-            (child) => `${name}/${child}`,
-          )
-        : [name];
-      for (const item of names) {
-        if (
-          ++count > 50000 ||
-          item.split("/").some((part) => !part || part === "." || part === "..")
-        )
-          throw new Error("Invalid installed npm tree");
-        const key = `${prefix}node_modules/${item}`;
-        if (!lock.packages[key])
-          throw new Error("Installed npm package absent from lock");
-        await scanModules(join(modules, item, "node_modules"), `${key}/`);
-      }
-    }
-  };
-  await scanModules(join(input.stage, "node_modules"), "");
-  const entry = join(input.stage, piKey, "dist", "bundle", "cli.js");
-  const entryReal = await realpath(entry);
-  if (
-    !entryReal.startsWith(`${root}${sep}`) ||
-    !(await lstat(entryReal)).isFile()
-  )
-    throw new Error("Invalid installed Pi entry");
   const version = (
     await command(
       input.node.path,
@@ -343,6 +373,6 @@ export async function stagePi(input: {
     treeDigest: await managedTreeDigest(input.stage),
     lockBytes,
     projectBytes: await bounded(join(input.stage, "package.json"), 1024 * 1024),
-    entry,
+    entry: entryReal,
   };
 }

@@ -28,6 +28,7 @@ import {
   npmPendingSchema,
   npmStageName,
 } from "../core/npm-state.js";
+import { assertNodeTarget } from "./external-node.js";
 import {
   boundedFileHash,
   directoryInode,
@@ -46,7 +47,7 @@ import {
   verifyManagedTree,
 } from "./managed-tree.js";
 import { prepareLockedPnpm } from "./npm-archive.js";
-import { stagePi } from "./pi-staging.js";
+import { inspectPiInstallation, stagePi } from "./pi-staging.js";
 import {
   decodeSetupState,
   readSetupState,
@@ -381,6 +382,8 @@ export async function applyNpmComponent(
   )
     throw new Error("npm setup requires the current native macOS target");
   const { root, bin } = await inspectUvPath(input.home, input.path);
+  if (input.component === "pi")
+    await assertNodeTarget(input.node, input.target, input.signal);
   const assets = input.assets.map((asset) =>
     npmAssetReceiptSchema.parse(asset),
   );
@@ -430,6 +433,13 @@ export async function applyNpmComponent(
         throw new Error(
           "Existing npm installation does not match the lock; retain its native installation",
         );
+      if (existing.mode === "managed" && existing.component === "pi") {
+        await inspectPiInstallation(
+          join(root, existing.directory),
+          input.version,
+          input.node.version,
+        );
+      }
       const binding = nextBinding(old, input, existing);
       await input.recheck();
       await input.checkReachable();
