@@ -451,14 +451,15 @@ export function setup(
     if (plan.herdrInstallation.recovery)
       line("Pending operation will be checked for recovery.", "  ");
   }
-  if (plan.npmInstallation) {
+  for (const npmInstallation of plan.npmInstallations ??
+    (plan.npmInstallation ? [plan.npmInstallation] : [])) {
     line();
     line(
-      `${clean(plan.npmInstallation.component)} action: ${clean(plan.npmInstallation.mode)}`,
+      `${clean(npmInstallation.component)} action: ${clean(npmInstallation.mode)}`,
     );
-    if (plan.npmInstallation.recovery)
+    if (npmInstallation.recovery)
       line("Pending operation will be checked for recovery.", "  ");
-    for (const asset of plan.npmInstallation.assets) {
+    for (const asset of npmInstallation.assets) {
       line(
         `${clean(asset.name)} ${clean(asset.version)} (${clean(asset.role)})`,
         "  ",

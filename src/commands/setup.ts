@@ -58,12 +58,13 @@ import {
 } from "../core/setup-plan.js";
 import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
+import { setupCoding } from "./setup-coding.js";
 
 export function createSetupCommand(): Command {
   let lockSeen = false;
   return shared(
     new Command("setup").description(
-      "Preview or apply locked macOS uv or macOS/Windows Herdr setup",
+      "Preview or apply a supported locked tool profile",
     ),
   )
     .addOption(profileOption())
@@ -161,6 +162,44 @@ export function createSetupCommand(): Command {
           throw new Error(
             `Cannot establish a supported native host for ${target}: ${host.evidence}`,
           );
+        if (profileId === "coding" && process.platform === "darwin" && home) {
+          await setupCoding({
+            repo,
+            lockPath: path,
+            lock,
+            repository,
+            home,
+            state,
+            host: setupPlanSchema.shape.host.parse(host),
+            signal: controller.signal,
+            json,
+            dryRun: Boolean(options.dryRun),
+            yes: Boolean(options.yes),
+            repoSelectedBy:
+              options.repo !== undefined
+                ? "option"
+                : process.env.AGENT_STACK_REPO !== undefined
+                  ? "environment"
+                  : bound
+                    ? "binding"
+                    : "cwd",
+            profileSelectedBy:
+              options.profile !== undefined
+                ? "option"
+                : process.env.AGENT_STACK_PROFILE !== undefined
+                  ? "environment"
+                  : bound
+                    ? "binding"
+                    : "interactive",
+            lockSelectedBy:
+              options.lock !== undefined
+                ? "option"
+                : boundLock
+                  ? "binding"
+                  : "default",
+          });
+          return;
+        }
         const uvOnly =
           profile.components.length === 1 &&
           profile.components[0]?.component === "uv" &&

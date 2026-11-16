@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
+import type { CodingVerification } from "../core/coding-verification.js";
 import { npmPendingSchema, npmStageName } from "../core/npm-state.js";
 import {
   herdrWindowsNames,
@@ -1486,6 +1487,7 @@ export async function publishSetupState(input: {
 export async function bindExternalUv(input: {
   home: string;
   deferBinding?: boolean;
+  codingVerification?: CodingVerification;
   repo: string;
   profile: string;
   lock: string;
@@ -1553,6 +1555,9 @@ export async function bindExternalUv(input: {
               repo: input.repo,
               profile: input.profile,
               lock: input.lock,
+              ...(input.codingVerification
+                ? { codingVerification: input.codingVerification }
+                : {}),
             },
         installations: { ...old?.installations, uv: receipt },
       });

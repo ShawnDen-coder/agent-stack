@@ -2969,14 +2969,20 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   assert.equal(expectedHerdr.format, "binary");
   assert.match(plan.scope, /expected metadata until downloaded and checked/);
   assert.ok(
-    plan.blockers.includes(
-      "Installation adapters are not implemented for the complete profile",
+    plan.blockers.some((message) =>
+      /Add .* to PATH|Create .* before setup/.test(message),
     ),
   );
-  assert.ok(
-    plan.blockers.includes(
-      "Required resources and integrations are not applied",
+  assert.equal(plan.codingResources.files.length, 7);
+  assert.deepEqual(plan.npmInstallations.map((item) => item.component).sort(), [
+    "pi",
+    "pnpm",
+  ]);
+  assert.equal(
+    plan.codingResources.files.every((file) =>
+      /^[a-f0-9]{64}$/.test(file.sourceHash),
     ),
+    true,
   );
   const human = runSetup([
     "setup",
