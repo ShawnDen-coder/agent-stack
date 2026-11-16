@@ -1,10 +1,47 @@
 ---
+
 name: shape
-description: Clarify a coding task's goal, constraints, evidence, and acceptance criteria before implementation when the scope is uncertain.
+description: 为产品或功能立项并收敛 API 与适用的交互体验；用于设计调用方式、验证关键用户任务和定义可验收的实施切片；自由探索或已有明确方案的小改动无需加载。
 ---
 
-# Shape
+# 立项与接口体验
 
-Inspect the relevant project instructions, existing behavior, and available evidence. Identify the user-visible outcome, constraints, and boundaries affected by the change. Distinguish facts from assumptions and identify the smallest checks that would establish acceptance.
+把用户目标收敛成可试用、可评审、可验收的最小方案。以用户完成任务的体验为优先级，先从调用者和操作者视角设计入口，再安排内部实现。
 
-Resolve routine choices from context. Ask a focused question when an unresolved choice materially changes the outcome or requires user authorization; continue independent work where possible.
+## 读取上下文与确定使用者
+
+读取目标项目的规则、现有入口、相邻 API、帮助与文档、测试和已确认决定。明确谁在使用、要完成什么任务、当前哪里困难，以及必须保留的业务约束。已有命名、兼容性和设计约定优先纳入方案。
+
+区分本次真正需要的入口：库、HTTP API、CLI、TUI、网页可以单独存在或组合。只为实际入口设计，不给纯库强加 CLI，也不为纯后端创建页面。仅问影响目标或范围、且无法从项目和实验得到答案的问题；其他假设写明后用可逆原型验证。
+
+## 从使用方式反复设计
+
+1. 选代表性的用户任务，描述完成时能观察到的结果。范围包括必要的首次使用和失败恢复，不按数据库实体或框架目录生成需求。
+2. **先写 API 的使用样例。**库、HTTP 或供 CLI/界面消费的接口，按 [API 体验](references/api-experience.md) 草拟最短成功调用及一个相关失败场景。先看调用者是否好理解、好使用，再草拟类型、签名、模块和数据组织，并核对它们能支持样例。
+3. **设计适用的交互入口。**涉及 CLI/TUI 时读 [终端交互](references/cli-tui.md)，写命令会话或按键流程；涉及可视前端时读 [HTML 交互原型](references/html-prototypes.md)，直接用原生 HTML、CSS、JavaScript 验证部件和任务路径。
+4. **双向调整。**从 API 样例、命令会话和界面中找出隐藏前置条件、重复输入、命名歧义、缺失状态或反馈，再一起调整。CLI 和界面不必逐项暴露底层参数；API 也不能因为先写就冻结，让用户适应实现细节。
+5. 用最小可运行的契约实验或交互原型走过代表性任务，记录操作、结果和改动理由。涉及真实产品取舍时给出具体可评审的方案；事实性问题先实验。只有确有分歧时比较备选，不为每个细节强制做多套原型。评审接口或模块边界，或出现设计摩擦时，按需参考 [设计红旗](references/design-friction.md)。
+
+API 与交互的默认值、错误含义、状态转换和用户术语应能互相解释。优先让用户少记概念、少做无效操作、能发现下一步并从失败恢复。按任务选择简单方案，体验没有改善时不增加抽象或流程。
+
+## 原型与证据边界
+
+原型验证最不确定的交互或契约，保留目标项目已有技术约束。前端立项原型使用原生 HTML/CSS/DOM JavaScript，可带本地 fixture；实现框架和生产后端留到交互确定后的实施切片。
+
+明确区分真实 API、stub 和模拟状态。网页在浏览器中走真实点击、输入、键盘与恢复路径；CLI/TUI 在适用的终端和非交互入口确认。静态截图、文字会话和代理自行试用，分别记录各自证据，不能写成用户已认可或真实集成已通过。
+
+沿用当前授权自主完成可逆的设计与原型，不把每步变成确认关卡。缺少必要产品决定时，先完成不依赖该决定的调查与可评审原型，再提出具体问题。仅立项的任务交付立项结果；已有实施授权时，收敛后按确认的范围进入最小实现，不因使用此 skill 扩展任务。
+
+## 收敛与交接
+
+在目标项目现有提案位置维护一份简明 brief；没有惯例时使用 `docs/brief.md`。把接口样例和原型放在该项目可发现的位置并链接，不创建重复的 PRD、RFC 和计划文件。
+
+交接内容按适用范围组织，至少说明：
+
+- 用户、核心任务、本轮范围与暂不解决的问题。
+- API 使用样例，以及适用的 CLI 会话、按键流程或 HTML 原型入口。
+- API 与交互如何对应；实际试用后修改了什么、为什么。
+- 已运行的验证、用户反馈、假设、待决定项和未验证部分，各自标明状态。
+- 第一条可独立验收的实现切片、观察入口和通过条件。
+
+当代表性任务能走通、必要产品取舍已明确、API 与交互没有已知冲突，且首个实现切片有可观察的验收条件时，完成立项。只规划有真实消费者的字段和模块；需要落地依赖边界时再使用项目的语言检查规范，不在立项阶段强制生成整套分层骨架。

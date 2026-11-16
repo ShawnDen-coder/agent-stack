@@ -29,7 +29,7 @@ agent-stack/
 
 目录对应实际内容和职责，新增能力时再增加模块。当前不拆 workspace 包；以后出现第二个独立发布或部署的应用，再确定需要共享的包边界。
 
-`stack/configs/` 保存工具原生配置，`stack/agents/` 与 `stack/skills/` 保存共享 Agent 和 skills。coding setup 应用受管字段与官方扩展并引用 checkout 中的资源；`validate` 的声明校验不等于运行时资源验收。
+`stack/configs/` 保存工具原生配置，`stack/agents/` 与 `stack/skills/` 保存共享 Agent 和 skills。coding setup 应用受管字段与官方扩展并引用 checkout 中的资源；`validate` 的声明校验不等于运行时资源验收。独立的 [L0–L3 依赖规范 skill](../stack/skills/dependency-layers/SKILL.md) 可按需复制使用，不自动加入 coding 的三项 skills。
 
 ## 声明书写格式
 
