@@ -2,21 +2,24 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-此矩阵记录当前已实现能力；除 macOS uv-only setup 外，`run`、锁更新、安装和配置应用仍未实现。测试均运行编译后的 CLI，不需要真实工具、网络或用户凭证。
+此矩阵区分受控 fixture、原生实测和待验收范围。完整 coding 支持原生 macOS arm64/x64；锁更新及其他系统的完整 coding 尚未实现。自动化测试使用临时环境，真实外部工具和网络验收另行标明。
 
-| 行为                                                | 状态         | 测试证据                                           |
-| --------------------------------------------------- | ------------ | -------------------------------------------------- |
-| help、无参数、版本                                  | 已实现       | `test/cli.test.mjs`                                |
-| YAML、YML、JSON 过渡、重复定义与非法 YAML           | 已实现       | `test/cli.test.mjs`                                |
-| 只读、路径含空格与 `&`、保留替换后的能力要求        | 已实现       | `test/cli.test.mjs`、`test/interaction.test.mjs`   |
-| 根/子命令共享选项、重复单值、用法错误与 JSON stdout | 已实现       | `test/interaction.test.mjs`                        |
-| 非 TTY、CI、TERM=dumb、NO_COLOR、彩色 40/80 列布局  | 已实现       | `test/interaction.test.mjs`                        |
-| stdout 结果、stderr 交互/进度、重定向时不询问       | 已实现       | `test/interaction.test.mjs`、`test/pty_driver.py`  |
-| 真实 TTY 选择、Ctrl-C 取消及检查中中断              | 已实现       | `test/interaction.test.mjs`、`test/pty_driver.py`  |
-| doctor 的版本证据、超时和输出上限                   | 已实现       | `test/doctor.test.mjs`、`test/cmd-shim.test.mjs`   |
-| 显式目标的首次共享锁创建、复核、并发拒绝            | 已实现       | `test/lock.test.mjs`                               |
-| macOS uv-only setup                                 | 已实现，待审 | `test/lock.test.mjs`：下载、发布、确认、恢复、冲突 |
-| 完整 coding setup / run / 锁更新 / 配置应用         | 待实现       | 不注册占位命令                                     |
+| 行为                                                       | 状态             | 测试证据                                                                          |
+| ---------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
+| help、无参数、版本                                         | 已实现           | `test/cli.test.mjs`                                                               |
+| YAML、YML、JSON 过渡、重复定义与非法 YAML                  | 已实现           | `test/cli.test.mjs`                                                               |
+| 只读、路径含空格与 `&`、保留替换后的能力要求               | 已实现           | `test/cli.test.mjs`、`test/interaction.test.mjs`                                  |
+| 根/子命令共享选项、重复单值、用法错误与 JSON stdout        | 已实现           | `test/interaction.test.mjs`                                                       |
+| 非 TTY、CI、TERM=dumb、NO_COLOR、彩色 40/80 列布局         | 已实现           | `test/interaction.test.mjs`                                                       |
+| stdout 结果、stderr 交互/进度、重定向时不询问              | 已实现           | `test/interaction.test.mjs`、`test/pty_driver.py`                                 |
+| 真实 TTY 选择、Ctrl-C 取消及检查中中断                     | 已实现           | `test/interaction.test.mjs`、`test/pty_driver.py`                                 |
+| doctor 的版本证据、超时和输出上限                          | 已实现           | `test/doctor.test.mjs`、`test/cmd-shim.test.mjs`                                  |
+| 显式目标的首次共享锁创建、复核、并发拒绝                   | 已实现           | `test/lock.test.mjs`                                                              |
+| macOS uv-only / Herdr-only 与 Windows x64 Herdr-only setup | 已实现           | `test/lock.test.mjs`、`test/herdr-windows-archive.test.mjs`                       |
+| macOS 完整 coding setup 与配置资源                         | 已实现，原生实测 | `test/lock.test.mjs`、`test/npm-state.test.mjs`、`test/coding-resources.test.mjs` |
+| coding doctor 回执、整树、锁、资源及历史验证签名           | 已实现           | `test/doctor.test.mjs`、`test/managed-tree.test.mjs`                              |
+| `run coding` 参数、TTY、中断与状态传递                     | 已实现，原生实测 | `test/coding-launch.test.mjs`、`test/coding_launch_pty.py`                        |
+| 锁更新、其他系统完整 coding                                | 待实现           | 不将声明或 fixture 作为已支持证据                                                 |
 
 `validate` 与 `doctor` 成功 JSON 保留既有业务形状；`doctor` 的业务错误仍为 `{ "error": "..." }`，`validate` 失败仍为报告。Commander 用法错误为版本化 `{ "schemaVersion": 1, "error": { "kind": "usage", "message": "..." } }`，退出 2；JSON 帮助和版本为 `{ "schemaVersion": 1, "output": "..." }`。业务失败为 1，交互取消为 130。机器输出没有标题、spinner 或 ANSI，日志只走 stderr。
 
@@ -59,6 +62,8 @@ uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以
 
 `validate --lock [file]` 从真实 CLI 验证共享锁与声明一致性，覆盖离线、篡改、格式等价、路径迁移与 40/80 列输出；不验证远端真实性、下载或安装。
 
-`setup --dry-run`：已有锁的只读计划与未实现步骤阻塞由 `test/lock.test.mjs` 的真实 CLI fixture 验证。本机实测 Intel macOS；Windows 与 arm64 模拟不等于实机验证；仅 macOS uv-only 安装已实现。
+`setup --dry-run` 预览已有锁的计划，不安装或写入；真实 CLI fixture 覆盖阻塞与只读边界。uv/Herdr 及 npm staging 的 fixture 覆盖安装、复用、摘要、冲突和恢复；Windows x64 Herdr-only 的官方资产验收见 [Windows 验收](herdr-windows-smoke.md)。fixture 和声明不代表其他平台的完整 coding 已支持。
 
-uv-only 真实 CLI fixture 覆盖只读、安装、复用、确认、冲突、摘要、归档、重定向、中断、并发和恢复；其余部件及完整 coding 仍阻塞。
+根会话在原生 macOS 实测 Pi 1.5.2、pnpm 12.15.0、uv 0.13.8、Herdr 0.9.5 的完整 coding setup：部件延迟绑定，配置、Agent、三个 skills 及真实 Pi TUI / Herdr v9 私有 socket 验证通过后才提交绑定；重跑不重新获取 npm 根包，绑定保持不变。本机 npm 传递依赖树回执不等于共享锁固定完整闭包。
+
+另在专用 Herdr server/pane 实测 `run coding`：官方 Pi TUI、Agent 和 `shape`/`implement`/`verify`、Herdr session 与 idle、cwd、Ctrl-C 后退出 0，以及随后 doctor 退出 0。`doctor` 核对的是当前回执、整树、锁、资源与历史 TUI 签名，不启动未知 Pi，也不证明模型调用。此原生结果不替代其他平台的实测，也不代表最终候选的 full check 或四平台二进制 CI 已通过。

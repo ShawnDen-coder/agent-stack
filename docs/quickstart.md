@@ -1,6 +1,6 @@
 # Quickstart：从源码试用
 
-当前包为 `private`、`UNLICENSED`，尚未发布 npm；本指南使用源码 checkout，不安装同名公开包。前半部分介绍声明检查、工具检测与共享锁；文末的 macOS uv-only 和 macOS/Windows x64 Herdr-only setup 会安装或复用对应工具，并记录本机绑定。完整 coding 和配置应用仍未实现。`pnpm install` 安装的是 CLI 自身的依赖。
+当前包为 `UNLICENSED`，尚未正式发布；本指南使用源码 checkout，不安装同名公开包。`pnpm install` 安装 CLI 自身依赖。完整 coding setup 支持原生 macOS arm64/x64；Windows x64 支持下文的 Herdr-only 流程，其他系统的完整 coding 仍阻塞。
 
 ## 准备与获取源码
 
@@ -13,10 +13,10 @@ pnpm --version
 
 确认输出为 `12.15.0` 后继续。版本不符时先检查 PATH 中的 pnpm 入口；项目不会替你安装前置工具。
 
-基础 CLI 已合入 `master`；试用本指南中的 macOS uv/Herdr、Windows x64 Herdr 按锁安装与 v2 设备状态，请检出 `herdr-windows-install` 分支。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
+clone 后切换到包含当前功能的提交或分支；功能合入默认分支前，默认 checkout 可能较旧。以下命令可用于 macOS/Linux shell 与 Windows PowerShell：
 
 ```sh
-git clone --branch herdr-windows-install https://github.com/ShawnDen-coder/agent-stack.git
+git clone https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
 pnpm install --frozen-lockfile
 pnpm build
@@ -45,7 +45,7 @@ pnpm cli doctor --repo . --profile coding
 pnpm cli doctor --repo . --profile coding --json
 ```
 
-报告包含 `profile`、每项 `checks` 的版本要求、观察状态和证据，以及 `unchecked` 和 `scope`。`[FAIL]` 或 `[UNKNOWN]` 表示缺失、版本不符或无法核对；退出 1 时根据报告检查 PATH 和原生安装渠道即可，不必为了完成本指南安装工具。Pi/pnpm 的 package metadata 不证明程序可运行，herdr 版本不证明集成工作；Otty、Rex 和集成状态未检查。`doctor` 不写配置或刷新认证。
+报告包含各项检查与证据。对于已绑定的 coding，`doctor` 还核对锁、受管回执及整树、资源和历史隔离 TUI 验证签名；它不启动未知 Pi，也不重新运行 TUI 或验证模型调用。`[FAIL]` 或 `[UNKNOWN]` 表示缺失、版本不符或无法核对；根据报告检查本机状态。`doctor` 不写配置或刷新认证。
 
 ## 可选：在线查看版本候选
 
@@ -71,7 +71,7 @@ $LASTEXITCODE
 
 Windows 原生与 WSL 应使用各自环境中的 Node、pnpm 和 checkout，不共享本机配置路径。已审查基线 `c6cea45` 的 [CI 运行](https://github.com/ShawnDen-coder/agent-stack/actions/runs/43606679733) 在 macOS/Linux/Windows 与 Node 24/26 六组通过；后续版本候选切片需以其自己的 CI 结果为准。Windows PTY、WSL 与真实外部工具安装尚未由该运行验证。
 
-继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。原生 macOS 的 uv-only setup 可安装或复用 uv，Herdr-only 可按锁安装或复用匹配的已有入口；其他安装、`run coding`、锁更新和配置应用尚未实现。
+继续阅读 [CLI 行为与验收](cli-acceptance.md)、[架构](architecture.md)、[配置变体提案](config-variants.md)、[开发和打包](development.md)及 [roadmap](roadmap.md)。锁更新、离线解析及其他系统的完整 coding 尚未实现。
 
 指定 `--target darwin-arm64`、`darwin-x64` 或 `win32-x64` 可预览 Pi、pnpm 顶层与 pnpm native 包的 npm tarball 及预期 SHA-512，以及 uv release 归档、herdr 发行物 URL 和预期 SHA-256；选项可重复。不指定目标时仅报告版本。pnpm native 预览识别 12.15.0 起的 pnpm 12 发行契约，依赖映射或 native 平台元数据不符时阻塞；CLI 自身使用的 pnpm 版本仍由 packageManager 固定。使用 `--dry-run` 时，若四个部件的目标元数据均完整可返回 0，但不会生成锁；Linux ABI 未核实，明确阻塞。预期 digest 不是下载字节验证、签名或运行兼容证明，Windows 摘要对应完整 zip。
 
@@ -92,7 +92,39 @@ pnpm cli validate --repo . --lock "./candidate lock.json" --json
 
 裸 `--lock` 读取 `<repo>/stack/stack.lock.json`；显式相对路径以当前调用目录解析。检查只覆盖本地结构、声明与资产身份关系，不能证明远端未撤回、签名或下载字节正确，也不验证安装或运行。
 
-已有完整共享锁时，可运行 `node dist/cli.js setup --repo . --profile coding --dry-run` 离线预览；该命令不安装或应用配置，未实现步骤会导致退出码 1。支持检测原生 macOS arm64/x64 和 Windows x64；未知或仿真宿主阻塞。`--lock` 指向候选锁时相对当前目录解析。
+已有完整共享锁时，可运行 `node dist/cli.js setup --repo . --profile coding --dry-run` 预览，不安装或应用配置；缺少前置条件时返回 1。完整 coding 应用仅支持原生 macOS arm64/x64；Windows、Linux/WSL、未知或仿真宿主阻塞。`--lock` 指向候选锁时相对当前目录解析。
+
+## macOS 的完整 coding
+
+准备 Node.js 24+、可核对的 npm 和 Git、网络，以及包含本机目标资产的完整 coding 锁。首次受管安装 Pi 的 staging 当前要求 npm 11.12.1；命令计划会报告不满足的前置条件。将受管 bin 加入当前 shell 的 PATH（setup 不修改 shell 配置）：
+
+如果尚无共享锁，可先执行上文的 `lock` 创建步骤；Apple Silicon 选择 `darwin-arm64`，Intel Mac 选择 `darwin-x64`。`lock` 不覆盖已有文件；也可使用 `lock --out ./coding.lock.json`；使用候选锁时，将下方的 `validate --lock` 改为 `validate --lock ./coding.lock.json`，并为两条 setup 命令添加 `--lock ./coding.lock.json`。
+
+```sh
+mkdir -p "$HOME/.agent-stack/bin"
+export PATH="$HOME/.agent-stack/bin:$PATH"
+pnpm cli validate --repo . --lock
+pnpm cli setup --repo . --profile coding --dry-run
+pnpm cli setup --repo . --profile coding
+pnpm cli doctor --repo . --profile coding
+```
+
+执行 setup 会安装或复用锁定部件、应用受管配置，交互时要求确认；非交互可明确传入 `--yes`。已有外部 Pi/pnpm 不接管，其入口会阻塞完整 coding；冲突、未知归属或缺失前置条件需先按计划报告处理。setup 不替用户配置认证或模型。
+
+Pi、pnpm、uv 和 Herdr 先完成准备，受管配置、checkout 中的 Agent 与三个 skills 通过隔离的真实 Pi TUI 和 Herdr v9 私有 socket 验证后才提交默认绑定。重新运行会复核输入；已验证且未变化时保持绑定，并避免重新获取 npm 根包。npm 传递依赖树的本机回执用于检测安装漂移，不代表共享锁固定了完整依赖闭包。未知配置字段、用户会话和凭证保留。
+
+在本机 Herdr 的活动 pane 中运行：
+
+```sh
+pnpm cli run --repo . coding --cwd "$PWD" --dry-run --json
+pnpm cli run --repo . coding --cwd "$PWD"
+# 原生 Pi 参数放在 -- 之后
+pnpm cli run --repo . coding --cwd "$PWD" -- --mode text
+```
+
+`--dry-run --json` 不启动 Pi，但仍检查 coding 绑定和当前 Herdr pane；未就绪时报告 blockers 或错误并退出 1。实际启动要求交互 TTY 和有效 Herdr 上下文，使用 checkout 中的 Agent 与 `shape`、`implement`、`verify`，传递允许的 Pi 参数、终端和退出状态。管理子命令、非交互模式以及禁用 skills/扩展的参数会被拒绝；Pi 的原生入口仍可独立使用。`--json` 只与 `--dry-run` 组合。
+
+根会话在原生 macOS 实测 Pi 1.5.2、pnpm 12.15.0、uv 0.13.8 和 Herdr 0.9.5 的完整 setup、无根包重新获取的重跑，以及独立 Herdr server/pane 中的真实 Pi TUI、资源加载、session/idle、cwd、Ctrl-C 退出 0 和随后 doctor 退出 0。这些结果不证明其他系统、模型调用或后续 commit 已验证。
 
 ## macOS 的 uv-only setup
 
@@ -122,7 +154,7 @@ pnpm cli setup --repo . --profile uv-only --lock ./uv-only.lock.json
 
 交互式 setup 展示计划并要求确认；脚本可用 `--yes`。`--dry-run` 不下载或持久写入（版本观察使用并清理临时目录）；执行只下载锁中资产、核对 SHA-256 和归档，再验证 `uv`/`uvx` 版本。已有相同版本的外部入口只读复用，来源仍为 unknown；未知或冲突入口不覆盖。示例 `export` 只影响当前 shell；请自行确保后续 shell 也包含该目录，setup 不编辑 shell 配置。成功才登记本机绑定；重复执行会核对受管文件并 no-op。
 
-Windows 的 uv ZIP、Linux/WSL、仿真、完整 coding 和其他安装 adapter 尚不可应用。异常中断后重跑可恢复已记录的受管操作；若本机记录不完整或目标已被更改，保留文件并提示人工检查。
+Windows 的 uv ZIP、Linux/WSL、仿真和非支持目标的安装 adapter 尚不可应用。异常中断后重跑可恢复已记录的受管操作；若本机记录不完整或目标已被更改，保留文件并提示人工检查。
 
 ## macOS / Windows x64 的 Herdr-only setup
 

@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-首版采用单包 TypeScript CLI。开发使用 pnpm，分发目标为 npm；使用者运行编译后的 JavaScript，无需安装 TypeScript 编译器。
+首版采用单包 TypeScript CLI。开发使用 pnpm，分发目标包括 npm 与独立 SEA；使用者运行编译后的 JavaScript 或 SEA 二进制，无需安装 TypeScript 编译器。
 
 ## 技术选择
 
@@ -20,7 +20,7 @@
 
 所有 npm 依赖使用确切版本，传递依赖由 `pnpm-lock.yaml` 锁定。开发 pnpm 版本由 `packageManager` 固定；这与 profile 中将来安装到用户环境的 pnpm 要求分别维护。
 
-人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS uv-only/Herdr-only 与 Windows x64 Herdr-only 可按锁安装；Linux ABI、更新、离线解析及其他部件安装尚未实现。
+人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS arm64/x64 支持完整 coding 及 uv-only/Herdr-only，Windows x64 支持 Herdr-only；Linux ABI、更新、离线解析及其他系统的完整 coding 尚未实现。
 
 运行下限由 `package.json` 的 engines 定义，CI 使用 Node 24 和 26；支持周期见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 
@@ -37,7 +37,9 @@ pnpm check
 | --------------------------------------------------------------- | ------------------------------------------------ |
 | `pnpm build`                                                    | 编译 `src/` 到 `dist/`                           |
 | `pnpm cli --help`                                               | 运行已编译的 CLI；源码变化后先 build             |
-| `pnpm cli doctor --repo . --profile coding`                     | 只读检测部分工具链；先 build                     |
+| `pnpm cli doctor --repo . --profile coding`                     | 只读核对工具及已绑定 coding 的验收证据；先 build |
+| `pnpm cli setup --repo . --profile coding --dry-run`            | 预览本机锁定计划，不安装；先 build               |
+| `pnpm cli run --repo . coding --dry-run --json`                 | 预览 coding 启动并检查当前 Herdr pane；先 build  |
 | `pnpm cli lock --repo . --profile coding --target darwin-arm64` | 显式目标首次创建共享锁；不覆盖现有文件；先 build |
 | `pnpm cli lock --repo . --profile coding --dry-run`             | 在线读取版本候选；不写锁；先 build               |
 | `pnpm validate`                                                 | 从仓库根目录校验当前声明；先 build               |
@@ -56,7 +58,7 @@ pnpm check
 1. 修改部件/组合/集成：维护对应 YAML，文件名与 `id` 一致，运行 `pnpm check`。
 2. 修改 schema：先确认实际消费者与兼容方式，从 schema 推导类型，不维护第二份手写 interface。
 3. 添加 adapter：外部 I/O 放入 `src/adapters/`，通过 command 组装；用临时目录或工具原生测试环境验证行为。
-4. 添加 CLI 命令：只注册真实可用的能力。当前帮助中不会显示尚未实现的安装/升级命令。
+4. 添加 CLI 命令：只注册真实可用的能力。当前帮助只显示已实现的命令，不显示尚未实现的升级命令。
 5. 修改配置应用：先定义文件/字段归属、冲突和恢复行为，再实现写入。
 
 ## 打包与发布
@@ -68,17 +70,17 @@ pnpm build
 npm pack --dry-run --ignore-scripts
 ```
 
-包只分发 CLI 代码，checkout 中的原生配置、profile 和 skills 继续走 Git。发布前另行确定名称、授权、发布检查和版本策略。
+包只分发 CLI 代码，checkout 中的原生配置、profile、Agent 和 skills 继续走 Git。受控发布流程和外部前置配置见下文；尚未正式发布。
 
 ## 多系统验证
 
-`Check` 覆盖 Linux/macOS/Windows × Node 24/26 六组组合，验证构建、定义校验和真实 CLI 边界及受控 fixture。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。`Herdr Windows installation` 在 Windows x64、Node 24/26 上验证完整七文件 ZIP 安装、原生 ACL、幂等与隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 WSL、GUI、交互式 TUI 或完整 coding 集成通过。
+`Check` workflow 配置 Linux/macOS/Windows × Node 24/26 六组组合，用于验证构建、定义校验和真实 CLI 边界及受控 fixture；当前候选的最终结果以实际运行记录为准。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。`Herdr Windows installation` 在 Windows x64、Node 24/26 上验证完整七文件 ZIP 安装、原生 ACL、幂等与隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 WSL、GUI、交互式 TUI 或完整 coding 集成通过。
 
 原生 smoke 的接口、固定 metadata 与 live 资产下载分工及验收边界见 [macOS 验收](herdr-macos-smoke.md)和 [Windows 验收](herdr-windows-smoke.md)。runner 标签与架构依据 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
 
 后续增加实际安装/应用时，需要分别验证 Windows 原生与 WSL，并覆盖已有工具、多个 PATH 候选、本地修改、重复应用、失败重试和恢复。不能把 Linux runner 等同于 WSL，也不能通过删除能力要求掩盖替换后的缺口。
 
-`doctor` 以独立临时目录运行固定版本查询，限制 3 秒和 16 KiB 输出；不继承凭证环境变量。pnpm 和 Pi 不执行，只有入口匹配 npm package metadata 时报告声明版本。Windows 批处理入口不执行；标准 cmd-shim v8 / v9 的 Node 和直接目标模板在入口、目标和包元数据均匹配时可静态核对。Node 自带动态 prefix 的 npm.cmd、Corepack 和其他包装器为未核对。该检测不证明集成可用。
+`doctor` 的一般工具观察以独立临时目录运行固定版本查询，限制 3 秒和 16 KiB 输出；不继承凭证环境变量。它不执行未知 Pi，pnpm 和 Pi 可通过入口与 npm package metadata 的匹配观察声明版本。对于已绑定 coding，另核对锁、回执、受管整树、资源和历史隔离 TUI 签名；不会据此声称本次重新运行了 TUI。Windows 批处理入口不执行；标准 cmd-shim v8 / v9 的 Node 和直接目标模板在入口、目标和包元数据均匹配时可静态核对。Node 自带动态 prefix 的 npm.cmd、Corepack 和其他包装器为未核对。该检测不证明集成可用。
 
 入口依据：[npm cmd-shim v8](https://github.com/npm/cmd-shim/blob/v8.0.0/lib/index.js) 与 [当前 cmd-shim](https://github.com/npm/cmd-shim/blob/main/lib/index.js) 的完整模板；[Node 自带 npm.cmd](https://github.com/nodejs/node/blob/main/deps/npm/bin/npm.cmd) 使用动态 prefix；[Corepack](https://github.com/nodejs/corepack) 可能解析并下载工具；[Pi manifest](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/package.json) 声明其 bin；[pnpm 发行 manifest](https://github.com/pnpm/pnpm/blob/main/pnpm/npm/pnpm/package.json) 与安装脚本说明入口可替换。本地另核对 `@pnpm/exe@12.15.0` 官方 tarball：manifest 的 `bin.pnpm` 为 `pnpm`，发行入口可在安装时被替换。元数据只证明声明，不证明入口可运行或安装渠道。
 
@@ -94,7 +96,7 @@ macOS/Linux 的交互验收还需要 `python3` 标准库的 `pty`；Windows 跳�
 
 Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询和无效 PID 失败关闭。旧 Add-Type 链路的阶段与环境对照保留为[手动诊断](windows-host-probe-diagnostics.md)，不再附加到每次 PR 的 Check。
 
-### 独立二进制与版本实验
+### 独立二进制与版本
 
 `pnpm build:binary` 使用 Node 26 的 SEA 构建当前平台的 `binary/agent-stack`（Windows 为 `.exe`）；普通 npm CLI 仍要求 Node 24+。`pnpm verify:binary` 将二进制和声明复制到临时目录，在没有外部 Node 的 PATH 中检查 help、version 和 validate。CI 定义了四个平台的原生构建；以具体 CI 运行结果为准。macOS 构建使用 ad-hoc 签名，不是 Apple 公证；Windows 构建未签名。共享配置与 skills 仍由独立 Git checkout 提供。安装外部工具仍可能需要外部 Node、npm 和 Git。
 

@@ -1,15 +1,15 @@
 # Agent Stack
 
-Agent Stack 是一个以 Git checkout 管理个人 Agent 环境的项目。部件、组合与集成通过 YAML 分别维护；当前 CLI 可以校验声明、只读检查部分工具链，并预览 npm、uv 和 herdr 的版本候选。
+Agent Stack 用 Git checkout 管理个人 Agent 环境的部件、组合、原生配置和工作方法。CLI 可校验声明、创建共享锁，并在原生 macOS 上按锁准备 Pi、pnpm、uv 和 Herdr 的 `coding` 环境。
 
-**项目尚未发布：**包标记为 `private`、`UNLICENSED`，当前没有授予使用许可。请从源码试用，不要安装同名公开 npm 包。
+**尚未发布；`UNLICENSED`。** 当前未授予使用许可，请从包含这些功能的源码 checkout 试用，不要安装同名公开 npm 包。
 
-## 快速试用
+## 从源码试用
 
-需要 Node.js 24+、npm、Git 和仓库 `packageManager` 指定的 pnpm 12.15.0。基础 CLI 已合入 `master`；试用 macOS uv/Herdr、Windows x64 Herdr 按锁安装与 v2 设备状态，请检出当前安装分支：
+需要 Node.js 24+（含 npm）、Git 和 pnpm 12.15.0。clone 后切换到包含当前功能的提交或分支；这些变更合入默认分支前，默认 checkout 可能不包含它们。
 
 ```sh
-git clone --branch herdr-windows-install https://github.com/ShawnDen-coder/agent-stack.git
+git clone https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
 pnpm install --frozen-lockfile
 pnpm build
@@ -17,20 +17,27 @@ pnpm cli --help
 pnpm cli validate --repo .
 ```
 
-`validate` 成功时显示声明计数；已有共享锁可用 `pnpm cli validate --repo . --lock` 离线检查锁结构与声明一致性（`--lock ./candidate.json` 指定其他锁）。锁校验不验证发行方、下载字节或安装。它不证明工具已安装或可以运行。可继续使用 `pnpm cli doctor --repo . --profile coding` 只读检查环境；缺失工具或有未核对项时退出 1 是可解释的检查结果。
+`validate` 检查声明及其引用；成功不代表工具已安装或集成已运行。已有完整共享锁时，macOS arm64/x64 可预览和应用 `coding`，再在 Herdr pane 内启动：
 
-[完整 Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/quickstart.md) 包含 pnpm 安装、Windows PowerShell、JSON、退出码和可选的在线版本候选报告。
+```sh
+pnpm cli setup --repo . --profile coding --dry-run
+pnpm cli setup --repo . --profile coding
+pnpm cli doctor --repo . --profile coding
+pnpm cli run --repo . coding --dry-run --json
+pnpm cli run --repo . coding --cwd "$PWD"
+```
+
+实际 setup 前需要可核对的 Node、npm、Git、受管 bin 和对应目标的完整锁；首次安装 Pi 当前要求 npm 11.12.1。`run` 需要已验证的 coding 绑定和当前本机 Herdr pane，`--dry-run --json` 会报告未满足的条件。完整步骤和参数边界见 [Quickstart](docs/quickstart.md)。
+
+## 当前范围
+
+- 原生 macOS arm64/x64 支持完整 `coding` setup；原生 macOS 的 uv-only/Herdr-only 和 Windows x64 Herdr-only 也支持按锁安装或复用。其他系统的完整 coding、升级和锁更新仍未实现。
+- setup 管理其拥有的配置字段和官方扩展，并从 checkout 引用 coding Agent 与 `shape`、`implement`、`verify` skills；保留用户未知字段、凭证和会话。已有外部 Pi/pnpm 入口不会被接管，并会阻塞完整 coding setup。
+- 已绑定 coding 的 `doctor` 核对受管安装回执、文件树、锁、资源及历史 TUI 验证签名；不启动未知 Pi。`run coding` 在当前 Herdr pane 启动受管 Pi，透传允许的原生参数和退出状态。
+- macOS 原生环境已实际验证完整 setup、重复运行和 Herdr pane 内 Pi TUI；该结果不替代其他平台或后续提交的验证。共享锁固定顶层资产；本机 npm 传递依赖树回执不等于共享锁固定完整依赖闭包。
 
 ## 文档
 
-- [CLI 已实现行为与验收](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/cli-acceptance.md)；[CLI 行为稿](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/cli-behavior.md) 后半部分为拟议接口。
-- [架构与声明](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/architecture.md)、[配置变体提案](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/config-variants.md)。
-- [开发、测试与打包](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/development.md)、[后续路线](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/roadmap.md)。
-
-## 当前边界
-
-`lock --dry-run` 报告版本元数据；提供 `--target` 时可预览 Pi、pnpm、uv 和 herdr 的 macOS arm64/x64 与 Windows x64 资产元数据及预期摘要。pnpm native 预览核对已识别的 pnpm 12 发行契约；未知系列或依赖形态不符时阻塞。该报告不生成锁或执行计划；它只读取发行方元数据，不下载发行物，也不完成字节摘要验证、签名验证、传递依赖闭包或运行验收。显式指定已支持目标时，`lock` 可首次创建共享锁；已有默认锁或输出文件时拒绝覆盖。更新、离线解析、其他部件安装、配置应用和 `run coding` 尚未实现。共享声明位于 `stack/components/`、`stack/profiles/` 和 `stack/integrations/`；`stack/configs/` 保留工具原生格式。认证、会话与设备状态留在本机。
-
-`setup --profile coding --dry-run` 可离线预览已有共享锁的本机计划；完整 coding 的安装与配置应用尚未实现，必需步骤缺失时返回 1。需明确锁覆盖的原生目标；支持检测原生 macOS arm64/x64 和 Windows x64，未知或仿真宿主阻塞。
-
-在原生 macOS arm64/x64，`setup` 可按完整锁安装或复用能力完整的 uv-only profile；预览不联网，执行前需确认或显式 `--yes`。新安装的受管入口位于 `$HOME/.agent-stack/bin`，须预先创建并加入 PATH；匹配的外部入口可只读复用。原生 macOS Herdr-only 可按锁安装或复用匹配的已有入口；外部入口归属为 unknown。Windows x64 的 Herdr-only 可按锁安装完整 ZIP 或 external 复用匹配入口；Node 24/26 的原生 CI 已通过真实下载、七文件部署、幂等及隔离 server/IPC 验收，详见 [Windows 验收](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/herdr-windows-smoke.md)。完整 coding、Linux/WSL、仿真和其他部件仍不能应用。详见 [Quickstart](https://github.com/ShawnDen-coder/agent-stack/blob/herdr-windows-install/docs/quickstart.md)。
+- [Quickstart](docs/quickstart.md)：准备、共享锁、setup、doctor 与 run。
+- [CLI 行为与验收](docs/cli-acceptance.md)：命令边界与证据范围。
+- [架构与声明](docs/architecture.md)、[开发与发布](docs/development.md)、[后续路线](docs/roadmap.md)。
