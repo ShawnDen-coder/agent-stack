@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { planCodingResources } from "../dist/adapters/coding-resources.js";
 import { copyCodingFixture } from "../scripts/lib/coding-fixture.mjs";
 
@@ -26,7 +27,7 @@ test("production lock fixture validates offline and preserves coding resources",
     );
     const args = [
       "--import",
-      offline,
+      pathToFileURL(offline).href,
       cli,
       "validate",
       "--repo",

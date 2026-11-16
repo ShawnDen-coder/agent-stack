@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { codingMetadataPreload } from "./lib/coding-metadata.mjs";
 
 const args = process.argv.slice(2);
@@ -62,7 +62,7 @@ try {
     process.execPath,
     [
       "--import",
-      preload,
+      pathToFileURL(preload).href,
       cli,
       "lock",
       "--repo",
