@@ -15,15 +15,21 @@ import {
 import { machine } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { smokeCodingRun } from "./lib/smoke-coding-run.mjs";
 
 const project = fileURLToPath(new URL("..", import.meta.url));
 const args = process.argv.slice(2);
-if (args.length !== 4 || args[0] !== "--cli" || args[2] !== "--target")
+const standalone = args[4] === "--binary";
+if (
+  (args.length !== 4 && !(args.length === 5 && standalone)) ||
+  args[0] !== "--cli" ||
+  args[2] !== "--target"
+)
   throw Error(
-    "Usage: node scripts/smoke-coding-macos.mjs --cli <installed CLI.js> --target darwin-arm64|darwin-x64",
+    "Usage: node scripts/smoke-coding-macos.mjs --cli <installed CLI.js> --target darwin-arm64|darwin-x64 [--binary]",
   );
-const cli = await realpath(args[1]),
-  target = args[3];
+let cli = await realpath(args[1]);
+const target = args[3];
 assert.equal(process.platform, "darwin");
 assert.equal(target, `darwin-${process.arch}`);
 assert.equal(machine(), process.arch === "arm64" ? "arm64" : "x86_64");
@@ -42,6 +48,11 @@ const root = await mkdtemp("/private/tmp/asc-"),
   home = join(root, "h"),
   repo = join(root, "r"),
   tools = join(root, "tools");
+if (standalone) {
+  const moved = join(root, "agent-stack");
+  await cp(cli, moved);
+  cli = moved;
+}
 const bin = join(home, ".agent-stack", "bin");
 for (const path of [home, repo, tools, bin, join(root, "tmp")])
   await mkdir(path, { recursive: true, mode: 0o700 });
@@ -114,10 +125,22 @@ env.npm_config_cache = join(root, "cache");
 async function call(name, args, mode = "normal") {
   const source =
     mode === "offline" ? offline : mode === "metadata" ? preload : null;
+  // A fixed fixture freezes only the lock metadata. SEA setup/run execute the
+  // moved binary itself; Node preloads are deliberately unavailable there.
+  const metadataOnly = standalone && mode === "metadata";
+  const program = standalone && !metadataOnly ? cli : process.execPath;
+  const programArgs =
+    standalone && !metadataOnly
+      ? args
+      : [
+          ...(source ? ["--import", source] : []),
+          metadataOnly ? join(project, "dist", "cli.js") : cli,
+          ...args,
+        ];
   return await new Promise((resolve, reject) =>
     execFile(
-      process.execPath,
-      [...(source ? ["--import", source] : []), cli, ...args],
+      program,
+      programArgs,
       {
         cwd: repo,
         env,
@@ -174,13 +197,26 @@ try {
     await readFile(join(home, ".agent-stack", "binding.json"), "utf8"),
     before,
   );
+  const run = await smokeCodingRun({
+    root,
+    home,
+    repo,
+    env,
+    cliCommand: standalone ? [cli] : [process.execPath, cli],
+  });
   console.log(
     JSON.stringify({
+      run,
       target: `darwin-${process.arch}`,
       components: Object.keys(installed.binding.installations),
       resources: installed.plan.codingResources.files.length,
       verification: installed.verification,
-      rerun: "root fetch forbidden; binding unchanged",
+      rerun: standalone
+        ? "receipt reuse; binding unchanged"
+        : "root fetch forbidden; binding unchanged",
+      distribution: standalone
+        ? "moved standalone binary"
+        : "installed npm tarball",
     }),
   );
   await rm(root, { recursive: true, force: true });

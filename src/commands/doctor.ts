@@ -184,10 +184,22 @@ export function createDoctorCommand(): Command {
             ),
             integrations: profile.integrations,
           },
+          ...(profile.id === "coding" && process.platform === "darwin"
+            ? {
+                readiness: {
+                  ready: false,
+                  reason:
+                    "No matching completed coding setup evidence; run setup before coding",
+                  scope:
+                    "Toolchain observations only; coding installation, resources and integration are not verified",
+                },
+              }
+            : {}),
           scope: "toolchain only; environment readiness is not assessed",
         };
         doctor(report, repo, Boolean(options.json));
         if (
+          report.readiness?.ready === false ||
           report.checks.some(
             (item) => item.status !== "ok" || item.channel !== null,
           )

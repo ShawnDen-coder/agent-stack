@@ -55,6 +55,6 @@ try:
         os.kill(pid, signal.SIGKILL)
         _, raw = os.waitpid(pid, 0)
         status = os.waitstatus_to_exitcode(raw)
-    print(json.dumps({"status": status, "sent": sent, "output": output.decode("utf8", "replace")}))
+    print(json.dumps({"status": status if status >= 0 else 128-status, "signal": -status if status < 0 else None, "sent": sent, "output": output.decode("utf8", "replace")}))
 finally:
     os.close(fd)

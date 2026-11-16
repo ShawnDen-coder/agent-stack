@@ -1,10 +1,55 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { launchCodingPi } from "../dist/adapters/coding-launch.js";
+import {
+  assertCodingPiArgs,
+  launchCodingPi,
+} from "../dist/adapters/coding-launch.js";
+import { inspectHerdrContext } from "../dist/adapters/herdr-context.js";
+
+test("coding rejects missing or unreachable Herdr pane context", async () => {
+  const old = { ...process.env };
+  try {
+    delete process.env.HERDR_ENV;
+    const input = {
+      herdr: "/nonexistent",
+      version: "0.9.5",
+      signal: new AbortController().signal,
+    };
+    assert.equal((await inspectHerdrContext(input)).ready, false);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "pane";
+    process.env.HERDR_SOCKET_PATH = "/nonexistent/agent-stack-herdr.sock";
+    assert.equal((await inspectHerdrContext(input)).ready, false);
+  } finally {
+    for (const key of ["HERDR_ENV", "HERDR_PANE_ID", "HERDR_SOCKET_PATH"]) {
+      if (old[key] === undefined) delete process.env[key];
+      else process.env[key] = old[key];
+    }
+  }
+});
+
+test("coding rejects Pi options that bypass interactive integration", () => {
+  assert.throws(() => assertCodingPiArgs(["--mode=rpc"]));
+  assert.throws(() => assertCodingPiArgs(["--no-skills"]));
+  assert.doesNotThrow(() => assertCodingPiArgs(["--model", "example"]));
+  for (const args of [
+    ["--mode", "rpc"],
+    ["--mode=json"],
+    ["-p"],
+    ["--no-skills"],
+    ["-ne"],
+    ["auth", "print-api-key"],
+  ])
+    assert.throws(() => assertCodingPiArgs(args));
+  assert.doesNotThrow(() =>
+    assertCodingPiArgs(["--model", "example", "--mode=text"]),
+  );
+  assert.doesNotThrow(() => assertCodingPiArgs(["--", "--no-skills"]));
+});
 
 test("coding launch forwards native arguments and exit status", async () => {
   const root = await mkdtemp(join(tmpdir(), "coding-launch-"));
@@ -24,7 +69,8 @@ test("coding launch forwards native arguments and exit status", async () => {
       pi: entry,
       agent,
       skills,
-      args: ["--mode", "text", "value with spaces"],
+      args: ["--model", "example", "value with spaces"],
+      cwd: root,
       signal: new AbortController().signal,
     });
     assert.equal(code, 7);
@@ -37,10 +83,78 @@ test("coding launch forwards native arguments and exit status", async () => {
       skills[1],
       "--skill",
       skills[2],
-      "--mode",
-      "text",
+      "--model",
+      "example",
       "value with spaces",
     ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("coding launch uses the requested working directory and blocks non-TUI options", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coding-cwd-"));
+  try {
+    const entry = join(root, "pi.mjs"),
+      marker = join(root, "cwd");
+    await writeFile(
+      entry,
+      `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},process.cwd());`,
+    );
+    const input = {
+      node: process.execPath,
+      pi: entry,
+      agent: join(root, "agent"),
+      skills: ["a", "b", "c"].map((x) => join(root, x)),
+      cwd: root,
+      args: [],
+      signal: new AbortController().signal,
+    };
+    await assert.rejects(
+      launchCodingPi({ ...input, args: ["--print"] }),
+      /interactive/,
+    );
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+    assert.equal(await launchCodingPi(input), 0);
+    assert.equal(await readFile(marker, "utf8"), await realpath(root));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("coding launch inherits terminal resize", {
+  skip: process.platform === "win32",
+}, async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+  const root = await mkdtemp(join(tmpdir(), "coding-resize-"));
+  try {
+    const entry = join(root, "pi.mjs"),
+      parent = join(root, "parent.mjs");
+    await writeFile(
+      entry,
+      `process.stdout.on('resize',()=>{console.log('SIZE:'+process.stdout.rows+':'+process.stdout.columns);process.exit(0)});console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY);setInterval(()=>{},1000);`,
+    );
+    const url = pathToFileURL(resolve("dist/adapters/coding-launch.js")).href;
+    await writeFile(
+      parent,
+      `import {launchCodingPi} from ${JSON.stringify(url)}; process.exitCode=await launchCodingPi({node:${JSON.stringify(process.execPath)},pi:${JSON.stringify(entry)},agent:${JSON.stringify(join(root, "agent"))},skills:${JSON.stringify(["a", "b", "c"].map((x) => join(root, x)))},cwd:${JSON.stringify(root)},args:[],signal:new AbortController().signal});`,
+    );
+    const result = JSON.parse(
+      execFileSync(
+        "/usr/bin/python3",
+        [
+          resolve("test/coding_launch_pty.py"),
+          process.execPath,
+          parent,
+          "resize",
+        ],
+        { encoding: "utf8", timeout: 15000 },
+      ),
+    );
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /SIZE:31:101/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -97,7 +211,7 @@ test("coding launch preserves a real controlling terminal", {
       parent = join(root, "parent.mjs");
     await writeFile(
       entry,
-      `console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY); process.stdin.once('data',d=>{console.log('INPUT:'+d.toString().trim()); process.exit(0)});`,
+      `import {openSync,closeSync} from 'node:fs';const tty=openSync('/dev/tty','r');closeSync(tty);console.log('CONTROLLING:true');console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY); process.stdin.once('data',d=>{console.log('INPUT:'+d.toString().trim()); process.exit(0)});`,
     );
     const url = pathToFileURL(resolve("dist/adapters/coding-launch.js")).href;
     await writeFile(
@@ -114,6 +228,7 @@ test("coding launch preserves a real controlling terminal", {
     assert.equal(result.status, 0);
     assert.equal(result.sent, true);
     assert.match(result.output, /TTY:true:true/);
+    assert.match(result.output, /CONTROLLING:true/);
     assert.match(result.output, /INPUT:hello/);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -236,7 +351,7 @@ test("run command validates readiness, cwd and the native argument boundary with
   }
 });
 
-test("terminal Ctrl-C does not deliver duplicate interrupts to Pi", {
+test("terminal Ctrl-C is not immediately forwarded twice", {
   skip: process.platform === "win32",
 }, async () => {
   const { execFileSync } = await import("node:child_process");
@@ -248,7 +363,7 @@ test("terminal Ctrl-C does not deliver duplicate interrupts to Pi", {
       parent = join(root, "parent.mjs");
     await writeFile(
       entry,
-      `let count=0;process.on('SIGINT',()=>{count++;setTimeout(()=>{console.log('SIGNALS:'+count);process.exit(130)},200)});console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY);process.stdin.resume();`,
+      `let count=0;process.on('SIGINT',()=>{count++;setTimeout(()=>{console.log('SIGNALS:'+count);process.exit(130)},900)});console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY);process.stdin.resume();`,
     );
     const url = pathToFileURL(resolve("dist/adapters/coding-launch.js")).href;
     await writeFile(
@@ -286,7 +401,7 @@ test("parent-only SIGINT reaches a child with a controlling terminal", {
       parent = join(root, "parent.mjs");
     await writeFile(
       entry,
-      `let count=0;process.on('SIGINT',()=>{count++;setTimeout(()=>{console.log('SIGNALS:'+count);process.exit(130)},200)});console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY);process.stdin.resume();`,
+      `let count=0;process.on('SIGINT',()=>{count++;setTimeout(()=>{console.log('SIGNALS:'+count);process.exit(130)},900)});console.log('TTY:'+process.stdin.isTTY+':'+process.stdout.isTTY);process.stdin.resume();`,
     );
     const url = pathToFileURL(resolve("dist/adapters/coding-launch.js")).href;
     await writeFile(
@@ -307,6 +422,53 @@ test("parent-only SIGINT reaches a child with a controlling terminal", {
     );
     assert.equal(result.status, 130);
     assert.match(result.output, /SIGNALS:1(?:\r?\n)/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real CLI refuses coding without a verified binding before executing Pi", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { mkdir } = await import("node:fs/promises");
+  const { resolve } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "coding-not-ready-"));
+  try {
+    const bin = join(root, "bin"),
+      marker = join(root, "called");
+    await mkdir(bin);
+    await writeFile(
+      join(bin, "pi"),
+      `#!/bin/sh\nprintf called > '${marker}'\n`,
+      { mode: 0o755 },
+    );
+    const cli = resolve("dist/cli.js");
+    const result = spawnSync(
+      process.execPath,
+      [cli, "--repo", root, "run", "coding"],
+      {
+        env: { ...process.env, HOME: root, USERPROFILE: root, PATH: bin },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /completed coding setup/);
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+    await mkdir(join(root, ".agent-stack"));
+    await writeFile(join(root, ".agent-stack", "operation.lock"), "active");
+    const pending = spawnSync(
+      process.execPath,
+      [cli, "--repo", root, "run", "coding"],
+      {
+        env: { ...process.env, HOME: root, USERPROFILE: root, PATH: bin },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(pending.status, 1, pending.stderr);
+    assert.match(
+      pending.stderr,
+      /completed coding setup|setup or recovery is pending/,
+    );
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

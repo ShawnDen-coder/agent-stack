@@ -4,6 +4,9 @@ import { isAbsolute } from "node:path";
 
 export function assertCodingPiArgs(args: string[]): void {
   const forbidden = new Set([
+    "--append-system-prompt",
+    "--rpc",
+    "--json",
     "--print",
     "-p",
     "--no-extensions",
@@ -79,6 +82,26 @@ export async function launchCodingPi(input: {
     ...input.skills.flatMap((path) => ["--skill", path]),
     ...input.args,
   ];
+  if (
+    process.platform !== "win32" &&
+    process.stdin.isTTY &&
+    process.stdout.isTTY
+  ) {
+    // Replace the wrapper in the same foreground process/controlling terminal.
+    // Native Pi receives input, resize, signals and its exact exit status; no
+    // second process can send a duplicate terminal SIGINT during slow cleanup.
+    const replace = process.execve;
+    if (!replace)
+      throw Error("Interactive coding requires POSIX Node execve support");
+    const cwd = process.cwd();
+    try {
+      process.chdir(input.cwd ?? cwd);
+      replace(input.node, [input.node, ...args], process.env);
+    } catch (error) {
+      process.chdir(cwd);
+      throw error;
+    }
+  }
   return await new Promise<number>((resolve, reject) => {
     const child = spawn(input.node, args, {
       stdio: "inherit",
@@ -87,18 +110,11 @@ export async function launchCodingPi(input: {
       windowsHide: false,
     });
     let failed: Error | undefined;
-    let interruptTimer: ReturnType<typeof setTimeout> | undefined;
     const forwardInterrupt = () => {
       if (child.exitCode === null && child.signalCode === null)
         child.kill("SIGINT");
     };
-    const abort = () => {
-      // A controlling terminal normally sends Ctrl-C to both processes. Give
-      // the child a chance to exit before forwarding a parent-only interrupt.
-      if (process.stdin.isTTY)
-        interruptTimer = setTimeout(forwardInterrupt, 500);
-      else forwardInterrupt();
-    };
+    const abort = forwardInterrupt;
     input.signal.addEventListener("abort", abort, { once: true });
     if (input.signal.aborted) abort();
     child.once("error", () => {
@@ -106,7 +122,6 @@ export async function launchCodingPi(input: {
     });
     child.once("close", (code, signal) => {
       input.signal.removeEventListener("abort", abort);
-      if (interruptTimer) clearTimeout(interruptTimer);
       if (failed) reject(failed);
       else if (code !== null) resolve(code);
       else

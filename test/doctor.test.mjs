@@ -262,8 +262,16 @@ test(
     const before = await readFile(join(root, "package.json"), "utf8");
     const entries = await readdir(root);
     const result = run(root, bin);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      result.status,
+      process.platform === "darwin" ? 1 : 0,
+      result.stderr,
+    );
     const report = JSON.parse(result.stdout);
+    if (process.platform === "darwin") {
+      assert.equal(report.readiness.ready, false);
+      assert.match(report.readiness.reason, /completed coding setup/);
+    }
     assert.equal(check(report, "pnpm").requirement, ">=12.15.0 <13");
     assert.equal(check(report, "pnpm").version, "12.15.0");
     assert.equal(check(report, "pnpm").path, join(bin, "pnpm"));
@@ -281,7 +289,7 @@ test(
       [cli, "doctor", "--repo", root, "--profile", "coding"],
       { encoding: "utf8", env: isolatedEnv(root, bin) },
     );
-    assert.equal(text.status, 0);
+    assert.equal(text.status, process.platform === "darwin" ? 1 : 0);
     assert.match(text.stdout, /toolchain only/);
   },
 );
