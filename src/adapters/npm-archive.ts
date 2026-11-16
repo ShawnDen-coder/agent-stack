@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import https from "node:https";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
@@ -19,12 +20,7 @@ const manifestSchema = z.object({
   optionalDependencies: z.record(z.string(), z.string()).optional(),
 });
 
-export async function downloadNpm(
-  url: string,
-  integrity: string,
-  signal: AbortSignal,
-) {
-  checkNpmDistribution(url, integrity);
+async function fetchBytes(url: string, signal: AbortSignal) {
   const timeout = AbortSignal.timeout(30000);
   const response = await fetch(url, {
     redirect: "error",
@@ -57,7 +53,78 @@ export async function downloadNpm(
   } finally {
     reader.releaseLock();
   }
-  const data = Buffer.concat(chunks, size);
+  return Buffer.concat(chunks, size);
+}
+
+// An independent, bounded retry for a stalled fetch body. In particular, some
+// Node 26 environments stall on large registry responses while core HTTPS
+// completes them. Neither transport follows redirects or bypasses the SRI gate.
+async function httpsBytes(url: string, signal: AbortSignal): Promise<Buffer> {
+  return await new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
+        headers: { accept: "application/octet-stream" },
+        maxHeaderSize: 16384,
+      },
+      async (response) => {
+        try {
+          if (
+            response.statusCode === undefined ||
+            response.statusCode < 200 ||
+            response.statusCode >= 300
+          )
+            throw Error(`npm download failed: HTTP ${response.statusCode}`);
+          const declared = response.headers["content-length"];
+          if (
+            declared !== undefined &&
+            (typeof declared !== "string" ||
+              !/^\d+$/.test(declared) ||
+              Number(declared) > maxDownload)
+          )
+            throw Error("npm download exceeds size limit");
+          const chunks: Buffer[] = [];
+          let size = 0;
+          for await (const chunk of response) {
+            const bytes = Buffer.from(chunk);
+            size += bytes.length;
+            if (size > maxDownload)
+              throw Error("npm download exceeds size limit");
+            chunks.push(bytes);
+          }
+          if (signal.aborted) throw Error("Cancelled");
+          resolve(Buffer.concat(chunks, size));
+        } catch (error) {
+          response.destroy();
+          reject(error);
+        }
+      },
+    );
+    request.once("error", reject);
+  });
+}
+
+export async function downloadNpm(
+  url: string,
+  integrity: string,
+  signal: AbortSignal,
+) {
+  checkNpmDistribution(url, integrity);
+  if (signal.aborted) throw Error("Cancelled");
+  let data: Buffer;
+  try {
+    data = await fetchBytes(url, signal);
+  } catch (error) {
+    if (
+      signal.aborted ||
+      !(error instanceof Error) ||
+      error.name !== "TimeoutError"
+    )
+      throw error;
+    data = await httpsBytes(url, signal);
+  }
+  if (signal.aborted) throw Error("Cancelled");
   const expected = Buffer.from(integrity.slice(7), "base64");
   if (!timingSafeEqual(createHash("sha512").update(data).digest(), expected))
     throw new Error("npm tarball integrity mismatch");

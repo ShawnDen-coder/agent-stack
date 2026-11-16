@@ -5620,20 +5620,6 @@ test("root review: concurrent stale lock recovery must not remove a live owner",
   timeout: 30000,
 }, async (t) => {
   const { appendFile } = await import("node:fs/promises");
-  const f = await uvInstallFixture(t);
-  const lockPath = join(f.home, ".agent-stack/operation.lock");
-  const finished = spawnSync(process.execPath, ["-e", ""], {
-    encoding: "utf8",
-  });
-  assert.throws(() => process.kill(finished.pid, 0), { code: "ESRCH" });
-  await writeFile(
-    lockPath,
-    JSON.stringify({ pid: finished.pid, stage: null, temporary: null }),
-  );
-  await appendFile(
-    f.preload,
-    `\n{const previousUnlink=fs.promises.unlink;let intercepted=false;fs.promises.unlink=async(p)=>{if(!intercepted&&p===${JSON.stringify(lockPath)}){intercepted=true;fs.writeFileSync(process.env.REVIEW_AT_UNLINK,'waiting');while(!fs.existsSync(process.env.REVIEW_GATE))await new Promise(r=>setTimeout(r,10));}return previousUnlink(p)};const previousFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{fs.writeFileSync(process.env.REVIEW_FETCH,'started');return previousFetch(...args)};syncBuiltinESMExports();}\n`,
-  );
   const children = [];
   t.after(async () => {
     for (const p of children) {
@@ -5652,6 +5638,20 @@ test("root review: concurrent stale lock recovery must not remove a live owner",
       ),
     );
   });
+  const f = await uvInstallFixture(t);
+  const lockPath = join(f.home, ".agent-stack/operation.lock");
+  const finished = spawnSync(process.execPath, ["-e", ""], {
+    encoding: "utf8",
+  });
+  assert.throws(() => process.kill(finished.pid, 0), { code: "ESRCH" });
+  await writeFile(
+    lockPath,
+    JSON.stringify({ pid: finished.pid, stage: null, temporary: null }),
+  );
+  await appendFile(
+    f.preload,
+    `\n{const previousUnlink=fs.promises.unlink;let intercepted=false;fs.promises.unlink=async(p)=>{if(!intercepted&&p===${JSON.stringify(lockPath)}){intercepted=true;fs.writeFileSync(process.env.REVIEW_AT_UNLINK,'waiting');while(!fs.existsSync(process.env.REVIEW_GATE))await new Promise(r=>setTimeout(r,10));}return previousUnlink(p)};const previousFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{fs.writeFileSync(process.env.REVIEW_FETCH,'started');return previousFetch(...args)};syncBuiltinESMExports();}\n`,
+  );
   const pathExists = async (p) =>
     readFile(p).then(
       () => true,
