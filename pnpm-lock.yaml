@@ -209,6 +209,9 @@ importers:
       semver:
         specifier: 7.7.3
         version: 7.7.3
+      smol-toml:
+        specifier: 1.9.1
+        version: 1.9.1
       tar:
         specifier: 7.5.23
         version: 7.5.23
@@ -478,6 +481,10 @@ packages:
     resolution: {integrity: sha512-2WCqLdt12eN6ehLI50S2/ZxoowXU3DD1KVPRyVP0WEsFahrGZZmCdq1K59qjJljMRIDTwx1D9YaRK+hDneBUMg==}
     engines: {node: '>=20'}
 
+  smol-toml@1.9.1:
+    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
+    engines: {node: '>= 18'}
+
   tar@7.5.23:
     resolution: {integrity: sha512-lkukzdoGngZHJZXxW4S/E4Fp9ghTDlyZXrQGRNoJ/LXvDKcXUTq2sg5yQe74po7Voea6n/IN09+wE/QvJMiifA==}
     engines: {node: '>=18'}
@@ -655,6 +662,8 @@ snapshots:
   semver@7.7.3: {}
 
   sisteransi@2.0.0: {}
+
+  smol-toml@1.9.1: {}
 
   tar@7.5.23:
     dependencies:

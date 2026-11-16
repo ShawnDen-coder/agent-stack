@@ -25,5 +25,22 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["stack/configs/pi/extensions/herdr-agent-state.ts"],
+      "formatter": {
+        "enabled": false
+      },
+      "linter": {
+        "enabled": false
+      }
+    },
+    {
+      "includes": ["stack/skills/*/SKILL.md"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }
