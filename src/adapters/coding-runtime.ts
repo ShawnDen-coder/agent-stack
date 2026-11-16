@@ -48,7 +48,8 @@ export async function verifyCodingRuntime(input: {
     agentDir = join(root, "agent"),
     socketPath = join(root, "s.sock");
   const probePath = join(root, "probe.json"),
-    probeExtension = join(root, "probe.ts");
+    probeExtension = join(root, "probe.ts"),
+    shutdownPath = join(root, "shutdown.request");
   const sockets = new Set<Socket>();
   let session = false,
     idle = false;
@@ -101,6 +102,11 @@ export async function verifyCodingRuntime(input: {
   let child: ReturnType<typeof spawn> | undefined;
   let closed: Promise<void> | undefined;
   let exited = false;
+  let scriptResult: number | undefined;
+  let scriptInvalid = false;
+  let verified = false;
+  let operationError: unknown;
+  let shutdownError: Error | undefined;
   let outputFile: Awaited<ReturnType<typeof open>> | undefined;
   const kill = () => {
     if (child?.pid && !exited) {
@@ -128,17 +134,19 @@ export async function verifyCodingRuntime(input: {
     // prompt, model credentials, sessions or user configuration leave the TUI.
     await writeFile(
       probeExtension,
-      `import {writeFileSync} from "node:fs";
+      `import {existsSync,writeFileSync} from "node:fs";
 export default function(pi) {
- let timer;
+ let timer, reported=false, stopping=false;
  pi.on("session_start",(_event,ctx) => {
   if(ctx.mode === "tui") ctx.ui.onTerminalInput(() => ({consume:true}));
   timer=setInterval(() => {
+   if(existsSync(${JSON.stringify(shutdownPath)})) {if(!stopping){stopping=true;ctx.shutdown();}return;}
+   if(reported)return;
    const commands=pi.getCommands();
    const required=${JSON.stringify(input.skills.map((path) => join(path, "SKILL.md")))};
    const skills=required.filter(path => commands.some(c => c.source === "skill" && c.sourceInfo?.path === path));
    const agent=ctx.getSystemPrompt().includes(${JSON.stringify(agentText.trim())});
-   if(skills.length === 3 && agent) {writeFileSync(${JSON.stringify(probePath)},JSON.stringify({tui:ctx.mode === "tui",agent,skills}));clearInterval(timer);}
+   if(skills.length === 3 && agent) {writeFileSync(${JSON.stringify(probePath)},JSON.stringify({tui:ctx.mode === "tui",agent,skills}));reported=true;}
   },100);
  });
  pi.on("session_shutdown",()=>clearInterval(timer));
@@ -160,7 +168,7 @@ export default function(pi) {
       "/bin/sh",
       [
         "-c",
-        '/bin/sleep 30 | /usr/bin/script -q /dev/null "$@"',
+        '/bin/sleep 30 | { /usr/bin/script -q /dev/null "$@" 3>&-; code=$?; printf "%s\\n" "$code" >&3; exit "$code"; }',
         "agent-stack-pty",
         input.node,
         input.pi,
@@ -174,7 +182,7 @@ export default function(pi) {
       {
         cwd: root,
         detached: true,
-        stdio: ["ignore", outputFile.fd, outputFile.fd],
+        stdio: ["ignore", outputFile.fd, outputFile.fd, "pipe"],
         env: {
           PATH: `${dirname(input.node)}:/usr/bin:/bin`,
           HOME: home,
@@ -193,13 +201,28 @@ export default function(pi) {
     child.on("error", () => {
       failure = new Error("Cannot start the Pi TUI verification");
     });
+    let resultBytes = "";
+    const resultPipe = child.stdio[3];
+    if (!resultPipe || !("on" in resultPipe))
+      throw Error("Missing Pi completion pipe");
+    resultPipe.on("data", (chunk: Buffer) => {
+      resultBytes += chunk.toString("ascii");
+      if (resultBytes.length > 16) scriptInvalid = true;
+      if (resultBytes.includes("\n")) {
+        if (/^(0|[1-9][0-9]{0,2})\n$/.test(resultBytes))
+          scriptResult = Number(resultBytes.trim());
+        else scriptInvalid = true;
+      }
+    });
+    resultPipe.on("end", () => {
+      if (scriptResult === undefined) scriptInvalid = true;
+    });
     closed = new Promise<void>((done) =>
       child?.once("close", () => {
         exited = true;
         done();
       }),
     );
-    input.signal.addEventListener("abort", kill, { once: true });
     const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
       if (input.signal.aborted) throw Error("Cancelled");
@@ -217,33 +240,62 @@ export default function(pi) {
             JSON.stringify(input.skills.map((path) => join(path, "SKILL.md")))
           )
             throw Error("Unexpected skill provenance");
-          return {
-            mode: "tui" as const,
-            agent: true as const,
-            skills: ["shape", "implement", "verify"],
-            integration: "herdr-0.9.5-pi-v9" as const,
-            session: true as const,
-            idle: true as const,
-          };
+          verified = true;
+          break;
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
       await delay(100);
     }
-    throw Error(
-      "Pi TUI resource loading or Herdr session/idle integration was not verified",
-    );
+    if (!verified)
+      throw Error(
+        "Pi TUI resource loading or Herdr session/idle integration was not verified",
+      );
+  } catch (error) {
+    operationError = error;
   } finally {
-    input.signal.removeEventListener("abort", kill);
+    if (child?.pid && !exited) {
+      await writeFile(shutdownPath, "shutdown\n", { mode: 0o600 }).catch(
+        () => {},
+      );
+      const deadline = Date.now() + 5000;
+      while (
+        scriptResult === undefined &&
+        !scriptInvalid &&
+        Date.now() < deadline
+      )
+        await delay(50);
+    }
     kill();
-    if (closed) await closed;
+    let closedInTime = !child?.pid;
+    if (closed) {
+      closedInTime = await Promise.race([
+        closed.then(() => true),
+        delay(2000).then(() => false),
+      ]);
+    }
     await outputFile?.close();
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((done) => {
       if (server.listening) server.close(() => done());
       else done();
     });
-    await rm(root, { recursive: true, force: true });
+    if ((!child?.pid || scriptResult === 0) && closedInTime)
+      await rm(root, { recursive: true, force: true });
+    if (child?.pid && (scriptResult !== 0 || scriptInvalid || !closedInTime))
+      shutdownError = Error(
+        `Pi TUI shutdown was not confirmed; temporary evidence retained at ${root}`,
+      );
   }
+  if (shutdownError) throw shutdownError;
+  if (operationError) throw operationError;
+  return {
+    mode: "tui" as const,
+    agent: true as const,
+    skills: ["shape", "implement", "verify"],
+    integration: "herdr-0.9.5-pi-v9" as const,
+    session: true as const,
+    idle: true as const,
+  };
 }
