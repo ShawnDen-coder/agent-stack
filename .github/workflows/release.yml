@@ -112,6 +112,8 @@ jobs:
       - run: npm install --global npm@11.12.1
       - run: pnpm build:binary
       - name: Verify standalone coding on native macOS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         if: runner.os == 'macOS'
         run: node scripts/smoke-coding-macos.mjs --cli "$(pwd)/binary/agent-stack" --target "${{ matrix.target }}" --binary
       - run: node scripts/package-binary.mjs ${{ matrix.target }}

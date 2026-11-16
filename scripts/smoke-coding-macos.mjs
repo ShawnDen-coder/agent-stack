@@ -98,7 +98,14 @@ const preload = join(root, "metadata.mjs"),
   offline = join(root, "offline.mjs");
 await writeFile(
   preload,
-  `const original=globalThis.fetch;globalThis.fetch=async(u,o)=>String(u)===${JSON.stringify(manifest.source)}?new Response(${JSON.stringify(JSON.stringify(manifest))}):original(u,o);`,
+  `const original=globalThis.fetch;globalThis.fetch=async(u,o)=>{
+ if(String(u)===${JSON.stringify(manifest.source)})return new Response(${JSON.stringify(JSON.stringify(manifest))});
+ const url=new URL(String(u));const token=process.env.AGENT_STACK_TEST_GITHUB_TOKEN;
+ if(token&&url.origin==='https://api.github.com'&&url.pathname==='/repositories/699532645/releases'){
+  const headers=new Headers(o?.headers);headers.set('Authorization','Bearer '+token);return original(u,{...o,headers});
+ }
+ return original(u,o);
+};`,
 );
 await writeFile(
   offline,
@@ -143,7 +150,12 @@ async function call(name, args, mode = "normal") {
       programArgs,
       {
         cwd: repo,
-        env,
+        env: {
+          ...env,
+          ...(mode === "metadata" && process.env.GITHUB_TOKEN
+            ? { AGENT_STACK_TEST_GITHUB_TOKEN: process.env.GITHUB_TOKEN }
+            : {}),
+        },
         encoding: "utf8",
         timeout: 600000,
         maxBuffer: 1024 * 1024,

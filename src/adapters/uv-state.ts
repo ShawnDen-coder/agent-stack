@@ -1625,13 +1625,16 @@ export async function recoverPendingUv(
   }
 }
 
-export async function uvEntryFingerprint(path: string): Promise<string> {
+export async function uvEntryFingerprint(
+  path: string,
+  maxBytes?: number,
+): Promise<string> {
   const entry = await lstat(path, { bigint: true });
   if (!entry.isFile() && !entry.isSymbolicLink())
     throw new Error("Cannot verify uv entry identity");
   const target = await realpath(path);
   const identity = await inode(target);
-  const digest = await boundedFileHash(target, identity);
+  const digest = await boundedFileHash(target, identity, maxBytes);
   const after = await lstat(path, { bigint: true });
   if (
     entry.dev !== after.dev ||

@@ -231,7 +231,14 @@ export async function assertFileUnchanged(
 export async function boundedFileHash(
   path: string,
   expected: { dev: string; ino: string },
+  maxBytes = 128 * 1024 * 1024,
 ) {
+  if (
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes <= 0 ||
+    maxBytes > 512 * 1024 * 1024
+  )
+    throw Error("Invalid managed hash byte limit");
   const pathBefore = await inode(path);
   if (pathBefore.dev !== expected.dev || pathBefore.ino !== expected.ino)
     throw new Error("Managed file changed or exceeds size limit");
@@ -242,7 +249,7 @@ export async function boundedFileHash(
       !before.isFile() ||
       String(before.dev) !== expected.dev ||
       String(before.ino) !== expected.ino ||
-      before.size > BigInt(128 * 1024 * 1024)
+      before.size > BigInt(maxBytes)
     )
       throw new Error("Managed file changed or exceeds size limit");
     const buffer = Buffer.alloc(65536),
@@ -252,8 +259,7 @@ export async function boundedFileHash(
       const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
       if (!bytesRead) break;
       total += bytesRead;
-      if (total > 128 * 1024 * 1024)
-        throw new Error("Managed file exceeds size limit");
+      if (total > maxBytes) throw new Error("Managed file exceeds size limit");
       digest.update(buffer.subarray(0, bytesRead));
     }
     const after = await file.stat({ bigint: true });

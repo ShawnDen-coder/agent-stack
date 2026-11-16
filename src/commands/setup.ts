@@ -653,7 +653,10 @@ export function createSetupCommand(): Command {
         }
         if (npmOnly) {
           if (node.path)
-            npmNodeFingerprint = await uvEntryFingerprint(node.path);
+            npmNodeFingerprint = await uvEntryFingerprint(
+              node.path,
+              512 * 1024 * 1024,
+            );
           const npmPath = checks.find((item) => item.name === "npm")?.path;
           if (npmPath)
             npmExecutableFingerprint = await uvEntryFingerprint(npmPath);
@@ -856,8 +859,10 @@ export function createSetupCommand(): Command {
             if (
               (await inspectUvPath(home, process.env.PATH ?? "")).identity !==
                 npmPathIdentity ||
-              (await uvEntryFingerprint(node.path as string)) !==
-                npmNodeFingerprint ||
+              (await uvEntryFingerprint(
+                node.path as string,
+                512 * 1024 * 1024,
+              )) !== npmNodeFingerprint ||
               (await uvEntryFingerprint(npm.path as string)) !==
                 npmExecutableFingerprint ||
               JSON.stringify(await readSetupState(home)) !==

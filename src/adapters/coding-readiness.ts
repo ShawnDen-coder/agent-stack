@@ -163,7 +163,10 @@ export async function codingInputHash(input: {
         repo,
         lockPath: input.lockPath,
         lock,
-        node: { ...node, fingerprint: await uvEntryFingerprint(node.path) },
+        node: {
+          ...node,
+          fingerprint: await uvEntryFingerprint(node.path, 512 * 1024 * 1024),
+        },
         installations: state.installations,
         entries,
         resources: resources.verification,

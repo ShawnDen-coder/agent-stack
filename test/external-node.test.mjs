@@ -82,3 +82,35 @@ test("external Node observation reads a native Node version", {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("Node fingerprints support current large runtimes while managed files retain their default bound", async () => {
+  const { open } = await import("node:fs/promises");
+  const { boundedFileHash, inode } = await import(
+    "../dist/adapters/managed-operation.js"
+  );
+  const { uvEntryFingerprint } = await import("../dist/adapters/uv-state.js");
+  const dir = await mkdtemp(join(tmpdir(), "node-hash-budget-"));
+  try {
+    const path = join(dir, "runtime");
+    const file = await open(path, "wx");
+    await file.truncate(129 * 1024 * 1024);
+    await file.close();
+    const identity = await inode(path);
+    await assert.rejects(boundedFileHash(path, identity), /size limit/);
+    const fingerprint = JSON.parse(
+      await uvEntryFingerprint(path, 512 * 1024 * 1024),
+    );
+    assert.match(fingerprint.digest, /^[a-f0-9]{64}$/);
+    assert.deepEqual(fingerprint.identity, identity);
+    await assert.rejects(
+      boundedFileHash(path, identity, 513 * 1024 * 1024),
+      /Invalid.*limit/,
+    );
+    const current = JSON.parse(
+      await uvEntryFingerprint(process.execPath, 512 * 1024 * 1024),
+    );
+    assert.match(current.digest, /^[a-f0-9]{64}$/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -87,12 +87,15 @@ export async function smokeCodingRun({ root, home, repo, env, cliCommand }) {
     ]
       .map(quote)
       .join(" ");
-    await run([
-      "pane",
-      "run",
-      pane,
-      `${command}; status=$?; echo "$status" > ${quote(exit)}`,
-    ]);
+    const launch = join(root, "launch.sh");
+    await writeFile(
+      launch,
+      `#!/bin/sh\n${command}\nstatus=$?\nprintf '%s\\n' "$status" > ${quote(exit)}\nexit "$status"\n`,
+      { mode: 0o600 },
+    );
+    // Herdr enforces the terminal's canonical line limit. Keep this input short;
+    // the test-owned script carries the fully quoted environment and argv.
+    await run(["pane", "run", pane, `/bin/sh ${quote(launch)}`]);
     let probeResult;
     for (let index = 0; index < 1200; index++) {
       try {

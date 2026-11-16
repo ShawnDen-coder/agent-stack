@@ -310,7 +310,11 @@ export async function setupCoding(input: {
   if (modes.pi === "install" && check("npm").version !== "11.12.1")
     blockers.push("Pi staging currently supports npm 11.12.1");
   for (const c of [node, check("npm"), check("git")])
-    if (c.path) fingerprints[c.name] = await uvEntryFingerprint(c.path);
+    if (c.path)
+      fingerprints[c.name] = await uvEntryFingerprint(
+        c.path,
+        c.name === "node" ? 512 * 1024 * 1024 : undefined,
+      );
   const resourceInput = {
     repo,
     home,
@@ -420,7 +424,10 @@ export async function setupCoding(input: {
     for (const c of [node, check("npm"), check("git")])
       if (
         !c.path ||
-        (await uvEntryFingerprint(c.path)) !== fingerprints[c.name]
+        (await uvEntryFingerprint(
+          c.path,
+          c.name === "node" ? 512 * 1024 * 1024 : undefined,
+        )) !== fingerprints[c.name]
       )
         throw Error(`${c.name} changed after planning`);
   };
