@@ -93,3 +93,11 @@ macOS/Linux 的交互验收还需要 `python3` 标准库的 `pty`；Windows 跳�
 网络响应体共用有界读取，但 npm、herdr 与 uv 的预算、超时和错误是各自契约。重查回归使用按 URL 的受控响应快照与请求次数，在真实 CLI 中比较结果；锁文件读取和需要真实终端的测试仍分别处理。
 
 Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询和无效 PID 失败关闭。旧 Add-Type 链路的阶段与环境对照保留为[手动诊断](windows-host-probe-diagnostics.md)，不再附加到每次 PR 的 Check。
+
+### 独立二进制与版本实验
+
+`pnpm build:binary` 使用 Node 26 的 SEA 构建当前平台的 `binary/agent-stack`（Windows 为 `.exe`）；普通 npm CLI 仍要求 Node 24+。`pnpm verify:binary` 将二进制和声明复制到临时目录，在没有外部 Node 的 PATH 中检查 help、version 和 validate。CI 定义了四个平台的原生构建；以具体 CI 运行结果为准。macOS 构建使用 ad-hoc 签名，不是 Apple 公证；Windows 构建未签名。共享配置与 skills 仍由独立 Git checkout 提供。安装外部工具仍可能需要外部 Node、npm 和 Git。
+
+二进制构建目前尚未准备发布：尚需整理 Node 和打包依赖的许可材料，并实现和验证受控发布流水线。不要分发构建结果作为正式发行物。
+
+`cog.toml` 使用裸 SemVer tag 与 pre-bump hook 同步 package version，Cocogitto 生成 changelog 和版本提交。首次建立版本时须先核对发布基线，再显式运行 `cog bump --version 0.1.0`；后续可使用 `cog bump --auto`。这些命令会创建本地提交和 tag，但不会推送或发布。pre-bump 失败时检查 Cocogitto 留下的 stash，不能假定修改已自动恢复。当前项目尚无正式发布 tag；发布前仍需明确 npm 名称、许可和受信任发布配置。

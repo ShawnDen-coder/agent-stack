@@ -1,22 +1,15 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
+import { cliPackage } from "./cli-package.js";
 
 const manifestSchema = z.object({
   name: z.string(),
   version: z.string().min(1),
   bin: z.union([z.string(), z.record(z.string(), z.string())]),
 });
-const engineSchema = z.object({
-  engines: z.object({ node: z.string().min(1) }),
-});
-
 export async function cliNodeRequirement(): Promise<string> {
-  return engineSchema.parse(
-    JSON.parse(
-      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
-    ),
-  ).engines.node;
+  return cliPackage.engines.node;
 }
 
 export async function packageVersion(

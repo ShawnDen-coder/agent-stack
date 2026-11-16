@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
 import { Command, CommanderError } from "commander";
+import { cliPackage } from "./adapters/cli-package.js";
 import { shared } from "./adapters/options.js";
 import { helpStyle } from "./adapters/presentation.js";
 import { createDoctorCommand } from "./commands/doctor.js";
@@ -9,9 +9,6 @@ import { createRunCommand } from "./commands/run.js";
 import { createSetupCommand } from "./commands/setup.js";
 import { createValidateCommand } from "./commands/validate.js";
 
-const { version } = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-) as { version: string };
 if (process.env.NO_COLOR !== undefined) delete process.env.FORCE_COLOR;
 const wrapperArguments = process.argv.slice(2);
 const nativeArgumentsAt = wrapperArguments.indexOf("--");
@@ -36,7 +33,7 @@ const program = shared(new Command())
   .description(
     "Manage a personal, composable agent environment from a Git repository",
   )
-  .version(version)
+  .version(cliPackage.version)
   .configureOutput(output)
   .configureHelp(helpStyle(wantsJson))
   .addHelpText(

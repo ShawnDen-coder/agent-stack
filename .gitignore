@@ -9,3 +9,5 @@ coverage/
 !.env.example
 *.local.json
 .agent-stack/
+
+binary/
