@@ -95,7 +95,10 @@ export async function observe(
       evidence: version ? "package_metadata" : null,
     };
   }
-  if (name === "herdr" && !(await isNativeExecutable(path)))
+  if (
+    (name === "herdr" || name === "node") &&
+    !(await isNativeExecutable(path))
+  )
     return {
       path,
       version: null,

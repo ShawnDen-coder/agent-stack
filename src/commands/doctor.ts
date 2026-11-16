@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { isSea } from "node:sea";
 import { Command } from "commander";
 import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
@@ -64,12 +65,14 @@ export function createDoctorCommand(): Command {
         if (!profile) throw new Error(`Unknown profile: ${profileId}`);
         const engine = await cliNodeRequirement();
         const node = assess(
-          {
-            path: process.execPath,
-            version: process.versions.node,
-            failure: null,
-            evidence: "running_process",
-          },
+          isSea()
+            ? await observe("node")
+            : {
+                path: process.execPath,
+                version: process.versions.node,
+                failure: null,
+                evidence: "running_process",
+              },
           engine,
         );
         const selected = profile.components.filter((item) =>

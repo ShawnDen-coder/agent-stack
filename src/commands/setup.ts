@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { isSea } from "node:sea";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { verifyWindowsHerdrEntry } from "../adapters/herdr-windows-archive.js";
 import { observeHost } from "../adapters/host.js";
@@ -186,12 +187,14 @@ export function createSetupCommand(): Command {
         const node = {
           name: "node",
           ...assess(
-            {
-              path: process.execPath,
-              version: process.versions.node,
-              failure: null,
-              evidence: "running_process",
-            },
+            isSea()
+              ? await observe("node", controller.signal)
+              : {
+                  path: process.execPath,
+                  version: process.versions.node,
+                  failure: null,
+                  evidence: "running_process",
+                },
             engine,
           ),
         };
