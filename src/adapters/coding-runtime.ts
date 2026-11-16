@@ -109,7 +109,12 @@ export async function verifyCodingRuntime(input: {
   let shutdownError: Error | undefined;
   let outputFile: Awaited<ReturnType<typeof open>> | undefined;
   const kill = () => {
-    if (child?.pid && !exited) {
+    if (
+      child?.pid &&
+      !exited &&
+      child.exitCode === null &&
+      child.signalCode === null
+    ) {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {
@@ -206,10 +211,17 @@ export default function(pi) {
     if (!resultPipe || !("on" in resultPipe))
       throw Error("Missing Pi completion pipe");
     resultPipe.on("data", (chunk: Buffer) => {
+      if (scriptInvalid) return;
+      if (resultBytes.length + chunk.length > 16) {
+        scriptInvalid = true;
+        return;
+      }
       resultBytes += chunk.toString("ascii");
-      if (resultBytes.length > 16) scriptInvalid = true;
       if (resultBytes.includes("\n")) {
-        if (/^(0|[1-9][0-9]{0,2})\n$/.test(resultBytes))
+        if (
+          /^(0|[1-9][0-9]{0,2})\n$/.test(resultBytes) &&
+          Number(resultBytes.trim()) <= 255
+        )
           scriptResult = Number(resultBytes.trim());
         else scriptInvalid = true;
       }
@@ -256,9 +268,10 @@ export default function(pi) {
     operationError = error;
   } finally {
     if (child?.pid && !exited) {
-      await writeFile(shutdownPath, "shutdown\n", { mode: 0o600 }).catch(
-        () => {},
-      );
+      await writeFile(shutdownPath, "shutdown\n", {
+        mode: 0o600,
+        flag: "wx",
+      }).catch(() => {});
       const deadline = Date.now() + 5000;
       while (
         scriptResult === undefined &&
@@ -275,13 +288,17 @@ export default function(pi) {
         delay(2000).then(() => false),
       ]);
     }
+    if (!closedInTime) {
+      child?.stdio[3]?.destroy();
+      child?.unref();
+    }
     await outputFile?.close();
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((done) => {
       if (server.listening) server.close(() => done());
       else done();
     });
-    if ((!child?.pid || scriptResult === 0) && closedInTime)
+    if ((!child?.pid || (scriptResult === 0 && !scriptInvalid)) && closedInTime)
       await rm(root, { recursive: true, force: true });
     if (child?.pid && (scriptResult !== 0 || scriptInvalid || !closedInTime))
       shutdownError = Error(
