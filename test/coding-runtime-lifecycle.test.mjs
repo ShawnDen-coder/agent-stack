@@ -34,14 +34,14 @@ for (const cancel of ["none", "early", "shutdown"])
       }
       await writeFile(
         pi,
-        `import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+        `import {readFileSync,writeFileSync,mkdirSync,renameSync} from 'node:fs';
 import {createConnection} from 'node:net';import {pathToFileURL} from 'node:url';
 const started=${JSON.stringify(started)}, finished=${JSON.stringify(finished)};
 const skillPaths=JSON.parse(readFileSync(process.env.PI_CODING_AGENT_DIR+'/settings.json')).skills;
 const handlers={};const api={on:(name,fn)=>handlers[name]=fn,getCommands:()=>skillPaths.map(path=>({source:'skill',sourceInfo:{path:path+'/SKILL.md'}}))};
 const ctx={mode:'tui',ui:{onTerminalInput(){}},getSystemPrompt:()=> 'Fixture agent',shutdown(){setTimeout(()=>{mkdirSync(process.env.TMPDIR+'/node-compile-cache',{recursive:true});writeFileSync(process.env.TMPDIR+'/node-compile-cache/flushed','yes');writeFileSync(finished,JSON.stringify({pid:process.pid,root:process.env.TMPDIR}));process.exit(0)},700)}};
 await (await import(pathToFileURL(process.argv[process.argv.indexOf('-e')+1]).href)).default(api);handlers.session_start({},ctx);
-writeFileSync(started,JSON.stringify({pid:process.pid,root:process.env.TMPDIR}));
+writeFileSync(started+'.tmp',JSON.stringify({pid:process.pid,root:process.env.TMPDIR}));renameSync(started+'.tmp',started);
 if(${JSON.stringify(cancel)}!=='early') for(const [id,method] of [[1,'pane.report_agent_session'],[2,'pane.report_agent']]){const socket=createConnection(process.env.HERDR_SOCKET_PATH);socket.on('connect',()=>socket.write(JSON.stringify({id,method,params:{pane_id:process.env.HERDR_PANE_ID,agent:'pi',source:'herdr:pi',state:'idle'}})+'\\n'));socket.on('data',()=>socket.end());}
 setInterval(()=>{},1000);`,
       );
