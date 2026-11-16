@@ -131,7 +131,7 @@ jobs:
           git merge-base --is-ancestor "$EXPECTED_SHA" refs/remotes/origin/master
           node scripts/check-release-ref.mjs
           node scripts/check-artifact.mjs verify release/package.tgz
-          node -e 'const [a,b,c] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && (b < 5 || (b === 5 && c < 1)))) process.exit(1)' "$(npm --version)"
+          node -e 'const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(process.argv[1]); if (!m) process.exit(1); const [a,b,c] = m.slice(1).map(Number); if (a < 11 || (a === 11 && (b < 5 || (b === 5 && c < 1)))) process.exit(1)' "$(npm --version)"
       - run: node scripts/publish-npm.mjs release/package.tgz
 
   github-release:
@@ -174,4 +174,6 @@ jobs:
           node scripts/check-artifact.mjs verify artifacts/npm-package/package.tgz
           cp artifacts/npm-package/package.tgz artifacts/npm-package/package.tgz.sha256 release/
           cat release/*.sha256 > release/SHA256SUMS
-          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes release/package.tgz release/agent-stack-*.tar.gz release/SHA256SUMS
+          release_flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then release_flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes "${release_flags[@]}" release/package.tgz release/agent-stack-*.tar.gz release/SHA256SUMS
