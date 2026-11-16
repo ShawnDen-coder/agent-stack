@@ -35,4 +35,9 @@ jobs:
       - run: pnpm check
       - name: Verify built CLI
         run: node --check dist/cli.js
-      - run: npm pack --dry-run --ignore-scripts
+      - name: Verify npm package in isolation
+        if: runner.os != 'Windows'
+        run: pnpm verify:package
+      - name: Inspect npm package on Windows
+        if: runner.os == 'Windows'
+        run: npm pack --dry-run --ignore-scripts
