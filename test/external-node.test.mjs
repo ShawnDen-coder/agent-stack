@@ -33,7 +33,7 @@ test("external Node observation does not execute an unknown script", {
     );
     await assert.rejects(readFile(marker), { code: "ENOENT" });
     const fifo = join(dir, "node.pipe");
-    assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
+    assert.equal(spawnSync("/usr/bin/mkfifo", [fifo]).status, 0);
     await assert.rejects(
       assertNodeTarget(
         { path: fifo, version: "24.15.0" },
