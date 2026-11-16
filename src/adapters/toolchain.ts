@@ -41,10 +41,7 @@ async function isNativeExecutable(path: string): Promise<boolean> {
   }
 }
 
-export async function observe(
-  name: string,
-  signal?: AbortSignal,
-): Promise<Observation> {
+export async function findExecutable(name: string): Promise<string | null> {
   const extensions =
     process.platform === "win32"
       ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
@@ -67,6 +64,14 @@ export async function observe(
     }
     if (path) break;
   }
+  return path;
+}
+
+export async function observe(
+  name: string,
+  signal?: AbortSignal,
+): Promise<Observation> {
+  const path = await findExecutable(name);
   if (!path)
     return { path, version: null, failure: "not_found", evidence: null };
   // Batch wrappers are inspected as data, never executed.
@@ -184,7 +189,9 @@ export async function observe(
       .match(
         name === "herdr"
           ? /^herdr (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
-          : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
+          : name === "uvx"
+            ? /^uvx (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/
+            : /^(?:git version |uv |v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?:\s.*)?$/,
       );
     return {
       path,

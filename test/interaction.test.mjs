@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import {
   chmod,
   cp,
@@ -20,6 +21,21 @@ import stringWidth from "fast-string-width";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(root, "dist/cli.js");
 const driver = join(root, "test/pty_driver.py");
+const isolatedHome = mkdtempSync(
+  join(tmpdir(), "agent-stack-interaction-home-"),
+);
+test.after(() => rmSync(isolatedHome, { recursive: true, force: true }));
+function isolatedEnv(extra = {}) {
+  const env = {
+    ...process.env,
+    ...extra,
+    HOME: isolatedHome,
+    USERPROFILE: isolatedHome,
+  };
+  delete env.AGENT_STACK_REPO;
+  delete env.AGENT_STACK_PROFILE;
+  return env;
+}
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), "agent stack & 测试 "));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -37,6 +53,7 @@ function run(args, extra = {}) {
     encoding: "utf8",
     timeout: 15000,
     ...extra,
+    env: isolatedEnv(extra.env),
   });
 }
 test("shared options work in either position, JSON errors are structured", async (t) => {
@@ -169,7 +186,7 @@ for (const [mode, columns, color] of [
     const result = spawnSync(
       "python3",
       [driver, process.execPath, cli, dir, bin, mode, String(columns), color],
-      { encoding: "utf8", timeout: 15000 },
+      { encoding: "utf8", timeout: 15000, env: isolatedEnv() },
     );
     assert.equal(result.status, 0, result.stderr);
     const run = JSON.parse(result.stdout);

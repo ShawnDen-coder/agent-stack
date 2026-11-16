@@ -1,6 +1,12 @@
 # Setup 实施方案：按锁对齐 coding
 
-状态：方案已通过根会话审查；当前仅实现 `setup --dry-run` 只读预览，计划执行和安装尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
+状态：方案已通过根会话审查；当前实现 macOS uv-only 的只读计划及按锁应用，以及 Herdr-only 已有入口的 external 复用；Herdr managed 安装与完整 coding 尚未实现。先实现受控 CLI 行为，再由根会话逐片审查，不注册占位命令。[CLI 行为稿](cli-behavior.md#setup按已有锁配置或重新对齐设备)描述目标交互，[配置变体](config-variants.md)解释路径设计，[版本锁定](version-locking.md)说明共享锁边界。
+
+[Herdr 调研](herdr-research.md)记录 `v0.9.5` 的固定源码证据：配置/状态/安装目录的区别、client/server 启动、Pi 扩展及 macOS/Windows 安装边界。它是安装片的输入，不代表安装或集成已验收。
+
+[Otty 调研](otty-research.md)记录桌面 App、CLI、配置本机覆盖及 shell/Agent 集成的边界；现有 profile 未选择 Otty，本轮不扩大 setup 的必需部件或平台支持。
+
+[Pi 调研](pi-research.md)记录 `v1.5.2` 的固定源码证据：配置/认证/会话目录、启动和 trust 顺序、skills/extensions 加载，以及 macOS/Windows 的 shell 与安装验收边界。`--help` 会加载扩展，不能替代只读观察；安装和集成仍需运行证据。
 
 ## 推荐路径与成功条件
 
@@ -59,8 +65,30 @@
 
 真实平台验收分别记录 macOS、Windows 原生和 Linux/WSL；模拟 `path.win32` 不等于 Windows 实机通过。每片 `pnpm check`、适用时实际 pack/解包并交根会话审查。当前锁**没有**传递依赖闭包、各版本安装脚本/入口可运行性、配置/skills 内容摘要、集成扩展身份、最低 OS 条件或本机归属；资源片用本机计划冻结 Git 内容，版本专属 adapter 补安装与路径证据。若需要可跨设备复现 npm 闭包或独立固定扩展，再单独设计生态原生锁/共享锁扩展和迁移，不能把现有字段解释成已有这些保证。
 
-当前只读预览在 macOS x64 使用 `/usr/bin/arch -x86_64` 启动同架构的固定 sysctl 查询；这确保子进程与 Node 一样需要或不需要 Rosetta。仅接受 `0` 或精确的 ENOENT 输出；其他错误阻塞。macOS arm64 进程为原生。Windows x64 使用固定 PowerShell 内置 `Add-Type` 调用 [`IsWow64Process2`](https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process2)，检查 Node 进程与系统原生架构；调用不可用或返回仿真均阻塞。查询使用临时目录、受限环境、固定参数和有界超时/输出，并在结束时清理。Apple 的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 是进程属性；不能使用未控制架构的子进程推断 Node 状态。Windows 原生实机、Rosetta 和 ARM64 仿真仍须实机验证。
+当前只读预览在 macOS x64 使用 `/usr/bin/arch -x86_64` 启动同架构的固定 sysctl 查询；这确保子进程与 Node 一样需要或不需要 Rosetta。仅接受 `0` 或精确的 ENOENT 输出；其他错误阻塞。macOS arm64 进程为原生。Windows x64 使用固定 Windows PowerShell 与 .NET Framework [Reflection.Emit](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.emit.typebuilder.definepinvokemethod?view=netframework-4.8.1) 在内存中定义 P/Invoke，调用 [`IsWow64Process2`](https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-iswow64process2) 检查 Node 进程与系统原生架构，不再依赖 `Add-Type` 的 C# 编译步骤；调用不可用或返回仿真均阻塞。查询使用临时目录、受限环境、固定参数和有界超时/输出，并在结束时清理。Apple 的 [`sysctl.proc_translated`](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 是进程属性；不能使用未控制架构的子进程推断 Node 状态。Windows Node 24/26 原生 CI 验证实际进程、重复查询与无效 PID；本地桌面、Rosetta 和 ARM64 仿真仍须另外验证。
 
-当前进度：只读计划已显示选中目标的 uv 资产身份、URL 和预期 SHA-256；uv-only 不再报告不适用的 npm engines 或 Pi 资源阻塞。下载、字节校验、部署、归属、确认、绑定及恢复均尚未实现。
+当前进度：macOS uv-only 计划显示锁定资产；执行可下载并核对 SHA-256、限制解包和版本验证、创建受管硬链接、记录绑定，并恢复可证明归属的未完成操作。受管目录必须预先存在于 PATH；不修改 shell 配置。Windows、其他部件和完整 coding 仍阻塞。
 
 发行布局核验：以锁中 uv 0.13.8 为例，临时下载的 Intel macOS tar.gz 包含 `uv` 与 `uvx`，Windows x64 zip 还包含 `uvw.exe`；两份 SHA-256 与锁一致。该观察不证明其他版本的布局或安装兼容性；发行格式参见[该版本官方配置](https://github.com/astral-sh/uv/blob/0.13.8/dist-workspace.toml)。
+
+当前 uv adapter 将下载限制为 64 MiB、30 秒和最多四次仅 GitHub release/CDN 的 HTTPS 重定向；使用固定 tar 依赖仅读取已知的两个普通文件，文件内容展开上限 128 MiB、tar 元数据额外上限 1 MiB，拒绝未知路径、重复、链接和特殊文件。每个受管入口使用硬链接 no-clobber 发布；本机锁与恢复日志只协调 Agent Stack，自行修改的文件不会被删除。进程在尚未记录完整所有权或文件内容基线的窗口被强制杀死，或暂存文件被外部修改时，保留不明文件并要求人工检查。确认后与发布前复核锁、声明、绑定、PATH、HOME 和目标目录；外部非协作编辑器仍存在检查与单次文件操作之间的竞争窗口。
+
+受管 uv 回执记录已校验归档的 release ID、asset ID、名称、URL 和 SHA-256；锁中资产变化或旧回执缺少此证据时阻塞，保留现有文件。外部复用仍只有版本证据。过期操作锁的检查和接管使用独占 `operation.guard` 串行化；若进程在持有 guard 时被强制终止，保留该目录并要求人工确认无活跃 setup 后处理，不盲删不明状态。PATH 变更先以静态查找核对首个入口，随后才查询已确认路径；非协作进程仍可能在检查与执行之间修改文件。
+
+## 多部件状态兼容契约
+
+历史 v1 `binding.json` 是兼容输入，包含默认 repo/profile/lock 和 uv 回执；读取仅在内存归一化，真正成功写入使用 v2。`pending.json` 与操作锁承载 uv 未完成操作和恢复，不能解释成完整 coding 已应用的证明。
+
+状态设计区分四类本机事实：默认绑定仅指向最后完整成功的 repo/profile/lock；部件回执记录实际版本、来源、资产与已验证摘要；资源归属记录实际 checkout 内容摘要、受管字段或条目及上次写入值；未完成 journal 记录操作阶段、可证明的所有权和恢复依据。共享锁仅固定列出的资产，不固定 npm 全依赖闭包或配置正文。
+
+迁移必须识别现有 uv v1 绑定和未完成 journal，先按现有规则恢复或阻塞，再保留 uv 资产证据与外部复用的有限证据；不能凭旧记录推断其他部件或资源已应用。新状态的原子发布、并发和恢复不得削弱现有 uv 保证；失败不得更新完整成功的默认绑定，未知归属和本地漂移保留并报告。profile 切换、资源移除和 checkout 迁移需在真实资源 adapter 中定义三方比较及恢复，不能删除未知内容。资源归属 schema 尚待真实配置消费者实现。
+
+固定版本调研见 [Herdr](herdr-research.md)、[Pi](pi-research.md) 和 [Otty](otty-research.md)；调研版本是证据快照，安装仍以共享锁为准。Otty 仅有官方在线文档证据，Windows 发行支持尚未确认。
+
+当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。Herdr 已有入口的 external 复用及本机回执已实现；managed 安装仍未实现，完整 coding 继续阻塞。
+
+## 本机 v2 状态与复用
+
+`binding.json` 的 v1 输入严格校验后只在内存归一化；读取不写迁移，旧 uv 回执的资产证据原样保留，缺失时不补造。成功写入使用单份 v2 快照：`defaultBinding` 记录最后完整成功的 repo/profile/lock，`installations` 分别保存 uv 与 Herdr 回执。Herdr 本片仅在原生 macOS 复用与锁定版本匹配的已有入口，回执的 `source` 为 `unknown`，入口指纹不代表发行资产摘要已验证。Herdr managed 安装及 Windows 执行尚未实现。
+
+旧 uv v1 journal 继续按旧协议恢复；新 uv v2 journal 在发布入口前记录提交前原始状态摘要和将提交的完整快照摘要，以及 stage、入口和临时文件的身份。当前状态匹配 before 时只撤销可证明归属的本次文件；匹配 after 且回执、stage、入口身份及摘要均一致时保留安装并清理 journal；其他状态或文件变化保留证据并阻塞。状态替换前复核身份与原始字节，但非协作进程仍可能在检查与文件操作之间竞争，这不是文件系统级 CAS。临时文件意图已记录而身份尚不明时，若文件存在则保留并要求人工检查。

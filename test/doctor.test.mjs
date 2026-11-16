@@ -19,6 +19,12 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
+function isolatedEnv(home, bin) {
+  const env = { ...process.env, HOME: home, USERPROFILE: home, PATH: bin };
+  delete env.AGENT_STACK_REPO;
+  delete env.AGENT_STACK_PROFILE;
+  return env;
+}
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "doctor fixture & "));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -80,7 +86,7 @@ function run(root, bin, args = []) {
     {
       cwd: root,
       encoding: "utf8",
-      env: { ...process.env, PATH: bin },
+      env: isolatedEnv(root, bin),
       timeout: 15000,
     },
   );
@@ -101,6 +107,138 @@ test("doctor help and profile errors are explicit", () => {
   );
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stdout).error, /Unknown profile/);
+});
+test("doctor rejects blank explicit context before reading state or running tools", async (t) => {
+  const { root, bin } = await fixture(t);
+  const home = join(root, "home");
+  await mkdir(join(home, ".agent-stack"), { recursive: true });
+  await writeFile(
+    join(home, ".agent-stack", "binding.json"),
+    "invalid binding",
+  );
+  const marker = join(root, "executed");
+  if (process.platform !== "win32") {
+    for (const name of ["npm", "git", "uv", "herdr", "pnpm", "pi"])
+      await fake(bin, name, `touch ${JSON.stringify(marker)}`);
+  }
+  for (const option of ["--repo", "--profile"]) {
+    for (const value of ["", "  "]) {
+      const result = spawnSync(
+        process.execPath,
+        [cli, "doctor", "--json", option, value],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: isolatedEnv(home, bin),
+          timeout: 15000,
+        },
+      );
+      assert.equal(result.status, 2, result.stderr);
+      const output = JSON.parse(result.stdout);
+      assert.equal(output.schemaVersion, 1);
+      assert.equal(output.error.kind, "usage");
+      assert.match(output.error.message, /must not be empty or whitespace/);
+    }
+  }
+  await assert.rejects(readFile(marker), { code: "ENOENT" });
+});
+test("doctor resolves environment and scoped binding with explicit options first", async (t) => {
+  const { root, bin } = await fixture(t);
+  const other = await mkdtemp(join(tmpdir(), "doctor other "));
+  t.after(() => rm(other, { recursive: true, force: true }));
+  await cp(join(root, "stack"), join(other, "stack"), { recursive: true });
+  const home = join(root, "home");
+  await mkdir(join(home, ".agent-stack"), { recursive: true });
+  await writeFile(
+    join(home, ".agent-stack", "binding.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      repo: root,
+      profile: "coding-rex",
+      lock: join(root, "stack/stack.lock.json"),
+      uv: {
+        version: "1.0.0",
+        target: "darwin-arm64",
+        mode: "external",
+        directory: null,
+        uvHash: null,
+        uvxHash: null,
+      },
+    }),
+  );
+  const env = isolatedEnv(home, bin);
+  const invoke = (args, extra = {}) =>
+    spawnSync(process.execPath, [cli, "doctor", "--json", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...env, ...extra },
+      timeout: 15000,
+    });
+  assert.equal(JSON.parse(invoke([]).stdout).profile, "coding-rex");
+  assert.equal(
+    JSON.parse(
+      invoke([], { AGENT_STACK_REPO: ".", AGENT_STACK_PROFILE: "coding" })
+        .stdout,
+    ).profile,
+    "coding",
+  );
+  assert.equal(
+    JSON.parse(
+      invoke(["--repo", ".", "--profile", "coding-rex"], {
+        AGENT_STACK_REPO: other,
+        AGENT_STACK_PROFILE: "coding",
+      }).stdout,
+    ).profile,
+    "coding-rex",
+  );
+  const unbound = invoke(["--repo", other]);
+  assert.equal(unbound.status, 2);
+  assert.match(
+    JSON.parse(unbound.stdout).error.message,
+    /--profile is required/,
+  );
+});
+test("doctor ignores invalid binding only with complete context", async (t) => {
+  const { root, bin } = await fixture(t);
+  const home = join(root, "home");
+  await mkdir(join(home, ".agent-stack"), { recursive: true });
+  const binding = join(home, ".agent-stack", "binding.json");
+  const env = isolatedEnv(home, bin);
+  const invoke = (args, extra = {}) =>
+    spawnSync(process.execPath, [cli, "doctor", "--json", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...env, ...extra },
+      timeout: 15000,
+    });
+  for (const state of [
+    "invalid JSON",
+    JSON.stringify({
+      schemaVersion: 1,
+      repo: root,
+      profile: "coding",
+      lock: join(root, "lock"),
+      uv: {},
+    }),
+  ]) {
+    await writeFile(binding, state);
+    for (const result of [
+      invoke(["--repo", root, "--profile", "coding"]),
+      invoke([], { AGENT_STACK_REPO: root, AGENT_STACK_PROFILE: "coding" }),
+    ]) {
+      assert.equal(result.status, 1);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.profile, "coding");
+      assert.equal(report.checks.length, 7);
+    }
+    for (const result of [invoke([]), invoke(["--repo", root])]) {
+      assert.equal(result.status, 1);
+      assert.match(
+        JSON.parse(result.stdout).error,
+        /Invalid local setup state/,
+      );
+    }
+  }
 });
 test(
   "doctor reports observations, requirements and unchecked scope without touching the project",
@@ -141,7 +279,7 @@ test(
     const text = spawnSync(
       process.execPath,
       [cli, "doctor", "--repo", root, "--profile", "coding"],
-      { encoding: "utf8", env: { ...process.env, PATH: bin } },
+      { encoding: "utf8", env: isolatedEnv(root, bin) },
     );
     assert.equal(text.status, 0);
     assert.match(text.stdout, /toolchain only/);
@@ -246,7 +384,7 @@ for (const [label, body, expected] of [
         [cli, "doctor", "--repo", root, "--profile", "coding", "--json"],
         {
           cwd: root,
-          env: { ...process.env, PATH: bin },
+          env: isolatedEnv(root, bin),
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
         },
@@ -361,7 +499,7 @@ test("herdr skips scripts and unselected profiles", unix, async (t) => {
   const result = spawnSync(
     process.execPath,
     [cli, "doctor", "--repo", root, "--profile", "coding-rex", "--json"],
-    { encoding: "utf8", env: { ...process.env, PATH: bin } },
+    { encoding: "utf8", env: isolatedEnv(root, bin) },
   );
   report = JSON.parse(result.stdout);
   assert.equal(check(report, "herdr"), undefined);

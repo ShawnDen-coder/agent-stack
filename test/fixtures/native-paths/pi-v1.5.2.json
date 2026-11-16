@@ -1,0 +1,261 @@
+{
+  "fixtureVersion": 1,
+  "tool": "pi",
+  "upstream": {
+    "version": "1.5.2",
+    "commit": "b4afdddf44e059c67ccf5097e5317d913521b470"
+  },
+  "evidenceLevel": "fixed-official-source",
+  "consumer": null,
+  "sources": {
+    "agent-dir": {
+      "url": "https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/config.ts",
+      "symbols": ["getAgentDir", "expandTildePath"]
+    },
+    "normalize": {
+      "url": "https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/utils/paths.ts",
+      "symbols": ["normalizePath", "resolvePath"]
+    },
+    "skills": {
+      "url": "https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/docs/skills.md"
+    },
+    "session-selection": {
+      "url": "https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/main.ts"
+    },
+    "sessions": {
+      "url": "https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/core/session-manager.ts"
+    }
+  },
+  "cases": [
+    {
+      "id": "macos-default-ignores-xdg",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "env": {
+          "XDG_CONFIG_HOME": "/fixture/config"
+        }
+      },
+      "expected": {
+        "agentDir": "/fixture/home/.pi/agent"
+      },
+      "sourceRefs": ["agent-dir"]
+    },
+    {
+      "id": "nonempty-agent-dir-wins",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "env": {
+          "PI_CODING_AGENT_DIR": "/fixture/custom 中文",
+          "PI_CONFIG_DIR": "/fixture/wrong"
+        }
+      },
+      "expected": {
+        "agentDir": "/fixture/custom 中文"
+      },
+      "sourceRefs": ["agent-dir"]
+    },
+    {
+      "id": "empty-agent-dir-uses-home",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "env": {
+          "PI_CODING_AGENT_DIR": ""
+        }
+      },
+      "expected": {
+        "agentDir": "/fixture/home/.pi/agent"
+      },
+      "sourceRefs": ["agent-dir"]
+    },
+    {
+      "id": "leading-tilde-expands",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "env": {
+          "PI_CODING_AGENT_DIR": "~/custom agent"
+        }
+      },
+      "expected": {
+        "agentDir": "/fixture/home/custom agent"
+      },
+      "sourceRefs": ["agent-dir", "normalize"]
+    },
+    {
+      "id": "bare-tilde-expands",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "env": {
+          "PI_CODING_AGENT_DIR": "~"
+        }
+      },
+      "expected": {
+        "agentDir": "/fixture/home"
+      },
+      "sourceRefs": ["agent-dir", "normalize"]
+    },
+    {
+      "id": "relative-agent-dir-is-not-made-absolute-by-getAgentDir",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "cwd": "/fixture/caller",
+        "env": {
+          "PI_CODING_AGENT_DIR": "relative agent"
+        }
+      },
+      "expected": {
+        "agentDir": "relative agent"
+      },
+      "sourceRefs": ["agent-dir", "normalize"]
+    },
+    {
+      "id": "windows-home-default-ignores-appdata-and-xdg",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "homedir": "C:/fixture/user",
+        "env": {
+          "APPDATA": "D:/fixture/roaming",
+          "XDG_CONFIG_HOME": "D:/fixture/config",
+          "PI_CONFIG_DIR": "D:/fixture/other"
+        }
+      },
+      "expected": {
+        "agentDir": "C:/fixture/user/.pi/agent"
+      },
+      "sourceRefs": ["agent-dir"]
+    },
+    {
+      "id": "windows-tilde-backslash-expands",
+      "status": "contract-only",
+      "input": {
+        "platform": "win32",
+        "homedir": "C:/fixture/user",
+        "env": {
+          "PI_CODING_AGENT_DIR": "~\\custom 中文"
+        }
+      },
+      "expected": {
+        "agentDir": "C:/fixture/user/custom 中文"
+      },
+      "sourceRefs": ["agent-dir", "normalize"]
+    },
+    {
+      "id": "wsl-linux-home-is-independent",
+      "status": "contract-only",
+      "input": {
+        "platform": "linux",
+        "environment": "wsl",
+        "homedir": "/home/fixture",
+        "env": {
+          "USERPROFILE": "C:/fixture/user",
+          "APPDATA": "C:/fixture/roaming"
+        }
+      },
+      "expected": {
+        "agentDir": "/home/fixture/.pi/agent"
+      },
+      "sourceRefs": ["agent-dir"]
+    },
+    {
+      "id": "global-agents-skills-stays-at-home",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "env": {
+          "PI_CODING_AGENT_DIR": "/fixture/custom"
+        }
+      },
+      "expected": {
+        "agentDir": "/fixture/custom",
+        "agentSkillsDir": "/fixture/custom/skills",
+        "globalAgentsSkillsDir": "/fixture/home/.agents/skills"
+      },
+      "sourceRefs": ["agent-dir", "skills"]
+    },
+    {
+      "id": "session-cli-wins-and-relative-path-uses-call-cwd",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "cwd": "/fixture/caller",
+        "env": {
+          "PI_CODING_AGENT_SESSION_DIR": "/fixture/env-sessions"
+        },
+        "cliSessionDir": "session 中文",
+        "settingsSessionDir": "/fixture/settings-sessions"
+      },
+      "expected": {
+        "sessionDir": "/fixture/caller/session 中文",
+        "selectedSource": "cli"
+      },
+      "sourceRefs": ["session-selection", "sessions", "normalize"]
+    },
+    {
+      "id": "session-env-wins-over-settings",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "cwd": "/fixture/caller",
+        "env": {
+          "PI_CODING_AGENT_SESSION_DIR": "/fixture/env-sessions"
+        },
+        "settingsSessionDir": "/fixture/settings-sessions"
+      },
+      "expected": {
+        "sessionDir": "/fixture/env-sessions",
+        "selectedSource": "env"
+      },
+      "sourceRefs": ["session-selection", "sessions"]
+    },
+    {
+      "id": "empty-session-env-falls-through-to-settings",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "cwd": "/fixture/caller",
+        "env": {
+          "PI_CODING_AGENT_SESSION_DIR": ""
+        },
+        "settingsSessionDir": "settings-sessions"
+      },
+      "expected": {
+        "sessionDir": "/fixture/caller/settings-sessions",
+        "selectedSource": "settings"
+      },
+      "sourceRefs": ["session-selection", "sessions", "normalize"]
+    },
+    {
+      "id": "default-session-dir-follows-agent-dir-and-encodes-cwd",
+      "status": "contract-only",
+      "input": {
+        "platform": "darwin",
+        "homedir": "/fixture/home",
+        "cwd": "/fixture/caller",
+        "env": {
+          "PI_CODING_AGENT_DIR": "/fixture/custom"
+        }
+      },
+      "expected": {
+        "sessionDir": "/fixture/custom/sessions/--fixture-caller--",
+        "selectedSource": "default"
+      },
+      "sourceRefs": ["agent-dir", "session-selection", "sessions"]
+    }
+  ]
+}
