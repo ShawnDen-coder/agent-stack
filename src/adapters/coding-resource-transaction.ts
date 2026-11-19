@@ -45,13 +45,13 @@ const currentJournalSchema = z.discriminatedUnion("phase", [
   z.strictObject({
     ...journalBase,
     phase: z.literal("ready"),
-    items: z.array(itemSchema).min(1).max(4),
+    items: z.array(itemSchema).min(1).max(5),
   }),
 ]);
 const journalSchema = z.union([
   currentJournalSchema,
   z
-    .strictObject({ ...journalBase, items: z.array(itemSchema).min(1).max(4) })
+    .strictObject({ ...journalBase, items: z.array(itemSchema).min(1).max(5) })
     .transform((value) => ({ ...value, phase: "ready" as const })),
 ]);
 type Identity = z.infer<typeof identity>;

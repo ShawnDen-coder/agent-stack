@@ -477,6 +477,7 @@ export async function setupCoding(input: {
     if (resourceRecoveryOnly) {
       await recoverCodingResources(home, [
         ...resources.files.slice(0, 3).map((f) => f.target),
+        ...resources.files.slice(7, 8).map((f) => f.target),
         join(resolve(home), ".agent-stack", "coding-resources.json"),
       ]);
       throw Error(

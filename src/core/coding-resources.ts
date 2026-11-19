@@ -36,6 +36,7 @@ export const codingResourcePlanSchema = z.strictObject({
   managedPiDefaults: z.record(z.string(), z.string()).default({}),
   managedHerdr: z.record(z.string(), z.boolean()),
   managedExtension: z.boolean(),
+  managedMcp: z.boolean().default(false),
   files: z.array(resourceFileSchema),
   blockers: z.array(z.string()),
 });
@@ -100,6 +101,35 @@ export function mergePiSettings(
     owned,
     ownedDefaults,
   };
+}
+
+export function mergePiMcp(
+  raw: string | null,
+  desiredUrl: string,
+  previousUrl: string | null,
+) {
+  const config = z
+    .record(z.string(), z.unknown())
+    .parse(raw === null ? {} : JSON.parse(raw));
+  const servers = z
+    .record(z.string(), z.unknown())
+    .parse(config.mcpServers ?? {});
+  const actual = servers.reui;
+  const desired = { url: desiredUrl };
+  if (isDeepStrictEqual(actual, desired))
+    return {
+      text:
+        raw ??
+        `${JSON.stringify({ ...config, mcpServers: { ...servers, reui: desired } }, null, 2)}\n`,
+      owned: previousUrl !== null,
+    };
+  if (previousUrl === null && actual !== undefined)
+    throw new Error("Pi MCP reui conflicts with local content");
+  if (previousUrl !== null && !isDeepStrictEqual(actual, { url: previousUrl }))
+    throw new Error("Managed Pi MCP reui changed locally");
+  servers.reui = desired;
+  config.mcpServers = servers;
+  return { text: `${JSON.stringify(config, null, 2)}\n`, owned: true };
 }
 
 // Only insert missing supported keys in an unambiguous [update] table. Existing

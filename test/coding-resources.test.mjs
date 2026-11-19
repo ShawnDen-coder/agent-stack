@@ -2,8 +2,34 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   mergeHerdrConfig,
+  mergePiMcp,
   mergePiSettings,
 } from "../dist/core/coding-resources.js";
+
+test("Pi MCP preserves unrelated servers and protects local reui", () => {
+  const url = "https://mcp.reui.io";
+  const first = mergePiMcp(
+    '{"mcpServers":{"local":{"command":"x"}}}',
+    url,
+    null,
+  );
+  assert.equal(first.owned, true);
+  assert.equal(JSON.parse(first.text).mcpServers.local.command, "x");
+  assert.equal(mergePiMcp(first.text, url, url).text, first.text);
+  assert.throws(
+    () =>
+      mergePiMcp(
+        '{"mcpServers":{"reui":{"url":"https://other.invalid"}}}',
+        url,
+        null,
+      ),
+    /conflicts/,
+  );
+  assert.throws(
+    () => mergePiMcp('{"mcpServers":{}}', url, url),
+    /changed locally/,
+  );
+});
 
 test("Pi model defaults respect owned values and protect local changes", () => {
   const desired = {
@@ -179,6 +205,13 @@ test("resource apply preserves unknown data and is idempotent", async () => {
     );
     await writeFile(join(pi, "auth.json"), "private-unchanged");
     await writeFile(
+      join(pi, "mcp.json"),
+      JSON.stringify({
+        mcpServers: { personal: { command: "my-tool" } },
+        custom: true,
+      }),
+    );
+    await writeFile(
       join(pi, "settings.json"),
       '{"theme":"personal","skills":["/personal"]}',
     );
@@ -223,6 +256,14 @@ test("resource apply preserves unknown data and is idempotent", async () => {
     assert.equal(installedSettings.defaultProvider, "openai-codex");
     assert.equal(installedSettings.defaultModel, "gpt-6.1-sol");
     assert.equal(installedSettings.theme, "personal");
+    const installedMcp = JSON.parse(
+      await readFile(join(pi, "mcp.json"), "utf8"),
+    );
+    assert.deepEqual(installedMcp.mcpServers.reui, {
+      url: "https://mcp.reui.io",
+    });
+    assert.deepEqual(installedMcp.mcpServers.personal, { command: "my-tool" });
+    assert.equal(installedMcp.custom, true);
     const backupMap = JSON.parse(
       await readFile(join(applied.backupDirectory, "backup-map.json"), "utf8"),
     );

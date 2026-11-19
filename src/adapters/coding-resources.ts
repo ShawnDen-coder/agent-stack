@@ -9,6 +9,7 @@ import {
   type CodingResourcePlan,
   codingResourcePlanSchema,
   mergeHerdrConfig,
+  mergePiMcp,
   mergePiSettings,
 } from "../core/coding-resources.js";
 import {
@@ -30,6 +31,7 @@ const legacyReceiptSchema = z.strictObject({
     .regex(/^[a-f0-9]{64}$/)
     .nullable(),
   piDefaults: z.record(z.string(), z.string()).optional(),
+  mcpUrl: z.string().optional(),
 });
 const receiptSchema = legacyReceiptSchema.extend({
   schemaVersion: z.literal(2),
@@ -57,6 +59,8 @@ function previousOwnership(
     skills: previous?.targets.pi === targets.pi ? previous.skills : [],
     piDefaults:
       previous?.targets.pi === targets.pi ? (previous.piDefaults ?? {}) : {},
+    mcpUrl:
+      previous?.targets.pi === targets.pi ? (previous.mcpUrl ?? null) : null,
     herdr: previous?.targets.herdr === targets.herdr ? previous.herdr : {},
     extensionHash:
       previous?.targets.extension === targets.extension
@@ -172,6 +176,7 @@ export async function planCodingResources(input: CodingResourceInput) {
     ...["shape", "implement", "verify"].map(
       (name) => `stack/skills/${name}/SKILL.md`,
     ),
+    "stack/configs/pi/mcp.json",
   ];
   const data = await Promise.all(
     sources.map((name) => read(join(repo, name), true)),
@@ -182,7 +187,8 @@ export async function planCodingResources(input: CodingResourceInput) {
     join(pi, "settings.json"),
     herdr,
     join(pi, "extensions", "herdr-agent-state.ts"),
-    ...sources.slice(3).map((name) => join(repo, name)),
+    ...sources.slice(3, 7).map((name) => join(repo, name)),
+    join(pi, "mcp.json"),
   ];
   const previous = previousOwnership(stateBytes, {
     pi: join(pi, "settings.json"),
@@ -195,7 +201,7 @@ export async function planCodingResources(input: CodingResourceInput) {
   );
   const receiptMode = await fileMode(statePath, stateBytes !== null);
   const blockers: string[] = [];
-  const writable = [...targets.slice(0, 3), statePath];
+  const writable = [...targets.slice(0, 3), targets[7] ?? "", statePath];
   if (new Set(writable).size !== writable.length)
     blockers.push("Coding resource targets overlap");
   if (
@@ -224,6 +230,26 @@ export async function planCodingResources(input: CodingResourceInput) {
     skills: string[] = [],
     herdrOwned: Record<string, boolean> = {};
   let piDefaultsOwned: Record<string, string> = {};
+  let mcpText = "",
+    mcpOwned = false;
+  try {
+    const config = z
+      .strictObject({
+        mcpServers: z.strictObject({
+          reui: z.strictObject({ url: z.literal("https://mcp.reui.io") }),
+        }),
+      })
+      .parse(JSON.parse(data[7]?.toString("utf8") ?? ""));
+    const merged = mergePiMcp(
+      current[7]?.toString("utf8") ?? null,
+      config.mcpServers.reui.url,
+      previous.mcpUrl,
+    );
+    mcpText = merged.text;
+    mcpOwned = merged.owned;
+  } catch (error) {
+    blockers.push(error instanceof Error ? error.message : String(error));
+  }
   try {
     const defaults = z
       .strictObject({
@@ -309,7 +335,8 @@ export async function planCodingResources(input: CodingResourceInput) {
     Buffer.from(piText),
     Buffer.from(herdrText),
     extension,
-    ...data.slice(3),
+    ...data.slice(3, 7),
+    Buffer.from(mcpText),
   ];
   const files = sources.map((source, index) => {
     const sourceBytes = data[index],
@@ -354,6 +381,7 @@ export async function planCodingResources(input: CodingResourceInput) {
     managedPiDefaults: piDefaultsOwned,
     managedHerdr: herdrOwned,
     managedExtension,
+    managedMcp: mcpOwned,
     files,
     blockers,
   });
@@ -402,7 +430,7 @@ export async function applyCodingResources(
   },
 ) {
   const plan = codingResourcePlanSchema.parse(planInput);
-  if (plan.files.length !== 7) throw new Error("Invalid coding resource plan");
+  if (plan.files.length !== 8) throw new Error("Invalid coding resource plan");
   const piSettings = plan.files[0]?.target,
     herdr = plan.files[1]?.target,
     extensionPath = plan.files[2]?.target;
@@ -428,7 +456,9 @@ export async function applyCodingResources(
         : { XDG_CONFIG_HOME: plan.environment.xdg }),
     },
   };
-  const allowed = [piSettings, herdr, extensionPath, receiptPath];
+  const mcpPath = plan.files[7]?.target;
+  if (!mcpPath) throw new Error("Missing Pi MCP target");
+  const allowed = [piSettings, herdr, extensionPath, mcpPath, receiptPath];
   if (new Set(allowed).size !== allowed.length)
     throw new Error("Coding resource targets overlap");
   const verifyEnvironment = () => {
@@ -455,7 +485,7 @@ export async function applyCodingResources(
   const receiptTargets = { pi: piSettings, herdr, extension: extensionPath };
   const previous = previousOwnership(receiptBytes, receiptTargets);
   const before = await Promise.all(
-    allowed.slice(0, 3).map((path) => read(path)),
+    allowed.slice(0, 4).map((path) => read(path)),
   );
   const skills = ["shape", "implement", "verify"].map((name) =>
     join(plan.repo, "stack", "skills", name),
@@ -505,22 +535,43 @@ export async function applyCodingResources(
     true,
   );
   if (!extension) throw new Error("Missing Pi extension");
+  const mcpSource = await read(
+    join(plan.repo, plan.files[7]?.source ?? ""),
+    true,
+  );
+  if (!mcpSource) throw new Error("Missing Pi MCP defaults");
+  const mcpDefaults = z
+    .strictObject({
+      mcpServers: z.strictObject({
+        reui: z.strictObject({ url: z.literal("https://mcp.reui.io") }),
+      }),
+    })
+    .parse(JSON.parse(mcpSource.toString("utf8")));
+  const mcp = mergePiMcp(
+    before[3]?.toString("utf8") ?? null,
+    mcpDefaults.mcpServers.reui.url,
+    previous.mcpUrl,
+  );
   if (
     JSON.stringify(pi.owned) !== JSON.stringify(plan.managedSkills) ||
     JSON.stringify(config.owned) !== JSON.stringify(plan.managedHerdr) ||
-    JSON.stringify(pi.ownedDefaults) !== JSON.stringify(plan.managedPiDefaults)
+    JSON.stringify(pi.ownedDefaults) !==
+      JSON.stringify(plan.managedPiDefaults) ||
+    mcp.owned !== plan.managedMcp
   )
     throw new Error("Resource ownership changed after planning");
   const resourceAfter = [
     Buffer.from(pi.text),
     Buffer.from(config.text),
     extension,
+    Buffer.from(mcp.text),
   ];
   const baseReceipt = {
     schemaVersion: 2,
     targets: receiptTargets,
     skills: pi.owned,
     piDefaults: pi.ownedDefaults,
+    ...(mcp.owned ? { mcpUrl: mcpDefaults.mcpServers.reui.url } : {}),
     herdr: config.owned,
     extensionHash: plan.managedExtension ? digest(extension) : null,
     backupDirectory: previous.backupDirectory,
@@ -541,7 +592,9 @@ export async function applyCodingResources(
       next = after[index];
     if (!next) throw new Error("Invalid resource output");
     const beforeMode =
-      index === 3 ? plan.receiptMode : (plan.files[index]?.targetMode ?? null);
+      index === 4
+        ? plan.receiptMode
+        : (plan.files[index === 3 ? 7 : index]?.targetMode ?? null);
     return old?.equals(next)
       ? []
       : [{ target, before: old, beforeMode, after: next }];
@@ -560,7 +613,9 @@ export async function applyCodingResources(
       const expected = prior[index] ?? null;
       const actual = await read(target);
       const expectedMode =
-        index === 3 ? plan.receiptMode : plan.files[index]?.targetMode;
+        index === 4
+          ? plan.receiptMode
+          : plan.files[index === 3 ? 7 : index]?.targetMode;
       if (
         hash(actual) !== hash(expected) ||
         (await fileMode(target, actual !== null)) !== expectedMode
@@ -587,7 +642,9 @@ export async function applyCodingResources(
     const actual = await read(target);
     const mode =
       publishedModes.get(target) ??
-      (index === 3 ? plan.receiptMode : plan.files[index]?.targetMode) ??
+      (index === 4
+        ? plan.receiptMode
+        : plan.files[index === 3 ? 7 : index]?.targetMode) ??
       0o600;
     if (
       !expected ||
