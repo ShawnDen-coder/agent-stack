@@ -38,5 +38,10 @@ try {
   );
   console.log(`Verified standalone ${name} ${manifest.version}`);
 } finally {
-  rmSync(temp, { recursive: true, force: true });
+  rmSync(temp, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
+  });
 }
