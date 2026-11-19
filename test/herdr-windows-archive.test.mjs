@@ -468,17 +468,9 @@ test("compiled setup CLI selects the Windows locked bundle and avoids a second d
     { recursive: true },
   );
   await rm(join(repo, "stack/stack.lock.json"));
-  await writeFile(
+  await cp(
+    new URL("./fixtures/windows-profile/herdr-only.json", import.meta.url),
     join(repo, "stack/profiles/herdr-only.json"),
-    JSON.stringify({
-      schemaVersion: 1,
-      id: "herdr-only",
-      description: "test",
-      platforms: ["win32"],
-      components: [{ component: "herdr", channel: "stable" }],
-      integrations: [],
-      requires: ["workspace"],
-    }),
   );
   for (const name of ["npm.exe", "git.exe"])
     await writeFile(join(tools, name), "tool", { mode: 0o755 });

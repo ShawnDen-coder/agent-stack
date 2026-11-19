@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -93,20 +93,36 @@ test("Windows doctor consumes a standard npm wrapper without executing it", {
   skip: process.platform !== "win32",
 }, async (t) => {
   const f = await setup(t, "npm", "npm", "bin/npm-cli.js");
+  const home = dirname(f.wrapper);
+  const repo = join(home, "repo");
+  await cp(
+    new URL("../stack/components/herdr.yaml", import.meta.url),
+    join(repo, "stack/components/herdr.yaml"),
+  );
+  await cp(
+    new URL("./fixtures/windows-profile/herdr-only.json", import.meta.url),
+    join(repo, "stack/profiles/herdr-only.json"),
+  );
   const result = spawnSync(
     process.execPath,
     [
       fileURLToPath(new URL("../dist/cli.js", import.meta.url)),
       "doctor",
       "--repo",
-      fileURLToPath(new URL("../", import.meta.url)),
+      repo,
       "--profile",
-      "coding",
+      "herdr-only",
       "--json",
     ],
     {
       encoding: "utf8",
-      env: { ...process.env, PATH: dirname(f.wrapper), PATHEXT: ".CMD" },
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        PATH: home,
+        PATHEXT: ".CMD",
+      },
     },
   );
   const report = JSON.parse(result.stdout);

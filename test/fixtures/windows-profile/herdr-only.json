@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "herdr-only",
+  "description": "Windows Herdr setup and toolchain checks",
+  "platforms": ["win32"],
+  "components": [{ "component": "herdr", "channel": "stable" }],
+  "integrations": [],
+  "requires": ["workspace"]
+}
