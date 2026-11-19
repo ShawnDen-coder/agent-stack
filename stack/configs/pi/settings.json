@@ -35,15 +35,7 @@
   },
   "packages": [
     {
-      "source": "npm:@ff-labs/pi-fff@0.11.0",
-      "skills": []
-    },
-    {
-      "source": "npm:@juicesharp/rpiv-ask-user-question@2.15.0",
-      "skills": []
-    },
-    {
-      "source": "npm:billion-context@0.1.213",
+      "source": "npm:pi-figma-kit@0.3.8",
       "skills": []
     },
     {
@@ -51,15 +43,23 @@
       "skills": []
     },
     {
-      "source": "npm:pi-figma-kit@0.3.8",
-      "skills": []
-    },
-    {
       "source": "npm:pi-subagents@0.88.1",
       "skills": []
     },
     {
+      "source": "npm:billion-context@0.1.213",
+      "skills": []
+    },
+    {
       "source": "npm:pi-web-access@0.47.0",
+      "skills": []
+    },
+    {
+      "source": "npm:@juicesharp/rpiv-ask-user-question@2.15.0",
+      "skills": []
+    },
+    {
+      "source": "npm:@ff-labs/pi-fff@0.11.0",
       "skills": []
     }
   ],

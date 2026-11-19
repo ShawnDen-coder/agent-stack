@@ -109,6 +109,33 @@ test("Pi role leaves and package entries preserve unrelated data and reject drif
   );
 });
 
+test("Pi package ranges and tags cannot bypass local ownership conflicts", () => {
+  for (const source of [
+    "npm:pi-subagents@^0.88.0",
+    "npm:pi-subagents@latest",
+    "npm:pi-subagents@0.88.1-beta.1",
+    "npm:@ff-labs/pi-fff@~0.11.0",
+  ]) {
+    const name = source.startsWith("npm:@ff-labs/")
+      ? "npm:@ff-labs/pi-fff@0.11.0"
+      : "npm:pi-subagents@0.88.1";
+    assert.throws(
+      () =>
+        mergePiSettings(
+          JSON.stringify({ packages: [source] }),
+          [],
+          [],
+          {},
+          {},
+          [{ source: name, skills: [] }],
+          [],
+        ),
+      /conflicts with local content/,
+      source,
+    );
+  }
+});
+
 test("legacy source without MCP or defaults leaves native values untouched", async () => {
   const { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } =
     await import("node:fs/promises");
@@ -207,14 +234,21 @@ test("role and package source updates apply through receipts and protect local d
       target = join(pi, "settings.json");
     const defaults = JSON.parse(await readFile(source, "utf8"));
     defaults.subagents.agentOverrides.worker.thinking = "high";
-    defaults.packages[0].source = "npm:@ff-labs/pi-fff@0.11.1";
+    const packageIndex = defaults.packages.findIndex(
+      (item) => item.source === "npm:@ff-labs/pi-fff@0.11.0",
+    );
+    assert(packageIndex >= 0);
+    defaults.packages[packageIndex].source = "npm:@ff-labs/pi-fff@0.11.1";
     await writeFile(source, JSON.stringify(defaults));
     const next = await planCodingResources(input);
     assert.deepEqual(next.blockers, []);
     await applyCodingResources(next, options);
     const result = JSON.parse(await readFile(target, "utf8"));
     assert.equal(result.subagents.agentOverrides.worker.thinking, "high");
-    assert.equal(result.packages[0].source, "npm:@ff-labs/pi-fff@0.11.1");
+    assert.equal(
+      result.packages[packageIndex].source,
+      "npm:@ff-labs/pi-fff@0.11.1",
+    );
     result.subagents.agentOverrides.worker.thinking = "local";
     await writeFile(target, JSON.stringify(result));
     assert(

@@ -162,7 +162,10 @@ export function mergePiSettings(
     defaultsChanged = true;
     ownedDefaults[key] = next;
   }
-  const packageId = (source: string) => source.replace(/@\d+\.\d+\.\d+$/, "");
+  const packageId = (source: string) => {
+    const match = /^npm:((?:@[^/@]+\/)?[^@/]+)(?:@.*)?$/.exec(source);
+    return match ? `npm:${match[1]}` : source;
+  };
   const currentPackages = z.array(z.unknown()).parse(settings.packages ?? []);
   const ownedPackages: PiPackage[] =
     desiredPackages === undefined ? [...previousPackages] : [];
