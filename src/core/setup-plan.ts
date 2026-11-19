@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { codingResourcePlanSchema } from "./coding-resources.js";
+import { npmAssetReceiptSchema } from "./npm-state.js";
 
 const observation = z.object({
   name: z.string(),
@@ -19,7 +21,12 @@ const observation = z.object({
     ])
     .nullable(),
   evidence: z
-    .enum(["running_process", "version_command", "package_metadata"])
+    .enum([
+      "running_process",
+      "version_command",
+      "package_metadata",
+      "installation_receipt",
+    ])
     .nullable(),
   requirement: z.string().nullable(),
   status: z.enum([
@@ -38,6 +45,12 @@ const observation = z.object({
     "not_checked",
   ]),
   source: z.literal("unknown"),
+});
+const npmInstallation = z.object({
+  component: z.enum(["pi", "pnpm"]),
+  mode: z.enum(["install", "managed"]),
+  assets: z.array(npmAssetReceiptSchema),
+  recovery: z.boolean(),
 });
 export const setupPlanSchema = z.object({
   kind: z.literal("setup-plan"),
@@ -108,7 +121,10 @@ export const setupPlanSchema = z.object({
       recovery: z.boolean(),
     })
     .optional(),
+  npmInstallation: npmInstallation.optional(),
+  npmInstallations: z.array(npmInstallation).optional(),
   integrations: z.array(z.string()),
+  codingResources: codingResourcePlanSchema.optional(),
   resources: z.array(z.string()),
   blockers: z.array(z.string()),
   scope: z.string(),

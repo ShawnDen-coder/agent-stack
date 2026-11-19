@@ -14,6 +14,7 @@ import { createColors } from "picocolors";
 import type { assess } from "../core/doctor.js";
 import type { ResolutionReport } from "../core/resolution-report.js";
 import type { Profile, ValidationReport } from "../core/schema.js";
+import type { inspectCodingReadiness } from "./coding-readiness.js";
 
 const interactive = () =>
   Boolean(
@@ -170,6 +171,7 @@ type DoctorReport = {
   >;
   unchecked: { components: Profile["components"]; integrations: string[] };
   scope: string;
+  readiness?: Awaited<ReturnType<typeof inspectCodingReadiness>>;
 };
 export function helpStyle(json: boolean) {
   return { styleTitle: (text: string) => (json ? text : colors.bold(text)) };
@@ -244,6 +246,12 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
   line("Summary");
   line(`Matched: ${matched}  Observed: ${observed}`, "  ");
   line(`Failed: ${failed}  Unknown: ${unknown}`, "  ");
+  if (report.readiness)
+    line(
+      report.readiness.ready
+        ? "[OK] Locked coding installation and resources"
+        : `[FAIL] ${clean(report.readiness.reason ?? "Coding installation is not ready")}`,
+    );
   if (report.checks.some((item) => item.status === "not_found"))
     line(
       "Next: Check PATH or install missing tools through their native channels.",
@@ -451,6 +459,23 @@ export function setup(
     if (plan.herdrInstallation.recovery)
       line("Pending operation will be checked for recovery.", "  ");
   }
+  for (const npmInstallation of plan.npmInstallations ??
+    (plan.npmInstallation ? [plan.npmInstallation] : [])) {
+    line();
+    line(
+      `${clean(npmInstallation.component)} action: ${clean(npmInstallation.mode)}`,
+    );
+    if (npmInstallation.recovery)
+      line("Pending operation will be checked for recovery.", "  ");
+    for (const asset of npmInstallation.assets) {
+      line(
+        `${clean(asset.name)} ${clean(asset.version)} (${clean(asset.role)})`,
+        "  ",
+      );
+      line(clean(asset.url), "    ", true);
+      line(`Expected SRI: ${clean(asset.integrity)}`, "    ", true);
+    }
+  }
   if (plan.uvInstallation) {
     line();
     line(`uv action: ${clean(plan.uvInstallation.mode)}`);
@@ -470,6 +495,10 @@ export function setup(
   line();
   line(`Integrations: ${plan.integrations.map(clean).join(", ") || "none"}`);
   line(`Resources: ${plan.resources.map(clean).join(", ")}`);
+  if (plan.codingResources) {
+    line("Resource backup root:");
+    line(clean(plan.codingResources.backupRoot), "  ", true);
+  }
   line();
   line("Blockers");
   for (const item of plan.blockers) line(`[BLOCKED] ${clean(item)}`, "  ");

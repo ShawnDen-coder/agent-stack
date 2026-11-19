@@ -245,17 +245,9 @@ $acl.AddAccessRule($rule)
     dereference: true,
   });
   await rm(join(repo, "stack/stack.lock.json"), { force: true });
-  await writeFile(
+  await cp(
+    join(root, "test/fixtures/windows-profile/herdr-only.json"),
     join(repo, "stack/profiles/herdr-only.json"),
-    JSON.stringify({
-      schemaVersion: 1,
-      id: "herdr-only",
-      description: "Native Windows smoke",
-      platforms: ["win32"],
-      components: [{ component: "herdr", channel: "stable" }],
-      integrations: [],
-      requires: ["workspace"],
-    }),
   );
   await writeFile(
     env.HERDR_CONFIG_PATH,

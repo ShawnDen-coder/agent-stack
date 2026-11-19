@@ -37,7 +37,7 @@ pnpm cli doctor --repo . --profile coding --json
 
 `validate` 和 `lock` 保持各自契约，不读取这些环境变量或绑定；repo 默认调用时当前目录。`lock --dry-run` 可在交互 TTY 选择 profile，JSON 或非交互环境须显式指定。声明读取器支持 YAML、YML 和过渡期 JSON，同 ID 冲突时报错。`validate --lock` 离线校验默认共享锁，显式文件相对调用目录；不检查远端、下载字节或安装。首次创建必须指定目标，`--out` 与 `--dry-run` 互斥；锁的 Node 假设为运行时确切版本。锁更新、离线解析、部件筛选、资源筛选和后文的新命令尚未实现。
 
-当前 `doctor` 的 Pi/pnpm 证据来自可核对的 package metadata，不证明程序可启动；herdr 仅查询当前平台的原生入口。`stable` 渠道仍未解析，Otty/Rex 与集成仍未检查。退出 0 只针对报告中已检查的范围，不能解释为整套环境 ready。当前业务检查失败退出 1，用法错误退出 2，取消退出 130。成功 JSON 及业务错误沿用已有形状；参数解析错误为 `{"schemaVersion":1,"error":{"kind":"usage","message":"..."}}`，帮助/版本的 JSON 包装为 `{"schemaVersion":1,"output":"..."}`。后文完整统一输出契约仍待实现。
+当前 `doctor` 的 Pi/pnpm 证据来自可核对的 package metadata，不证明程序可启动；herdr 仅查询当前平台的原生入口。`stable` 渠道仍未解析，额外的用户工具不在默认声明中。退出 0 只针对报告中已检查的范围，不能解释为整套环境 ready。当前业务检查失败退出 1，用法错误退出 2，取消退出 130。成功 JSON 及业务错误沿用已有形状；参数解析错误为 `{"schemaVersion":1,"error":{"kind":"usage","message":"..."}}`，帮助/版本的 JSON 包装为 `{"schemaVersion":1,"output":"..."}`。后文完整统一输出契约仍待实现。
 
 **从第 2 节开始，所有命令示例均为拟议接口，不能当作当前可运行的说明。**
 
@@ -149,7 +149,7 @@ requires:
 
 ### Agent 与工作目录
 
-`coding` Agent 定义决定职责、运行时与需要的资源；`coding`、`coding-rex` profile 决定环境组合。两个名字即使相同，也分别解析。
+`coding` Agent 定义决定职责、运行时与需要的资源；`coding` profile 决定环境组合。两个名字即使相同，也分别解析。
 
 `run` 在调用时的当前目录启动，或用 `--cwd <dir>` 指定业务项目。`--repo` 始终指配置源，不改变业务目录。其他显式相对路径，包括 `--repo`、`--lock`、`--out`、`--plan`，均相对调用时目录解析；默认锁按上一节的规则定位。
 
@@ -435,7 +435,7 @@ agent-stack lock --profile coding-rex --out ~/agent-stack/coding-rex.lock.json
 agent-stack setup --profile coding-rex --lock ~/agent-stack/coding-rex.lock.json --dry-run
 ```
 
-只有平台、来源与必需能力都满足，候选组合才可继续应用。现有 coding-rex 是不同能力的实验组合，不能宣称等价替换 coding 的 Agent 状态报告。此示例在 Rex 来源未支持时应明确失败；不是承诺当前已能生成该锁。切换计划可移除基线匹配且归属明确的旧集成资源，保留旧程序与会话；完整成功后再更新设备默认绑定。
+只有平台、来源与必需能力都满足，候选组合才可继续应用。测试 fixture 中的 coding-rex 是不同能力的实验组合，不能宣称等价替换 coding 的 Agent 状态报告。此示例在 Rex 来源未支持时应明确失败；不是承诺当前已能生成该锁。切换计划可移除基线匹配且归属明确的旧集成资源，保留旧程序与会话；完整成功后再更新设备默认绑定。
 
 ### 沉淀开发流程
 

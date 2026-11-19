@@ -90,6 +90,7 @@ export async function recheckSetupBaseline(
   profile: string,
   components: string[],
   integrations: string[],
+  progress?: { binding: string | null },
 ) {
   const repository = await readRepository(repo);
   if (!validateRepository(repository).valid)
@@ -103,6 +104,10 @@ export async function recheckSetupBaseline(
     components,
     integrations,
   );
-  if (actual !== expected)
+  const baseline =
+    progress === undefined
+      ? expected
+      : JSON.stringify({ ...JSON.parse(expected), binding: progress.binding });
+  if (actual !== baseline)
     throw new Error("Setup inputs changed after planning");
 }

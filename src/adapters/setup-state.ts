@@ -1,6 +1,8 @@
 import { isAbsolute, join } from "node:path";
 import semver from "semver";
 import { z } from "zod";
+import { codingVerificationSchema } from "../core/coding-verification.js";
+import { npmReceiptSchema } from "../core/npm-state.js";
 import { hash, optional, optionalBytes } from "./managed-operation.js";
 
 export const uvReceiptSchema = z
@@ -40,6 +42,7 @@ const defaultBindingSchema = z.strictObject({
   repo: z.string().refine(isAbsolute),
   profile: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   lock: z.string().refine(isAbsolute),
+  codingVerification: codingVerificationSchema.optional(),
 });
 export const bindingSchema = defaultBindingSchema.extend({
   schemaVersion: z.literal(1),
@@ -124,6 +127,12 @@ export const setupStateSchema = z.strictObject({
   installations: z.strictObject({
     uv: uvReceiptSchema.optional(),
     herdr: herdrReceiptSchema.optional(),
+    pi: npmReceiptSchema
+      .refine((receipt) => receipt.component === "pi")
+      .optional(),
+    pnpm: npmReceiptSchema
+      .refine((receipt) => receipt.component === "pnpm")
+      .optional(),
   }),
 });
 export type SetupState = z.infer<typeof setupStateSchema>;

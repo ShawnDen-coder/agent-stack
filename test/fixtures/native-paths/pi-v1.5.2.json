@@ -6,7 +6,11 @@
     "commit": "b4afdddf44e059c67ccf5097e5317d913521b470"
   },
   "evidenceLevel": "fixed-official-source",
-  "consumer": null,
+  "consumer": {
+    "adapter": "src/adapters/coding-resources.ts",
+    "test": "test/path-native-contracts.test.mjs",
+    "coverage": "macOS agentDir; home skills and session selection remain native contracts"
+  },
   "sources": {
     "agent-dir": {
       "url": "https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/config.ts",

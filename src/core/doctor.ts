@@ -3,7 +3,12 @@ export type Observation = {
   path: string | null;
   version: string | null;
   failure: string | null;
-  evidence: "running_process" | "version_command" | "package_metadata" | null;
+  evidence:
+    | "running_process"
+    | "version_command"
+    | "package_metadata"
+    | "installation_receipt"
+    | null;
 };
 
 export function assess(observation: Observation, requirement: string | null) {

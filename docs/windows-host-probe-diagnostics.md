@@ -2,11 +2,11 @@
 
 当前 Windows host probe 使用 .NET Framework Reflection.Emit 在内存中定义相同的 Win32 调用，保留严格的架构证据判定和有界子进程管理。本文脚本保留旧版 Add-Type 链路，用于复现和解释已观察到的延迟，不代表当前生产实现。
 
-常规 Check 运行实际生产 probe 的原生 Windows 测试。旧编译链的慢速对照已移到 [Windows legacy probe diagnostics](../.github/workflows/windows-probe-diagnostics.yml) 手动 workflow；可选择环境模式，在 Node 24/26 上记录四次调用，生产验收不依赖这些旧版对照成功。
+常规 Check 运行实际生产 probe 的原生 Windows 测试。旧编译链的慢速对照已移到 [Windows legacy probe diagnostics](../.github/workflows/windows-probe-diagnostics.yml) 手动 workflow；可选择环境模式，在 Node 24.x 上记录四次调用，生产验收不依赖这些旧版对照成功。
 
 历史基线：7f54e9618878cb3ab0efefeab96bd34a3886adcf。Node 24/26 的 Windows PR job 都在约 30.7 秒返回 probe-unknown；相同 SHA 的另一轮通过。现有日志不足以区分 PowerShell 冷启动、Add-Type/.NET 编译、Win32 调用或退出后等待 pipe，因此这些只是待证假设。
 
-Windows 原生 runner 获取证据（可分别在 Node 24 和 26 下运行）：
+Windows 原生 runner 使用 Node 24.x 获取证据：
 
 ```powershell
 node scripts/diagnose-windows-host-probe.mjs --iterations 20 --concurrency 4 --env minimal

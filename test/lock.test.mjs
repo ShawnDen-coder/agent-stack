@@ -20,6 +20,10 @@ import { create as createTar } from "tar";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
+const rangeProfile = join(
+  repo,
+  "test/fixtures/alternative-stack/profiles/coding.yaml",
+);
 const integrity = `sha512-${Buffer.alloc(64, 1).toString("base64")}`;
 const manifest = (version, extra = {}) => ({
   name: "fixture-package",
@@ -34,6 +38,7 @@ async function setup(t, data, body = null) {
   const dir = await mkdtemp(join(tmpdir(), "lock 测试 & "));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await cp(join(repo, "stack"), join(dir, "stack"), { recursive: true });
+  await rm(join(dir, "stack/stack.lock.json"));
   await rm(join(dir, "stack/profiles"), { recursive: true });
   await import("node:fs/promises").then(({ mkdir }) =>
     mkdir(join(dir, "stack/profiles")),
@@ -211,10 +216,7 @@ for (const [label, body, expected] of [
 test("default coding reports malformed release metadata without changing declarations", async (t) => {
   const body = `globalThis.fetch=async (url)=>{const name=decodeURIComponent(url.split('/').pop()); const version=name==='pnpm'?'12.15.0':'1.5.2'; return new Response(JSON.stringify({name,versions:{[version]:{name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:${JSON.stringify(integrity)}}}}}));};`;
   const { dir, preload } = await setup(t, null, body);
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   const before = await snapshot(dir);
   const result = run(dir, preload, [
     "--profile",
@@ -479,10 +481,7 @@ test("coding resolves four version candidates across pages without writing", asy
       { version: "0.9.5" },
     ),
   );
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   const before = await snapshot(dir);
   const result = run(dir, preload, [
     "--profile",
@@ -537,10 +536,7 @@ for (const [label, first, manifestData, pattern, status] of [
       null,
       mixedPreload(first, null, manifestData, status),
     );
-    await cp(
-      join(repo, "stack/profiles/coding.yaml"),
-      join(dir, "stack/profiles/coding.yaml"),
-    );
+    await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
     const before = await snapshot(dir);
     const result = run(dir, preload, [
       "--profile",
@@ -574,10 +570,7 @@ for (const [label, uvResponse, pattern] of [
   test(`uv rejects ${label}`, async (t) => {
     const body = `globalThis.fetch=async (url,{signal})=>{if(String(url).startsWith('https://api.github.com/'))return ${uvResponse};if(String(url)==='https://herdr.dev/latest.json')return new Response('{"version":"0.9.5"}');const name=decodeURIComponent(String(url).split('/').pop());const version=name==='pnpm'?'12.15.0':'1.5.2';return new Response(JSON.stringify({name,versions:{[version]:{name,version,dist:{tarball:'https://registry.npmjs.org/pkg.tgz',integrity:${JSON.stringify(integrity)}}}}}));};`;
     const { dir, preload } = await setup(t, null, body);
-    await cp(
-      join(repo, "stack/profiles/coding.yaml"),
-      join(dir, "stack/profiles/coding.yaml"),
-    );
+    await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
     const result = run(dir, preload, [
       "--profile",
       "coding",
@@ -593,10 +586,7 @@ test("herdr beta channel is rejected without requesting manifest", async (t) => 
     null,
     mixedPreload([uvRelease("0.13.8", 1)], null, { version: "0.9.5" }),
   );
-  let profile = await readFile(
-    join(repo, "stack/profiles/coding.yaml"),
-    "utf8",
-  );
+  let profile = await readFile(rangeProfile, "utf8");
   profile = profile.replace("channel: stable", "channel: beta");
   await writeFile(join(dir, "stack/profiles/coding.yaml"), profile);
   const result = run(dir, preload, [
@@ -622,9 +612,7 @@ test("mixed coding release report uses bounded PTY layout", {
     mixedPreload([uvRelease("0.13.8", 1)], null, { version: "0.9.5" }),
   );
   const { parse } = await import("yaml");
-  const profile = parse(
-    await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
-  );
+  const profile = parse(await readFile(rangeProfile, "utf8"));
   profile.id = "fixture";
   await writeFile(
     join(dir, "stack/profiles/fixture.json"),
@@ -676,10 +664,7 @@ for (const [label, flags] of [
         version: "0.9.5",
       }),
     );
-    await cp(
-      join(repo, "stack/profiles/coding.yaml"),
-      join(dir, "stack/profiles/coding.yaml"),
-    );
+    await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
     const before = await snapshot(dir);
     const result = run(dir, preload, [
       "--profile",
@@ -710,10 +695,7 @@ test("uv rejects malformed identity in a formal release", async (t) => {
     null,
     mixedPreload([uvRelease("0.13.8", 1), bad], null, { version: "0.9.5" }),
   );
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   const result = run(dir, preload, [
     "--profile",
     "coding",
@@ -878,10 +860,7 @@ test("coding target preview blocks uncovered assets", async (t) => {
     herdrAssetManifest(),
   );
   const { dir, preload } = await setup(t, null, source);
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   const r = run(dir, preload, [
     "--profile",
     "coding",
@@ -991,10 +970,7 @@ function npmAssetPreload(overrides = {}) {
 }
 async function codingNpmFixture(t, overrides = {}) {
   const { dir, preload } = await setup(t, null, npmAssetPreload(overrides));
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   return { dir, preload };
 }
 test("npm and herdr preview supported targets with uv blocked", async (t) => {
@@ -1094,9 +1070,7 @@ for (const columns of [40, 80])
     }, async (t) => {
       const { dir, preload } = await codingNpmFixture(t);
       const { parse } = await import("yaml");
-      const profile = parse(
-        await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
-      );
+      const profile = parse(await readFile(rangeProfile, "utf8"));
       profile.id = "fixture";
       await writeFile(
         join(dir, "stack/profiles/fixture.json"),
@@ -1180,9 +1154,7 @@ test("pnpm native metadata fetch aborts on Ctrl-C", {
     );
   await writeFile(preload, body);
   const { parse } = await import("yaml");
-  const profile = parse(
-    await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
-  );
+  const profile = parse(await readFile(rangeProfile, "utf8"));
   profile.id = "fixture";
   await writeFile(
     join(dir, "stack/profiles/fixture.json"),
@@ -1541,9 +1513,7 @@ for (const [columns, color] of [
   }, async (t) => {
     const { dir, preload } = await uvAssetsFixture(t);
     const { parse } = await import("yaml");
-    const profile = parse(
-      await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
-    );
+    const profile = parse(await readFile(rangeProfile, "utf8"));
     profile.id = "fixture";
     await writeFile(
       join(dir, "stack/profiles/fixture.json"),
@@ -1598,9 +1568,7 @@ test("uv release query aborts on target preview Ctrl-C", {
     );
   await writeFile(preload, body);
   const { parse } = await import("yaml");
-  const profile = parse(
-    await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
-  );
+  const profile = parse(await readFile(rangeProfile, "utf8"));
   profile.id = "fixture";
   await writeFile(
     join(dir, "stack/profiles/fixture.json"),
@@ -1735,11 +1703,9 @@ test("definition digests follow selected canonical data, not format or repositor
   const second = run(b.dir, b.preload, args);
   assert.equal(second.status, 0, second.stdout);
   assert.deepEqual(JSON.parse(second.stdout).definitionDigests, initial);
-  const unrelated = join(b.dir, "stack/components/otty.yaml");
-  const text = await readFile(unrelated, "utf8");
-  await writeFile(
-    unrelated,
-    text.replace("description:", "description: unrelated "),
+  await cp(
+    join(repo, "test/fixtures/alternative-stack/components/rex.yaml"),
+    join(b.dir, "stack/components/rex.yaml"),
   );
   const third = run(b.dir, b.preload, args);
   assert.equal(third.status, 0, third.stdout);
@@ -2315,10 +2281,7 @@ test("uv follows official numeric repository pagination", async (t) => {
     "https://api.github.com/repositories/699532645/releases?per_page=100&page=2",
   );
   const { dir, preload } = await setup(t, null, body);
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   const result = run(dir, preload, [
     "--profile",
     "coding",
@@ -2367,10 +2330,7 @@ for (const [label, link] of [
       `return new Response('[]',{headers:{link:${JSON.stringify(`<${link}>; rel="next"`)}}})`,
     );
     const { dir, preload } = await setup(t, null, body);
-    await cp(
-      join(repo, "stack/profiles/coding.yaml"),
-      join(dir, "stack/profiles/coding.yaml"),
-    );
+    await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
     const before = await snapshot(dir);
     const result = run(dir, preload, [
       "--profile",
@@ -2393,10 +2353,7 @@ for (const [label, padding, expected] of [
       `const page=Number(new URL(u).searchParams.get('page'));const entry=${release};entry.id=page;entry.tag_name='0.13.'+(page+10);entry.html_url='https://github.com/astral-sh/uv/releases/tag/'+entry.tag_name;entry.padding='x'.repeat(${padding});return new Response(JSON.stringify([entry]),{headers:{link:'<https://api.github.com/repositories/699532645/releases?per_page=100&page='+(page+1)+'>; rel="next"'}})`,
     );
     const { dir, preload } = await setup(t, null, body);
-    await cp(
-      join(repo, "stack/profiles/coding.yaml"),
-      join(dir, "stack/profiles/coding.yaml"),
-    );
+    await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
     const before = await snapshot(dir);
     const result = run(dir, preload, [
       "--profile",
@@ -2413,10 +2370,7 @@ for (const [label, padding, expected] of [
 test("oversized uv page blocks fresh lock without writing", async (t) => {
   const body = pagedUvFixture("return new Response('x'.repeat(13*1024*1024))");
   const { dir, preload } = await setup(t, null, body);
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(dir, "stack/profiles/coding.yaml"));
   const before = await snapshot(dir);
   const result = run(dir, preload, [
     "--profile",
@@ -2969,14 +2923,20 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   assert.equal(expectedHerdr.format, "binary");
   assert.match(plan.scope, /expected metadata until downloaded and checked/);
   assert.ok(
-    plan.blockers.includes(
-      "Installation adapters are not implemented for the complete profile",
+    plan.blockers.some((message) =>
+      /Add .* to PATH|Create .* before setup/.test(message),
     ),
   );
-  assert.ok(
-    plan.blockers.includes(
-      "Required resources and integrations are not applied",
+  assert.equal(plan.codingResources.files.length, 7);
+  assert.deepEqual(plan.npmInstallations.map((item) => item.component).sort(), [
+    "pi",
+    "pnpm",
+  ]);
+  assert.equal(
+    plan.codingResources.files.every((file) =>
+      /^[a-f0-9]{64}$/.test(file.sourceHash),
     ),
+    true,
   );
   const human = runSetup([
     "setup",
@@ -4852,7 +4812,7 @@ test("setup reuses matching external uv without taking ownership", {
   await assert.rejects(readFile(f.marker));
   assert.deepEqual(await readdir(f.bin), []);
 });
-test("setup preserves unknown entries and blocks full coding before download", {
+test("setup preserves unknown entries and blocks incomplete coding prerequisites before download", {
   skip: process.platform === "win32",
 }, async (t) => {
   const f = await uvInstallFixture(t);
@@ -4866,10 +4826,7 @@ test("setup preserves unknown entries and blocks full coding before download", {
   assert.equal(await readFile(join(f.bin, "uv"), "utf8"), "unknown file");
   await assert.rejects(readFile(f.marker));
   await rm(join(f.bin, "uv"));
-  await cp(
-    join(repo, "stack/profiles/coding.yaml"),
-    join(f.dir, "stack/profiles/coding.yaml"),
-  );
+  await cp(rangeProfile, join(f.dir, "stack/profiles/coding.yaml"));
   await rm(join(f.dir, "stack/stack.lock.json"));
   const locked = run(f.dir, f.metadata, [
     "--profile",
@@ -4887,8 +4844,9 @@ test("setup preserves unknown entries and blocks full coding before download", {
   assert.equal(coding.status, 1, coding.stdout + coding.stderr);
   assert.match(
     JSON.stringify(JSON.parse(coding.stdout).blockers),
-    /complete profile/,
+    /node: not_found/,
   );
+  assert(JSON.parse(coding.stdout).integrations.includes("pi-herdr"));
   await assert.rejects(readFile(f.marker));
   assert.deepEqual(await readdir(f.bin), []);
 });
@@ -5613,20 +5571,6 @@ test("root review: concurrent stale lock recovery must not remove a live owner",
   timeout: 30000,
 }, async (t) => {
   const { appendFile } = await import("node:fs/promises");
-  const f = await uvInstallFixture(t);
-  const lockPath = join(f.home, ".agent-stack/operation.lock");
-  const finished = spawnSync(process.execPath, ["-e", ""], {
-    encoding: "utf8",
-  });
-  assert.throws(() => process.kill(finished.pid, 0), { code: "ESRCH" });
-  await writeFile(
-    lockPath,
-    JSON.stringify({ pid: finished.pid, stage: null, temporary: null }),
-  );
-  await appendFile(
-    f.preload,
-    `\n{const previousUnlink=fs.promises.unlink;let intercepted=false;fs.promises.unlink=async(p)=>{if(!intercepted&&p===${JSON.stringify(lockPath)}){intercepted=true;fs.writeFileSync(process.env.REVIEW_AT_UNLINK,'waiting');while(!fs.existsSync(process.env.REVIEW_GATE))await new Promise(r=>setTimeout(r,10));}return previousUnlink(p)};const previousFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{fs.writeFileSync(process.env.REVIEW_FETCH,'started');return previousFetch(...args)};syncBuiltinESMExports();}\n`,
-  );
   const children = [];
   t.after(async () => {
     for (const p of children) {
@@ -5645,6 +5589,20 @@ test("root review: concurrent stale lock recovery must not remove a live owner",
       ),
     );
   });
+  const f = await uvInstallFixture(t);
+  const lockPath = join(f.home, ".agent-stack/operation.lock");
+  const finished = spawnSync(process.execPath, ["-e", ""], {
+    encoding: "utf8",
+  });
+  assert.throws(() => process.kill(finished.pid, 0), { code: "ESRCH" });
+  await writeFile(
+    lockPath,
+    JSON.stringify({ pid: finished.pid, stage: null, temporary: null }),
+  );
+  await appendFile(
+    f.preload,
+    `\n{const previousUnlink=fs.promises.unlink;let intercepted=false;fs.promises.unlink=async(p)=>{if(!intercepted&&p===${JSON.stringify(lockPath)}){intercepted=true;fs.writeFileSync(process.env.REVIEW_AT_UNLINK,'waiting');while(!fs.existsSync(process.env.REVIEW_GATE))await new Promise(r=>setTimeout(r,10));}return previousUnlink(p)};const previousFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{fs.writeFileSync(process.env.REVIEW_FETCH,'started');return previousFetch(...args)};syncBuiltinESMExports();}\n`,
+  );
   const pathExists = async (p) =>
     readFile(p).then(
       () => true,

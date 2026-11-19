@@ -1,0 +1,49 @@
+name: Coding macOS installation
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coding:
+    name: Official coding / ${{ matrix.target }} / Node 24
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15-intel, target: darwin-x64 }
+          - { os: macos-15, target: darwin-arm64 }
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          check-latest: true
+          package-manager-cache: false
+      - run: npm install --global npm@11.12.1
+      - run: npm install --global pnpm@12.15.0
+      - name: Verify pinned installers
+        run: |
+          test "$(npm --version)" = "11.12.1"
+          test "$(pnpm --version)" = "12.15.0"
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+      - name: Install the real npm tarball in isolation
+        shell: bash
+        run: |
+          coding_pack_dir="$(mktemp -d "$RUNNER_TEMP/coding-pack.XXXXXX")"
+          coding_cli_dir="$(mktemp -d "$RUNNER_TEMP/coding-cli.XXXXXX")"
+          npm pack --ignore-scripts --json --pack-destination "$coding_pack_dir" > "$coding_pack_dir/pack.json"
+          npm install --global=false --prefix "$coding_cli_dir" --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false "$coding_pack_dir/"*.tgz
+          node --check "$coding_cli_dir/node_modules/.bin/agent-stack"
+          printf 'CODING_SMOKE_CLI=%s\n' "$coding_cli_dir/node_modules/.bin/agent-stack" >> "$GITHUB_ENV"
+      - name: Verify official coding setup, resources and real Pi TUI
+        run: node scripts/smoke-coding-macos.mjs --cli "$CODING_SMOKE_CLI" --target "${{ matrix.target }}"

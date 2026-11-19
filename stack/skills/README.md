@@ -1,11 +1,14 @@
 # Skills
 
-这些标准 Agent Skills 保存在 Git checkout 中，当前不自动安装或加载。
+这些标准 Agent Skills 保存在 Git checkout 中。原生 macOS coding setup 引用 `shape`、`implement`、`verify`，run coding 会验证实际加载；独立的 `dependency-layers` 按需使用，不自动加入该组合。
 
 - [shape](shape/SKILL.md)：从调用者体验设计 API，并与适用的终端或可视交互共同收敛方案。
 - [dependency-layers](dependency-layers/SKILL.md)：项目和语言无关的 L0–L3 依赖规范，附按需使用的 Python、TypeScript 检查器材料；整个目录可独立复制。
 
-`implement` 和 `verify` 资源尚未实现。静态检查不代表工具或集成已运行。
+- [implement](implement/SKILL.md)：按已确定的范围实施最小变更。
+- [verify](verify/SKILL.md)：运行必要检查并记录结果与证据边界。
+
+静态检查不代表工具或集成已运行。
 
 ## 编写约定
 

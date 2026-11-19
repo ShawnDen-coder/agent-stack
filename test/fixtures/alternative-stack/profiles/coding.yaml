@@ -1,0 +1,25 @@
+schemaVersion: 1
+id: coding
+description: Terminal coding environment using Pi and herdr; a declaration, not
+  a verified installation
+platforms:
+  - darwin
+  - win32
+  - linux
+components:
+  - component: pi
+    version: ">=1.5.2 <2"
+  - component: pnpm
+    version: ">=12.15.0 <13"
+  - component: uv
+    version: ">=0.13.8 <0.14"
+  - component: herdr
+    channel: stable
+integrations:
+  - pi-herdr
+requires:
+  - agent-runtime
+  - workspace
+  - node-packages
+  - python-tools
+  - agent-status
