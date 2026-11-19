@@ -5,6 +5,37 @@ import {
   mergePiSettings,
 } from "../dist/core/coding-resources.js";
 
+test("Pi model defaults respect owned values and protect local changes", () => {
+  const desired = {
+    defaultProvider: "openai-codex",
+    defaultModel: "gpt-6.1-sol",
+  };
+  const first = mergePiSettings('{"theme":"custom"}', [], [], desired, {});
+  assert.deepEqual(first.ownedDefaults, desired);
+  assert.equal(JSON.parse(first.text).theme, "custom");
+  assert.equal(JSON.parse(first.text).defaultModel, "gpt-6.1-sol");
+  const next = { ...desired, defaultModel: "next-model" };
+  const updated = mergePiSettings(
+    first.text,
+    [],
+    [],
+    next,
+    first.ownedDefaults,
+  );
+  assert.equal(JSON.parse(updated.text).defaultModel, "next-model");
+  assert.throws(
+    () => mergePiSettings('{"defaultModel":"local"}', [], [], desired, {}),
+    /conflicts/,
+  );
+  const drift = JSON.parse(first.text);
+  drift.defaultModel = "local";
+  assert.throws(
+    () =>
+      mergePiSettings(JSON.stringify(drift), [], [], next, first.ownedDefaults),
+    /changed locally/,
+  );
+});
+
 test("Pi skills preserve unowned entries and detect managed drift", () => {
   const first = mergePiSettings(
     '{"theme":"local","skills":["/local"]}',
@@ -186,6 +217,12 @@ test("resource apply preserves unknown data and is idempotent", async () => {
     }
     const applied = await applyCodingResources(first, options);
     assert(applied.backupDirectory);
+    const installedSettings = JSON.parse(
+      await readFile(join(pi, "settings.json"), "utf8"),
+    );
+    assert.equal(installedSettings.defaultProvider, "openai-codex");
+    assert.equal(installedSettings.defaultModel, "gpt-6.1-sol");
+    assert.equal(installedSettings.theme, "personal");
     const backupMap = JSON.parse(
       await readFile(join(applied.backupDirectory, "backup-map.json"), "utf8"),
     );

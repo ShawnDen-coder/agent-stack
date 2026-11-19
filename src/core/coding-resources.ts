@@ -33,6 +33,7 @@ export const codingResourcePlanSchema = z.strictObject({
     .regex(/^[a-f0-9]{64}$/)
     .nullable(),
   managedSkills: z.array(z.string()),
+  managedPiDefaults: z.record(z.string(), z.string()).default({}),
   managedHerdr: z.record(z.string(), z.boolean()),
   managedExtension: z.boolean(),
   files: z.array(resourceFileSchema),
@@ -46,6 +47,8 @@ export function mergePiSettings(
   raw: string | null,
   desired: string[],
   previous: string[],
+  defaults: Record<string, string> = {},
+  previousDefaults: Record<string, string> = {},
 ) {
   const settings = z
     .record(z.string(), z.unknown())
@@ -72,12 +75,30 @@ export function mergePiSettings(
     keep.length === existing.length &&
     keep.every((item, index) => item === existing[index]);
   if (keep.length || settings.skills !== undefined) settings.skills = keep;
+  const ownedDefaults: Record<string, string> = {};
+  let defaultsChanged = false;
+  for (const [key, next] of Object.entries(defaults)) {
+    const actual = settings[key],
+      old = previousDefaults[key];
+    if (actual === next) {
+      if (old !== undefined) ownedDefaults[key] = next;
+      continue;
+    }
+    if (old === undefined && actual !== undefined)
+      throw new Error(`Pi ${key} conflicts with desired value`);
+    if (old !== undefined && actual !== old)
+      throw new Error(`Managed Pi ${key} changed locally`);
+    settings[key] = next;
+    defaultsChanged = true;
+    ownedDefaults[key] = next;
+  }
   return {
     text:
-      unchanged && raw !== null
+      unchanged && !defaultsChanged && raw !== null
         ? raw
         : `${JSON.stringify(settings, null, 2)}\n`,
     owned,
+    ownedDefaults,
   };
 }
 

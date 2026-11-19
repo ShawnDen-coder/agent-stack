@@ -29,6 +29,7 @@ const legacyReceiptSchema = z.strictObject({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .nullable(),
+  piDefaults: z.record(z.string(), z.string()).optional(),
 });
 const receiptSchema = legacyReceiptSchema.extend({
   schemaVersion: z.literal(2),
@@ -54,6 +55,8 @@ function previousOwnership(
   return {
     backupDirectory: value?.backupDirectory ?? null,
     skills: previous?.targets.pi === targets.pi ? previous.skills : [],
+    piDefaults:
+      previous?.targets.pi === targets.pi ? (previous.piDefaults ?? {}) : {},
     herdr: previous?.targets.herdr === targets.herdr ? previous.herdr : {},
     extensionHash:
       previous?.targets.extension === targets.extension
@@ -220,16 +223,28 @@ export async function planCodingResources(input: CodingResourceInput) {
     herdrText = "",
     skills: string[] = [],
     herdrOwned: Record<string, boolean> = {};
+  let piDefaultsOwned: Record<string, string> = {};
   try {
-    const defaults = JSON.parse(data[0]?.toString("utf8") ?? "");
-    z.strictObject({ skills: z.array(z.string()).length(0) }).parse(defaults);
+    const defaults = z
+      .strictObject({
+        skills: z.array(z.string()).length(0),
+        defaultProvider: z.string().min(1),
+        defaultModel: z.string().min(1),
+      })
+      .parse(JSON.parse(data[0]?.toString("utf8") ?? ""));
     const merged = mergePiSettings(
       current[0]?.toString("utf8") ?? null,
       desiredSkills,
       previous.skills,
+      {
+        defaultProvider: defaults.defaultProvider,
+        defaultModel: defaults.defaultModel,
+      },
+      previous.piDefaults,
     );
     piText = merged.text;
     skills = merged.owned;
+    piDefaultsOwned = merged.ownedDefaults;
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
@@ -336,6 +351,7 @@ export async function planCodingResources(input: CodingResourceInput) {
     receiptHash: hash(stateBytes),
     receiptMode,
     managedSkills: skills,
+    managedPiDefaults: piDefaultsOwned,
     managedHerdr: herdrOwned,
     managedExtension,
     files,
@@ -444,10 +460,27 @@ export async function applyCodingResources(
   const skills = ["shape", "implement", "verify"].map((name) =>
     join(plan.repo, "stack", "skills", name),
   );
+  const piDefaultsBytes = await read(
+    join(plan.repo, plan.files[0]?.source ?? ""),
+    true,
+  );
+  if (!piDefaultsBytes) throw new Error("Missing Pi defaults");
+  const piDefaults = z
+    .strictObject({
+      skills: z.array(z.string()).length(0),
+      defaultProvider: z.string().min(1),
+      defaultModel: z.string().min(1),
+    })
+    .parse(JSON.parse(piDefaultsBytes.toString("utf8")));
   const pi = mergePiSettings(
     before[0]?.toString("utf8") ?? null,
     skills,
     previous.skills,
+    {
+      defaultProvider: piDefaults.defaultProvider,
+      defaultModel: piDefaults.defaultModel,
+    },
+    previous.piDefaults,
   );
   const defaults = await read(
     join(plan.repo, plan.files[1]?.source ?? ""),
@@ -474,7 +507,8 @@ export async function applyCodingResources(
   if (!extension) throw new Error("Missing Pi extension");
   if (
     JSON.stringify(pi.owned) !== JSON.stringify(plan.managedSkills) ||
-    JSON.stringify(config.owned) !== JSON.stringify(plan.managedHerdr)
+    JSON.stringify(config.owned) !== JSON.stringify(plan.managedHerdr) ||
+    JSON.stringify(pi.ownedDefaults) !== JSON.stringify(plan.managedPiDefaults)
   )
     throw new Error("Resource ownership changed after planning");
   const resourceAfter = [
@@ -486,6 +520,7 @@ export async function applyCodingResources(
     schemaVersion: 2,
     targets: receiptTargets,
     skills: pi.owned,
+    piDefaults: pi.ownedDefaults,
     herdr: config.owned,
     extensionHash: plan.managedExtension ? digest(extension) : null,
     backupDirectory: previous.backupDirectory,
