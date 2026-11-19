@@ -17,6 +17,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import stringWidth from "fast-string-width";
+import { addAlternativeStack } from "./alternative-stack.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(root, "dist/cli.js");
@@ -43,6 +44,7 @@ async function fixture(t) {
     await cp(join(root, "stack", name), join(dir, "stack", name), {
       recursive: true,
     });
+  await addAlternativeStack(dir);
   const bin = join(dir, "bin");
   await mkdir(bin);
   await mkdir(join(dir, "tmp"));

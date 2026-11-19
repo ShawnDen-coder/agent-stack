@@ -34,13 +34,7 @@ delete env.AGENT_STACK_TEST_GITHUB_TOKEN;
 delete env.GITHUB_TOKEN;
 try {
   await cp(join(project, "stack"), join(root, "stack"), { recursive: true });
-  await rm(join(root, "stack/profiles/coding.yaml"));
   await rm(join(root, "stack/stack.lock.json"), { force: true });
-  await copyFile(
-    join(project, "test/fixtures/coding-lock/profile.json"),
-    join(root, "stack/profiles/coding.json"),
-    constants.COPYFILE_EXCL,
-  );
   const manifest = JSON.parse(
     await readFile(
       join(project, "test/fixtures/herdr-release/v0.9.5.json"),

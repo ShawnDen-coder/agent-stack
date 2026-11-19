@@ -35,6 +35,7 @@ import {
   readSetupState,
   setupStateFingerprint,
 } from "../dist/adapters/setup-state.js";
+import { addAlternativeStack } from "./alternative-stack.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
@@ -540,6 +541,7 @@ test("CLI context uses isolated HOME binding when USERPROFILE points elsewhere",
   await cp(join(repo, "stack"), join(binding.repo, "stack"), {
     recursive: true,
   });
+  await addAlternativeStack(binding.repo);
   const homePath = await writeBinding(home, binding);
   const otherPath = await writeBinding(userprofile, {
     ...binding,

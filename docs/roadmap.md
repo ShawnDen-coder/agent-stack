@@ -20,4 +20,4 @@
 4. 完善真实用户终端、ConPTY、GUI 及模型调用的独立验收。隔离 TUI 和静态检查不能代替这些场景；认证、会话和凭证留在原生工具本机目录。
 5. 在另行授权后确定 npm 包名/所有权和许可，并配置可信发布、GitHub environment 与 tag/master 保护；不得把未配置的 OIDC 或未执行的发布描述成已完成。
 
-继续保留 profile 的能力要求和原生工具入口；Rex 是独立实验组合，不能通过删除 herdr 的 agent-status 要求使替换看似通过。架构与状态边界见 [架构](architecture.md)和 [setup 方案](setup-plan.md)。
+继续保留 profile 的能力要求和原生工具入口；Rex 只用作测试中的替换示例，不能通过删除 herdr 的 agent-status 要求使替换看似通过。架构与状态边界见 [架构](architecture.md)和 [setup 方案](setup-plan.md)。

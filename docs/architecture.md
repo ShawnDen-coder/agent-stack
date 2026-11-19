@@ -43,11 +43,11 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 
 ### 部件
 
-`stack/components/<id>.yaml` 描述一个外部工具的身份、来源、适用平台与能力。Pi、pnpm、uv、herdr、Otty、Rex 各自维护，不作为 CLI 的运行依赖打包。升级某个工具不要求先发布新的 Agent Stack。
+`stack/components/<id>.yaml` 描述一个外部工具的身份、来源、适用平台与能力。Pi、pnpm、uv、Herdr 各自维护，不作为 CLI 的运行依赖打包。升级某个工具不要求先发布新的 Agent Stack。
 
 当前 `kind` 覆盖 runtime、CLI、workspace、terminal。MCP 和第三方 skills 的来源与锁定契约，等对应能力实现时增加；不使用看似通用但尚无消费者的协议。
 
-一个部件可以提供多个能力。当前 Rex 条目表示带本地 server 的 macOS App，同时声明 workspace 与 desktop-terminal；独立部署的 Linux/Windows Rex server 以后单独描述，不能由 macOS App 的支持范围推断。
+默认目录仅包含上述四个部件；替换部件、能力缺失和多 profile 的反例保存在测试 fixture。
 
 `source` 记录 npm 包名或官方发布入口，当前不包含任意可执行安装脚本。安装由 TypeScript adapter 实现，并尊重本机已有安装渠道。
 
@@ -61,13 +61,13 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 - `requires` 声明组合必须具备的能力。组件与已选且依赖完整的集成共同提供这些能力。
 - 平台只接受 `darwin`、`win32`、`linux`。Windows 原生与 WSL 分开安装和记录状态；WSL 使用 Linux 部件。
 
-`coding-rex` 是独立实验组合。它要求终端控制，未声称具备 herdr 集成所提供的 Agent 状态报告。若在保留原需求的情况下替换 herdr，缺失能力必须明确报告，不能偷偷删除需求让校验通过。
+默认 coding 对应仓库中的 macOS 双架构锁。CI 复制同一份 checkout 内容并运行安装，用户与 CI 使用同一组版本和资产。
 
 ### 集成
 
 `stack/integrations/<id>.yaml` 独立记录参与部件、平台和额外能力。静态校验确保所引用部件存在、profile 已选齐参与部件、平台声明一致。
 
-例如 Pi/herdr 的状态报告与 Pi/Rex 的控制 skill 是不同集成。通用工作流表达目标、验收和证据，工具专属 skill 保存原生命令；选择组合时再加载对应指引。
+当前唯一的集成是 Pi 向 Herdr 报告状态。通用工作流表达目标、验收和证据，工具专属 skill 保存原生命令；选择组合时再加载对应指引。
 
 这些条目是本仓库内部标识，不是同名 npm 包，也不代表安装 adapter 已实现。真实功能还需要对应版本与平台上的运行验证。
 
@@ -100,7 +100,7 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 | Token、OAuth、会话、缓存                           | 各工具的原生本地目录                                                    |
 | 项目规则、验收入口、pnpm/uv 业务依赖               | 各业务项目                                                              |
 
-[Setup 实施方案](setup-plan.md) 定义按锁对齐的分片与验收；[配置变体审查稿](config-variants.md) 说明未来如何将逻辑目标与平台内容变体分开；当前 schema 和 coding 配置应用尚不支持该通用变体设计。coding 只管理明确归属的字段与官方扩展，保留未知字段和用户本地内容。能直接引用的资源可以引用；需要写入的文件再复制或合并。跨系统不能只依赖软链接。凭证不通过仓库或 npm 包分发。
+[Setup 实施方案](setup-plan.md) 定义按锁对齐的分片与验收；[配置变体审查稿](config-variants.md) 说明未来如何将逻辑目标与平台内容变体分开；当前 schema 和 coding 配置应用尚不支持该通用变体设计。旧 Pi 导入配置只保留按回执迁移的读取路径，常规 setup 不管理外部扩展包、模型或 MCP。coding 只管理明确归属的字段与官方扩展，保留未知字段和用户本地内容。能直接引用的资源可以引用；需要写入的文件再复制或合并。跨系统不能只依赖软链接。凭证不通过仓库或 npm 包分发。
 
 当前 npm 包的 `files` 仅包含 `dist`，npm 自动附带的 README/package metadata 除外。CLI 不从安装包内查找一份陈旧的配置副本，`--repo` 明确指定源 checkout。
 

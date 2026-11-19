@@ -15,7 +15,7 @@ import {
 import { machine } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { copyCodingFixture } from "./lib/coding-fixture.mjs";
+import { verifyCodingLock } from "./lib/coding-fixture.mjs";
 import { smokeCodingRun } from "./lib/smoke-coding-run.mjs";
 
 const project = fileURLToPath(new URL("..", import.meta.url));
@@ -58,7 +58,7 @@ const bin = join(home, ".agent-stack", "bin");
 for (const path of [home, repo, tools, bin, join(root, "tmp")])
   await mkdir(path, { recursive: true, mode: 0o700 });
 await cp(join(project, "stack"), join(repo, "stack"), { recursive: true });
-await copyCodingFixture(join(project, "test/fixtures/coding-lock"), repo);
+await verifyCodingLock(repo);
 for (const name of ["node", "npm", "git"])
   await symlink(
     await realpath(
@@ -148,6 +148,14 @@ try {
   ]);
   assert.equal(installed.binding.defaultBinding.profile, "coding");
   assert.equal(installed.verification.scope, "isolated-pi-tui-herdr-socket-v1");
+  const settings = JSON.parse(
+    await readFile(join(env.PI_CODING_AGENT_DIR, "settings.json"), "utf8"),
+  );
+  assert.equal(settings.packages, undefined);
+  assert.equal(settings.subagents, undefined);
+  await assert.rejects(access(join(env.PI_CODING_AGENT_DIR, "mcp.json")), {
+    code: "ENOENT",
+  });
   const before = await readFile(
     join(home, ".agent-stack", "binding.json"),
     "utf8",

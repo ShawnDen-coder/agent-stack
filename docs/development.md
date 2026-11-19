@@ -126,4 +126,4 @@ npm 查询只把明确的 HTTP 404 视为版本不存在；已有版本只有 re
 
 ### coding 安装 smoke 的共享锁 fixture
 
-macOS npm/SEA 安装 smoke 使用由生产 CLI 真实解析生成并离线校验的 [双架构 coding 锁 fixture](../test/fixtures/coding-lock/README.md)。CI 复制固定 profile 和锁，核对锁与当前声明，再实际下载并验证锁定发行资产，执行 setup、隔离 TUI、doctor、run 和幂等检查；它不再在每个矩阵任务重复联网解析版本目录。版本来源解析、fixture 生成与每次真实安装/运行属于不同证据；更新 fixture 按链接中的流程生成候选、审查并复核，不手填 digest 或资产 ID。CI 的 setup、npm 和 SEA 不接收 metadata 认证 token。
+macOS npm/SEA 安装 smoke 与用户 checkout 共用由生产 CLI 解析生成并离线校验的 [双架构 coding 锁 fixture](../test/fixtures/coding-lock/README.md)。CI 复制整个默认 stack，核对锁与当前声明，再实际下载并验证锁定发行资产，执行 setup、隔离 TUI、doctor、run 和幂等检查；它不再在每个矩阵任务重复联网解析版本目录。版本来源解析、fixture 生成与每次真实安装/运行属于不同证据；更新 fixture 按链接中的流程生成候选、审查并复核，不手填 digest 或资产 ID。CI 的 setup、npm 和 SEA 不接收 metadata 认证 token。

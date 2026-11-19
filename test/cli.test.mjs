@@ -14,6 +14,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { addAlternativeStack } from "./alternative-stack.mjs";
 
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
@@ -39,6 +40,7 @@ async function fixture(t) {
       },
     );
   }
+  await addAlternativeStack(root);
   return root;
 }
 
@@ -74,11 +76,15 @@ test("the built CLI exposes help and its package version", async () => {
   assert.equal(run(["--version"]).stdout.trim(), version);
 });
 
-test("both declared workspace combinations pass static validation", () => {
+test("shipped catalog contains only the four coding components and their integration", () => {
   const result = validate(repository);
   assert.equal(result.status, 0, result.stdout);
   assert.equal(result.report.valid, true);
-  assert.equal(result.report.checked.profiles, 2);
+  assert.deepEqual(result.report.checked, {
+    components: 4,
+    integrations: 1,
+    profiles: 1,
+  });
   assert.deepEqual(result.report.issues, []);
 });
 

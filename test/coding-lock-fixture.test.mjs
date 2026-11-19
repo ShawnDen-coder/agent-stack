@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { parse, stringify } from "yaml";
 import { planCodingResources } from "../dist/adapters/coding-resources.js";
-import { copyCodingFixture } from "../scripts/lib/coding-fixture.mjs";
+import { verifyCodingLock } from "../scripts/lib/coding-fixture.mjs";
 
-const fixture = resolve("test/fixtures/coding-lock");
 const cli = resolve("dist/cli.js");
 
 test("production lock fixture validates offline and preserves coding resources", async () => {
@@ -20,7 +20,7 @@ test("production lock fixture validates offline and preserves coding resources",
     await mkdir(repo);
     await mkdir(home);
     await cp(resolve("stack"), join(repo, "stack"), { recursive: true });
-    await copyCodingFixture(fixture, repo);
+    await verifyCodingLock(repo);
     await writeFile(
       offline,
       "globalThis.fetch=async()=>{throw Error('Unexpected network');};",
@@ -92,15 +92,16 @@ test("production lock fixture validates offline and preserves coding resources",
     );
     for (const match of shape.matchAll(/\]\((references\/[^)]+)\)/g))
       await readFile(join(repo, "stack/skills/shape", match[1]));
-    const profilePath = join(repo, "stack/profiles/coding.json");
-    const profile = JSON.parse(await readFile(profilePath, "utf8"));
+    const profilePath = join(repo, "stack/profiles/coding.yaml");
+    const originalProfile = await readFile(profilePath, "utf8");
+    const profile = parse(originalProfile);
     profile.components.find((item) => item.component === "pi").version =
       "1.5.3";
-    await writeFile(profilePath, JSON.stringify(profile));
+    await writeFile(profilePath, stringify(profile));
     result = run();
     assert.equal(result.status, 1);
     assert.equal(JSON.parse(result.stdout).valid, false);
-    await copyCodingProfile(fixture, profilePath);
+    await writeFile(profilePath, originalProfile);
     for (const [file, before, after] of [
       [
         "stack/components/pi.yaml",
@@ -133,31 +134,17 @@ test("production lock fixture validates offline and preserves coding resources",
   }
 });
 
-async function copyCodingProfile(dir, target) {
-  await writeFile(target, await readFile(join(dir, "profile.json")));
-}
-
-test("valid-looking digest drift is rejected before the fixture is copied", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coding-fixture-drift-"));
-  try {
-    const changed = join(root, "fixture"),
-      repo = join(root, "repo");
-    await cp(fixture, changed, { recursive: true });
-    await mkdir(repo);
-    await cp(resolve("stack"), join(repo, "stack"), { recursive: true });
-    const path = join(changed, "stack.lock.json");
-    const lock = JSON.parse(await readFile(path, "utf8"));
-    const digest = lock.assets.find((asset) => asset.component === "uv").digest;
-    digest.value = `${digest.value[0] === "0" ? "1" : "0"}${digest.value.slice(1)}`;
-    await writeFile(path, JSON.stringify(lock, null, 2));
-    await assert.rejects(copyCodingFixture(changed, repo), /SHA-256 mismatch/);
-    assert.match(
-      await readFile(join(repo, "stack/profiles/coding.yaml"), "utf8"),
-      /id: coding/,
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("valid-looking digest drift in the shipped lock is rejected before installation smoke", async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), "coding-drift-"));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+  await mkdir(join(repo, "stack"));
+  const lock = JSON.parse(
+    await readFile(resolve("stack/stack.lock.json"), "utf8"),
+  );
+  const digest = lock.assets.find((asset) => asset.component === "uv").digest;
+  digest.value = (digest.value[0] === "0" ? "1" : "0") + digest.value.slice(1);
+  await writeFile(join(repo, "stack/stack.lock.json"), JSON.stringify(lock));
+  await assert.rejects(verifyCodingLock(repo), /SHA-256 mismatch/);
 });
 
 test("fixture refresh refuses to overwrite a candidate before contacting sources", async () => {

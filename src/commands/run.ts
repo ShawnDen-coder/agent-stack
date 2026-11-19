@@ -10,6 +10,7 @@ import { inspectHerdrContext } from "../adapters/herdr-context.js";
 import { shared } from "../adapters/options.js";
 import { failure, progress } from "../adapters/presentation.js";
 import { findExecutable } from "../adapters/toolchain.js";
+import { codingSkillNames } from "../core/coding-resources.js";
 
 export type CodingLaunchContext = {
   node: string;
@@ -53,7 +54,7 @@ const resolveCodingLaunch: ResolveCodingLaunch = async (input) => {
     node: context.node.path,
     pi: join(context.home, ".agent-stack", "bin", "pi"),
     agent: join(context.repo, "stack", "agents", "coding.md"),
-    skills: ["shape", "implement", "verify"].map((name) =>
+    skills: codingSkillNames.map((name) =>
       join(context.repo, "stack", "skills", name),
     ),
     blockers,

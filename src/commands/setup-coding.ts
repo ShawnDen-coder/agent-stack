@@ -47,6 +47,7 @@ import {
   withSetupOperation,
 } from "../adapters/uv-state.js";
 import { verifyObservedUv } from "../adapters/uv-version.js";
+import { codingSkillNames } from "../core/coding-resources.js";
 import { assess } from "../core/doctor.js";
 import type { FreshLock } from "../core/fresh-lock.js";
 import type { Repository } from "../core/schema.js";
@@ -372,7 +373,14 @@ export async function setupCoding(input: {
     })),
     codingResources: resources,
     integrations: profile.integrations,
-    resources: resources.files.map((f) => `${f.action}: ${f.target}`),
+    resources: [
+      ...resources.files.map((f) => `${f.action}: ${f.target}`),
+      ...(resources.retiredMcp
+        ? [
+            `remove previously managed Reui entry: ${resources.retiredMcp.target}`,
+          ]
+        : []),
+    ],
     blockers,
     scope:
       "Locked digest is expected metadata until downloaded and checked. Components and resources are prepared before isolated Pi TUI verification; default binding is committed last. User sessions and model calls are not tested.",
@@ -593,9 +601,7 @@ export async function setupCoding(input: {
         node: nodeRuntime.path,
         pi: join(paths.bin, "pi"),
         agent: join(repo, "stack", "agents", "coding.md"),
-        skills: ["shape", "implement", "verify"].map((n) =>
-          join(repo, "stack", "skills", n),
-        ),
+        skills: codingSkillNames.map((n) => join(repo, "stack", "skills", n)),
         extension,
         signal,
       });

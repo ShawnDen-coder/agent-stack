@@ -467,6 +467,7 @@ test("compiled setup CLI selects the Windows locked bundle and avoids a second d
     join(repo, "stack"),
     { recursive: true },
   );
+  await rm(join(repo, "stack/stack.lock.json"));
   await writeFile(
     join(repo, "stack/profiles/herdr-only.json"),
     JSON.stringify({

@@ -6,28 +6,21 @@ Agent Stack 用 Git checkout 管理个人 Agent 环境的部件、组合、原�
 
 ## 从源码试用
 
-需要 Node.js 24+（含 npm）、Git 和 pnpm 12.15.0。clone 后切换到包含当前功能的提交或分支；这些变更合入默认分支前，默认 checkout 可能不包含它们。
+在原生 macOS 上准备 Node.js 24+、npm 11.12.1 和 Git。checkout 自带四个部件的双架构锁。用临时 pnpm 构建，再从同一 checkout 执行 setup。
 
 ```sh
-git clone https://github.com/ShawnDen-coder/agent-stack.git
+git clone --branch p0-final-acceptance https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
-pnpm install --frozen-lockfile
-pnpm build
-pnpm cli --help
-pnpm cli validate --repo .
+npm exec --yes --package=pnpm@12.15.0 -- pnpm install --frozen-lockfile
+npm run build
+node dist/cli.js validate --repo . --lock
+mkdir -p "$HOME/.agent-stack/bin"
+export PATH="$HOME/.agent-stack/bin:$PATH"
+node dist/cli.js setup --repo . --profile coding
+node dist/cli.js doctor --repo . --profile coding
 ```
 
-`validate` 检查声明及其引用；成功不代表工具已安装或集成已运行。已有完整共享锁时，macOS arm64/x64 可预览和应用 `coding`，再在 Herdr pane 内启动：
-
-```sh
-pnpm cli setup --repo . --profile coding --dry-run
-pnpm cli setup --repo . --profile coding
-pnpm cli doctor --repo . --profile coding
-pnpm cli run --repo . coding --dry-run --json
-pnpm cli run --repo . coding --cwd "$PWD"
-```
-
-实际 setup 前需要可核对的 Node、npm、Git、受管 bin 和对应目标的完整锁；首次安装 Pi 当前要求 npm 11.12.1。`run` 需要已验证的 coding 绑定和当前本机 Herdr pane，`--dry-run --json` 会报告未满足的条件。完整步骤和参数边界见 [Quickstart](docs/quickstart.md)。
+在业务目录打开 Herdr pane 后运行 `run coding`。完整命令、已有工具的处理及旧配置迁移见 [Quickstart](docs/quickstart.md)。
 
 ## 当前范围
 

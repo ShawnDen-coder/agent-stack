@@ -83,8 +83,6 @@ export async function smokeCodingRun({ root, home, repo, env, cliCommand }) {
       cwd,
       "--",
       "--no-session",
-      "--offline",
-      "--no-mcp",
       "--extension",
       probe,
     ]

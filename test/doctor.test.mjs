@@ -16,6 +16,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { addAlternativeStack } from "./alternative-stack.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repo, "dist/cli.js");
@@ -32,6 +33,7 @@ async function fixture(t) {
     await cp(join(repo, "stack", dir), join(root, "stack", dir), {
       recursive: true,
     });
+  await addAlternativeStack(root);
   const bin = join(root, "bin");
   await mkdir(bin);
   return { root, bin };

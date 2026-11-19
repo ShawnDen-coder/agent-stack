@@ -11,11 +11,12 @@ import { createServer, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
+import { codingSkillNames } from "../core/coding-resources.js";
 
 const probeSchema = z.strictObject({
   tui: z.literal(true),
   agent: z.literal(true),
-  skills: z.array(z.string()).length(3),
+  skills: z.array(z.string()).length(codingSkillNames.length),
 });
 
 // This is an active, isolated installation check. It creates a real PTY and
@@ -37,7 +38,7 @@ export async function verifyCodingRuntime(input: {
       input.extension,
       ...input.skills,
     ].every(isAbsolute) ||
-    input.skills.length !== 3
+    input.skills.length !== codingSkillNames.length
   )
     throw new Error(
       "Coding runtime verification requires native macOS and absolute resources",
@@ -311,7 +312,7 @@ export default function(pi) {
   return {
     mode: "tui" as const,
     agent: true as const,
-    skills: ["shape", "implement", "verify"],
+    skills: [...codingSkillNames],
     integration: "herdr-0.9.5-pi-v9" as const,
     session: true as const,
     idle: true as const,
