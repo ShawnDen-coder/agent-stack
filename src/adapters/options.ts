@@ -15,7 +15,13 @@ export function shared(command: Command): Command {
       new Option(
         "--repo <directory>",
         "Configuration repository directory",
-      ).argParser(once("--repo")),
+      ).argParser((value: string) => {
+        if (!value.trim())
+          throw new InvalidArgumentError(
+            "--repo must not be empty or whitespace",
+          );
+        return once("--repo")(value);
+      }),
     )
     .option("--json", "Print a machine-readable report");
 }

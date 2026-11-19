@@ -3,7 +3,7 @@ import { isSea } from "node:sea";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { verifyWindowsHerdrEntry } from "../adapters/herdr-windows-archive.js";
 import { observeHost } from "../adapters/host.js";
-import { readLock } from "../adapters/lock-reader.js";
+import { LockReadError, readLock } from "../adapters/lock-reader.js";
 import { optional } from "../adapters/managed-operation.js";
 import {
   applyNpmComponent,
@@ -20,6 +20,7 @@ import {
   setup,
   start,
 } from "../adapters/presentation.js";
+import { lockRecovery } from "../adapters/recovery.js";
 import { readRepository } from "../adapters/repository.js";
 import {
   recheckSetupBaseline,
@@ -93,8 +94,6 @@ export function createSetupCommand(): Command {
         yes?: boolean;
         json?: boolean;
       };
-      if (options.repo !== undefined && !options.repo.trim())
-        command.error("error: --repo must not be empty or whitespace");
       if (options.profile !== undefined && !options.profile.trim())
         command.error("error: --profile must not be empty or whitespace");
       const json = Boolean(options.json);
@@ -147,7 +146,15 @@ export function createSetupCommand(): Command {
             ? resolve(options.lock)
             : (boundLock ?? join(repo, "stack", "stack.lock.json"));
         const raw = await readLock(path);
-        validateLock(raw, repository);
+        try {
+          validateLock(raw, repository);
+        } catch (error) {
+          throw new LockReadError(
+            error instanceof Error ? error.message : String(error),
+            "lock_invalid",
+            path,
+          );
+        }
         const lock = freshLockSchema.parse(raw);
         if (lock.profile !== profileId)
           throw new Error("Selected profile does not match the lock");
@@ -1220,7 +1227,19 @@ export function createSetupCommand(): Command {
           failure("Cancelled.", json);
           return;
         }
-        failure(error instanceof Error ? error.message : String(error), json);
+        failure(
+          error instanceof Error ? error.message : String(error),
+          json,
+          error instanceof LockReadError
+            ? {
+                reason: error.reason,
+                path: error.path,
+                repo,
+                ...(selectedProfile ? { profile: selectedProfile } : {}),
+                next: lockRecovery(repo, error.path),
+              }
+            : undefined,
+        );
         process.exitCode = 1;
       } finally {
         process.removeListener("SIGINT", interrupt);

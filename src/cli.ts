@@ -54,19 +54,73 @@ for (const command of program.commands) {
     .allowExcessArguments(false)
     .exitOverride();
 }
+function jsonHelp() {
+  let name: string | undefined;
+  for (let index = 0; index < wrapperArguments.length; index++) {
+    const arg = wrapperArguments[index];
+    if (arg === "--repo") {
+      index++;
+      continue;
+    }
+    if (arg === "help") {
+      name = wrapperArguments[index + 1];
+      break;
+    }
+    if (arg === "--help" || arg === "-h" || arg === "--version") break;
+    if (arg?.startsWith("-")) continue;
+    name = arg;
+    break;
+  }
+  const command = program.commands.find((c) => c.name() === name) ?? program;
+  return {
+    schemaVersion: 1,
+    output: helpOutput,
+    path:
+      command === program ? [program.name()] : [program.name(), command.name()],
+    description: command.description(),
+    arguments: command.registeredArguments.map((arg) => ({
+      name: arg.name(),
+      description: arg.description,
+      required: arg.required,
+      variadic: arg.variadic,
+    })),
+    options: command
+      .createHelp()
+      .visibleOptions(command)
+      .map((option) => ({
+        flags: option.flags,
+        description: option.description,
+        required: option.required,
+        optional: option.optional,
+      })),
+    ...(command === program
+      ? {
+          commands: program.commands.map((c) => ({
+            name: c.name(),
+            description: c.description(),
+          })),
+        }
+      : {}),
+  };
+}
+function jsonOutput() {
+  return wrapperArguments.includes("--help") ||
+    wrapperArguments.includes("-h") ||
+    wrapperArguments.includes("help")
+    ? jsonHelp()
+    : { schemaVersion: 1, output: helpOutput };
+}
 try {
   if (process.argv.length === 2) program.outputHelp();
   else {
     await program.parseAsync();
     if (program.args.length === 0) program.outputHelp();
   }
-  if (wantsJson && helpOutput)
-    console.log(JSON.stringify({ schemaVersion: 1, output: helpOutput }));
+  if (wantsJson && helpOutput) console.log(JSON.stringify(jsonOutput()));
 } catch (error) {
   if (!(error instanceof CommanderError)) throw error;
   if (error.exitCode === 0) {
-    if (wantsJson && helpOutput)
-      console.log(JSON.stringify({ schemaVersion: 1, output: helpOutput }));
+    if (wantsJson && helpOutput) console.log(JSON.stringify(jsonOutput()));
     process.exitCode = 0;
   } else {
     const message = (errorOutput || error.message)

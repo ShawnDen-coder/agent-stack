@@ -81,6 +81,9 @@ export type LockValidationSummary = z.infer<typeof lockValidationSummarySchema>;
 export interface Issue {
   file: string;
   message: string;
+  reason?: string;
+  path?: string;
+  next?: { message: string; argv?: string[] };
 }
 
 export interface ValidationReport {

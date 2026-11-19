@@ -232,6 +232,16 @@ export async function setupCoding(input: {
       .map((c) => `${c.name}: ${c.status}`),
   ];
   const fingerprints: Record<string, string> = {};
+  const componentBlockers: Record<Id, string[]> = {
+    pi: [],
+    pnpm: [],
+    uv: [],
+    herdr: [],
+  };
+  const blockComponent = (id: Id, reason: string) => {
+    componentBlockers[id].push(reason);
+    blockers.push(reason);
+  };
   for (const id of ids) {
     const receipt = state?.installations[id];
     const observed = check(id);
@@ -268,7 +278,8 @@ export async function setupCoding(input: {
         observed.status !== "ok" ||
         observed.path !== join(paths.bin, id)
       )
-        blockers.push(
+        blockComponent(
+          id,
           `Managed ${id} changed or is not the first locked PATH entry`,
         );
       modes[id] = "managed";
@@ -285,14 +296,15 @@ export async function setupCoding(input: {
       modes[id] = "reuse";
     else {
       modes[id] = "install";
-      blockers.push(
+      blockComponent(
+        id,
         `Existing ${id} entry conflicts with the lock or has unknown ownership; retain its native installation`,
       );
     }
     if (modes[id] === "install" && pendingComponent !== id) {
       for (const name of id === "uv" ? ["uv", "uvx"] : [id])
         if (!(await uvEntryAbsent(join(paths.bin, name))))
-          blockers.push(`Unowned managed ${name} entry already exists`);
+          blockComponent(id, `Unowned managed ${name} entry already exists`);
     }
     if (modes[id] !== "install" && observed.path)
       fingerprints[id] = await uvEntryFingerprint(observed.path);
@@ -301,7 +313,7 @@ export async function setupCoding(input: {
     const uv = check("uv"),
       uvx = check("uvx");
     if (!uv.path || !uvx.path || uvx.status !== "ok")
-      blockers.push("Existing uvx does not match the lock");
+      blockComponent("uv", "Existing uvx does not match the lock");
     else {
       await verifyObservedUv(uv.path, "uv", version("uv"), signal);
       await verifyObservedUv(uvx.path, "uvx", version("uv"), signal);
@@ -309,7 +321,7 @@ export async function setupCoding(input: {
     }
   }
   if (modes.pi === "install" && check("npm").version !== "11.12.1")
-    blockers.push("Pi staging currently supports npm 11.12.1");
+    blockComponent("pi", "Pi staging currently supports npm 11.12.1");
   for (const c of [node, check("npm"), check("git")])
     if (c.path)
       fingerprints[c.name] = await uvEntryFingerprint(
@@ -331,6 +343,15 @@ export async function setupCoding(input: {
     throw Error("Cancelled");
   }
   blockers.push(...resources.blockers);
+  const resourceRecoveryOnly =
+    resources.blockers.length === 1 &&
+    resources.blockers[0] === "Pending resource operation requires recovery";
+  const canApply =
+    !blockers.length || (resourceRecoveryOnly && blockers.length === 1);
+  const componentReasons = new Set(Object.values(componentBlockers).flat());
+  const sharedBlockers = blockers.filter(
+    (reason) => !componentReasons.has(reason),
+  );
   const plan = setupPlanSchema.parse({
     kind: "setup-plan",
     repo: { path: repo, selectedBy: input.repoSelectedBy },
@@ -344,6 +365,16 @@ export async function setupCoding(input: {
       observation: check(id),
       ownership: modes[id] === "managed" ? "managed" : "unknown",
       action: componentAction(check(id).status),
+      disposition: canApply ? modes[id] : "blocked",
+      blockingReasons: canApply
+        ? []
+        : [
+            ...componentBlockers[id],
+            ...sharedBlockers,
+            ...Object.entries(componentBlockers)
+              .filter(([component]) => component !== id)
+              .flatMap(([, reasons]) => reasons),
+          ],
       ...(id === "uv" || id === "herdr"
         ? {
             lockedAsset: {
@@ -382,22 +413,19 @@ export async function setupCoding(input: {
         : []),
     ],
     blockers,
+    canApply,
     scope:
       "Locked digest is expected metadata until downloaded and checked. Components and resources are prepared before isolated Pi TUI verification; default binding is committed last. User sessions and model calls are not tested.",
   });
   stop(signal.aborted);
   if (signal.aborted) throw Error("Cancelled");
   if (input.dryRun || !json) setup(plan, json);
-  const resourceRecoveryOnly =
-    resources.blockers.length === 1 &&
-    resources.blockers[0] === "Pending resource operation requires recovery";
-  if (blockers.length && !(resourceRecoveryOnly && blockers.length === 1)) {
+  if (!plan.canApply) {
     if (json && !input.dryRun) setup(plan, true);
     process.exitCode = 1;
     return;
   }
   if (input.dryRun) {
-    if (blockers.length) process.exitCode = 1;
     return;
   }
   if (!input.yes) {

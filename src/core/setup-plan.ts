@@ -90,6 +90,10 @@ export const setupPlanSchema = z.object({
       lockedVersion: z.string(),
       observation,
       ownership: z.enum(["unknown", "managed"]),
+      disposition: z
+        .enum(["install", "managed", "reuse", "blocked"])
+        .optional(),
+      blockingReasons: z.array(z.string()).optional(),
       lockedAsset: z
         .object({
           target: z.string(),
@@ -127,6 +131,7 @@ export const setupPlanSchema = z.object({
   codingResources: codingResourcePlanSchema.optional(),
   resources: z.array(z.string()),
   blockers: z.array(z.string()),
+  canApply: z.boolean().optional(),
   scope: z.string(),
 });
 export type SetupPlan = z.infer<typeof setupPlanSchema>;

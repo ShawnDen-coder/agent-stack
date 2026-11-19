@@ -3025,6 +3025,45 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
   );
   assert.deepEqual(await readdir(join(f.dir, "home")), []);
   assert.deepEqual(await readdir(join(f.dir, "tmp")), []);
+  const bin = join(f.dir, "external bin"),
+    packageDir = join(bin, "package-pnpm");
+  await mkdir(packageDir, { recursive: true });
+  const entry = join(packageDir, "cli.js");
+  await writeFile(entry, "external pnpm must not be executed");
+  await import("node:fs/promises").then(({ chmod }) => chmod(entry, 0o755));
+  await writeFile(
+    join(packageDir, "package.json"),
+    JSON.stringify({
+      name: "pnpm",
+      version: f.lock.components.find((item) => item.component === "pnpm")
+        .version,
+      bin: { pnpm: "cli.js" },
+    }),
+  );
+  await symlink(entry, join(bin, "pnpm"));
+  const args = ["setup", "--repo", f.dir, "--profile", "coding", "--dry-run"];
+  const external = runSetup([...args, "--json"], { PATH: bin });
+  assert.equal(external.status, 1, external.stdout + external.stderr);
+  const blocked = JSON.parse(external.stdout);
+  const pnpm = blocked.components.find((item) => item.component === "pnpm");
+  assert.equal(pnpm.observation.status, "ok");
+  assert.equal(pnpm.disposition, "blocked");
+  assert.match(pnpm.blockingReasons[0], /unknown ownership/);
+  assert.equal(
+    blocked.npmInstallations.find((item) => item.component === "pnpm").mode,
+    "install",
+  );
+  assert.equal(blocked.canApply, false);
+  const text = runSetup(args, { PATH: bin }).stdout;
+  assert.match(
+    text.slice(0, text.indexOf("Prerequisites")),
+    /Can apply: no[\s\S]*Existing pnpm/,
+  );
+  assert.equal(
+    await readFile(entry, "utf8"),
+    "external pnpm must not be executed",
+  );
+  assert.deepEqual(await readdir(join(f.dir, "home")), []);
 });
 
 test("setup reports the Windows herdr zip from the validated lock", async (t) => {

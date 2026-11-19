@@ -110,6 +110,93 @@ test("shared options work in either position, JSON errors are structured", async
     /Choose a profile|Inspecting toolchain|Checks complete/,
   );
 });
+test("explicit blank repository is rejected before command work", async (t) => {
+  const { dir } = await fixture(t);
+  for (const command of ["validate", "lock", "setup", "doctor", "run"]) {
+    for (const value of ["", "   "]) {
+      for (const position of ["root", "command"]) {
+        const args =
+          position === "root"
+            ? ["--repo", value, "--json", command]
+            : [command, "--repo", value, "--json"];
+        if (command === "run") args.push("coding", "--dry-run");
+        if (command === "lock")
+          args.push("--profile", "coding", "--target", "darwin-arm64");
+        const result = run(args, { cwd: dir });
+        assert.equal(result.status, 2, `${args}: ${result.stderr}`);
+        assert.equal(JSON.parse(result.stdout).error.kind, "usage");
+        assert.match(
+          JSON.parse(result.stdout).error.message,
+          /--repo.*empty or whitespace/,
+        );
+      }
+    }
+  }
+  assert.equal(run(["validate", "--repo", dir, "--json"]).status, 0);
+});
+test("machine help exposes registered command metadata and preserves output", () => {
+  for (const name of ["validate", "lock", "setup", "doctor", "run"]) {
+    const result = run([name, "--help", "--json"]);
+    assert.equal(result.status, 0, result.stderr);
+    const help = JSON.parse(result.stdout);
+    assert.equal(help.schemaVersion, 1);
+    assert.equal(typeof help.output, "string");
+    assert.deepEqual(help.path, ["agent-stack", name]);
+    assert.ok(help.options.some((option) => option.flags.includes("--repo")));
+    assert.ok(Array.isArray(help.arguments));
+  }
+});
+test("lock failures and unbound coding offer contextual recovery", async (t) => {
+  const { dir } = await fixture(t);
+  const lock = join(dir, "stack", "stack.lock.json");
+  for (const [contents, reason] of [
+    [null, "lock_missing"],
+    ["{", "lock_invalid"],
+  ]) {
+    if (contents !== null) await writeFile(lock, contents);
+    const validation = run(["validate", "--repo", dir, "--lock", "--json"]);
+    assert.equal(validation.status, 1);
+    const issue = JSON.parse(validation.stdout).issues.find(
+      (item) => item.file === "lock",
+    );
+    assert.equal(issue.reason, reason);
+    assert.equal(issue.path, lock);
+    const setup = run([
+      "setup",
+      "--repo",
+      dir,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ]);
+    assert.equal(setup.status, 1);
+    const result = JSON.parse(setup.stdout);
+    assert.equal(typeof result.error, "string");
+    assert.equal(result.reason, reason);
+    assert.equal(result.path, lock);
+    assert.match(result.next.message, /shared lock/);
+  }
+  const business = join(dir, "business project");
+  await mkdir(business);
+  const launch = run(["run", "coding", "--repo", dir, "--dry-run", "--json"], {
+    cwd: business,
+  });
+  assert.equal(launch.status, 1);
+  const result = JSON.parse(launch.stdout);
+  assert.equal(result.reason, "coding_unbound");
+  assert.equal(result.path, dir);
+  assert.deepEqual(result.next.argv.slice(-6), [
+    "setup",
+    "--repo",
+    dir,
+    "--profile",
+    "coding",
+    "--dry-run",
+  ]);
+  assert.equal(result.next.argv[0], process.execPath);
+  assert.equal(result.next.argv[1], cli);
+});
 test("noninteractive environments never ask for a profile", async (t) => {
   const { dir } = await fixture(t);
   for (const extra of [
@@ -143,6 +230,20 @@ test("empty PATH reports missing tools as failures", async (t) => {
   assert.match(result.stdout, /Failed: 6 {2}Unknown: 0/);
   assert.match(result.stdout, /Next: Check PATH/);
   assert.match(result.stdout, /Integrations: pi-herdr/);
+  const json = run(["doctor", "--repo", dir, "--profile", "coding", "--json"], {
+    env: { ...process.env, PATH: bin },
+  });
+  const next = JSON.parse(json.stdout).next;
+  assert.match(next[0].message, /Node, npm and Git/);
+  assert.deepEqual(next[1].argv.slice(-6), [
+    "setup",
+    "--repo",
+    dir,
+    "--profile",
+    "coding",
+    "--dry-run",
+  ]);
+  assert.match(next[2].message, /Keep external Pi and pnpm/);
 });
 for (const [mode, columns, color] of [
   ["select", 80, "no-color"],

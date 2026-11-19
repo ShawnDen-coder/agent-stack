@@ -64,6 +64,8 @@ uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以
 
 `setup --dry-run` 预览已有锁的计划，不安装或写入；真实 CLI fixture 覆盖阻塞与只读边界。uv/Herdr 及 npm staging 的 fixture 覆盖安装、复用、摘要、冲突和恢复；Windows x64 Herdr-only 的官方资产验收见 [Windows 验收](herdr-windows-smoke.md)。fixture 和声明不代表其他平台的完整 coding 已支持。
 
+完整 coding 预览在计划前列出 checkout、profile、执行目标、可应用状态与阻塞；JSON 中 `canApply` 与各部件的 `disposition`、`blockingReasons` 表示当前判断。原有 `action` 是观察结果，安装 `mode` 是阻塞解除后的动作，不证明当前可执行。外部 Pi/pnpm 不会因版本相同而获得受管所有权；预览发现冲突时保留原安装。doctor 对缺失前置工具和受管部件分别给出准备或预览建议，未核实的冲突交给预览判断。空白显式 `--repo` 在解析时拒绝；缺锁、不可访问和无效锁提供路径及原因，未绑定的 `run coding` 提供指向选中 checkout 的 setup 预览 argv。机器帮助保留 `schemaVersion` 和 `output`，并补充注册命令的路径、参数及选项。相关回归见 `test/interaction.test.mjs` 与 `test/lock.test.mjs`。
+
 根会话在原生 macOS 实测 Pi 1.5.2、pnpm 12.15.0、uv 0.13.8、Herdr 0.9.5 的完整 coding setup：部件延迟绑定，配置、Agent、三个 skills 及真实 Pi TUI / Herdr v9 私有 socket 验证通过后才提交绑定；重跑不重新获取 npm 根包，绑定保持不变。本机 npm 传递依赖树回执不等于共享锁固定完整闭包。
 
 另在专用 Herdr server/pane 实测 `run coding`：官方 Pi TUI、Agent 和 `shape`/`implement`/`verify`、Herdr session 与 idle、cwd、Ctrl-C 后退出 0，以及随后 doctor 退出 0。`doctor` 核对的是当前回执、整树、锁、资源与历史 TUI 签名，不启动未知 Pi，也不证明模型调用。此原生结果不替代其他平台的实测，也不代表最终候选的 full check 或四平台二进制 CI 已通过。

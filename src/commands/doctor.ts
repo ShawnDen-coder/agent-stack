@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { isSea } from "node:sea";
 import { Command } from "commander";
 import { readCodingContext } from "../adapters/coding-context.js";
+import { LockReadError } from "../adapters/lock-reader.js";
 import { observeInstalledNpm } from "../adapters/npm-state.js";
 import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
@@ -12,6 +13,7 @@ import {
   progress,
   start,
 } from "../adapters/presentation.js";
+import { lockRecovery } from "../adapters/recovery.js";
 import { readRepository } from "../adapters/repository.js";
 import {
   localSetupHome,
@@ -35,8 +37,6 @@ export function createDoctorCommand(): Command {
         repo?: string;
         json?: boolean;
       };
-      if (options.repo !== undefined && !options.repo.trim())
-        command.error("error: --repo must not be empty or whitespace");
       if (options.profile !== undefined && !options.profile.trim())
         command.error("error: --profile must not be empty or whitespace");
       try {
@@ -209,7 +209,20 @@ export function createDoctorCommand(): Command {
         if (error instanceof Error && error.name === "CommanderError")
           throw error;
         const message = error instanceof Error ? error.message : String(error);
-        failure(message, Boolean(options.json));
+        failure(
+          message,
+          Boolean(options.json),
+          error instanceof LockReadError
+            ? {
+                reason: error.reason,
+                path: error.path,
+                ...(error.repo ? { repo: error.repo } : {}),
+                ...(error.repo
+                  ? { next: lockRecovery(error.repo, error.path) }
+                  : {}),
+              }
+            : undefined,
+        );
         process.exitCode = 1;
       }
     });

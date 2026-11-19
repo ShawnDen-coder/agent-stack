@@ -4,11 +4,18 @@ import { freshLockSchema } from "../core/fresh-lock.js";
 import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
 import { inspectCodingReadiness } from "./coding-readiness.js";
-import { readLock } from "./lock-reader.js";
+import { LockReadError, readLock } from "./lock-reader.js";
 import { cliNodeRequirement } from "./package-metadata.js";
 import { readRepository } from "./repository.js";
 import { localSetupHome, readSetupState } from "./setup-state.js";
 import { observe } from "./toolchain.js";
+
+export class UnboundCodingError extends Error {
+  readonly reason = "coding_unbound";
+  constructor(readonly repo: string) {
+    super("No completed coding setup");
+  }
+}
 
 export async function readCodingContext(input: {
   repo?: string;
@@ -17,9 +24,9 @@ export async function readCodingContext(input: {
   const home = localSetupHome();
   if (!home) throw Error("HOME is required for coding");
   const state = await readSetupState(home);
-  if (!state)
-    throw Error(
-      "No completed coding setup; run agent-stack setup --profile coding",
+  if (!state?.defaultBinding)
+    throw new UnboundCodingError(
+      resolve(input.repo ?? process.env.AGENT_STACK_REPO ?? "."),
     );
   const binding = state.defaultBinding;
   const repo = resolve(
@@ -32,8 +39,24 @@ export async function readCodingContext(input: {
   const repository = await readRepository(repo);
   if (!validateRepository(repository).valid)
     throw Error("Invalid coding repository; run validate");
-  const raw = await readLock(lockPath);
-  validateLock(raw, repository);
+  let raw: unknown;
+  try {
+    raw = await readLock(lockPath);
+  } catch (error) {
+    if (error instanceof LockReadError) error.repo = repo;
+    throw error;
+  }
+  try {
+    validateLock(raw, repository);
+  } catch (error) {
+    const lockError = new LockReadError(
+      error instanceof Error ? error.message : String(error),
+      "lock_invalid",
+      lockPath,
+    );
+    lockError.repo = repo;
+    throw lockError;
+  }
   const lock = freshLockSchema.parse(raw);
   if (
     lock.profile !== "coding" ||

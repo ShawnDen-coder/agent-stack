@@ -1,8 +1,9 @@
 import { join, resolve } from "node:path";
 import { Command } from "commander";
-import { readLock } from "../adapters/lock-reader.js";
+import { LockReadError, readLock } from "../adapters/lock-reader.js";
 import { shared } from "../adapters/options.js";
 import { validation } from "../adapters/presentation.js";
+import { lockRecovery } from "../adapters/recovery.js";
 import { readRepository } from "../adapters/repository.js";
 import type { ValidationReport } from "../core/schema.js";
 import { validateRepository } from "../core/validate.js";
@@ -44,6 +45,10 @@ export function createValidateCommand(): Command {
             report.issues.push({
               file: "lock",
               message: error instanceof Error ? error.message : "Invalid lock",
+              reason:
+                error instanceof LockReadError ? error.reason : "lock_invalid",
+              path,
+              next: lockRecovery(repo, path),
             });
           }
         }

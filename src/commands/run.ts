@@ -1,14 +1,19 @@
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Command, InvalidArgumentError, Option } from "commander";
-import { readCodingContext } from "../adapters/coding-context.js";
+import {
+  readCodingContext,
+  UnboundCodingError,
+} from "../adapters/coding-context.js";
 import {
   assertCodingPiArgs,
   launchCodingPi,
 } from "../adapters/coding-launch.js";
 import { inspectHerdrContext } from "../adapters/herdr-context.js";
+import { LockReadError } from "../adapters/lock-reader.js";
 import { shared } from "../adapters/options.js";
 import { failure, progress } from "../adapters/presentation.js";
+import { cliArgv, displayArgv, lockRecovery } from "../adapters/recovery.js";
 import { findExecutable } from "../adapters/toolchain.js";
 import { codingSkillNames } from "../core/coding-resources.js";
 
@@ -122,8 +127,6 @@ export function createRunCommand(
         };
         if (profile !== "coding")
           command.error("error: only the coding profile can be run");
-        if (options.repo !== undefined && !options.repo.trim())
-          command.error("error: --repo must not be empty or whitespace");
         if (options.json && !options.dryRun)
           command.error(
             "error: --json is supported with --dry-run; Pi requires an interactive terminal",
@@ -204,6 +207,39 @@ export function createRunCommand(
           failure(
             error instanceof Error ? error.message : String(error),
             Boolean(options.json),
+            error instanceof UnboundCodingError
+              ? (() => {
+                  const argv = cliArgv(
+                    "setup",
+                    "--repo",
+                    error.repo,
+                    "--profile",
+                    "coding",
+                    "--dry-run",
+                  );
+                  return {
+                    reason: error.reason,
+                    path: error.repo,
+                    next: {
+                      message: `Preview setup: ${displayArgv(argv)}`,
+                      argv,
+                    },
+                  };
+                })()
+              : error instanceof LockReadError
+                ? {
+                    reason: error.reason,
+                    path: error.path,
+                    ...(error.repo ? { repo: error.repo } : {}),
+                    next: lockRecovery(
+                      error.repo ??
+                        resolve(
+                          options.repo ?? process.env.AGENT_STACK_REPO ?? ".",
+                        ),
+                      error.path,
+                    ),
+                  }
+                : undefined,
           );
           process.exitCode = 1;
         } finally {

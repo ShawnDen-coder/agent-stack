@@ -15,6 +15,7 @@ import type { assess } from "../core/doctor.js";
 import type { ResolutionReport } from "../core/resolution-report.js";
 import type { Profile, ValidationReport } from "../core/schema.js";
 import type { inspectCodingReadiness } from "./coding-readiness.js";
+import { cliArgv, displayArgv } from "./recovery.js";
 
 const interactive = () =>
   Boolean(
@@ -145,6 +146,8 @@ export function validation(
     for (const issue of report.issues) {
       line(`[ERROR] ${clean(issue.file)}`, "  ");
       line(clean(issue.message), "    ");
+      if (issue.path) line(`Path: ${clean(issue.path)}`, "    ", true);
+      if (issue.next) line(`Next: ${clean(issue.next.message)}`, "    ");
     }
     finish(
       report.issues.some((issue) => issue.file === "lock")
@@ -177,8 +180,45 @@ export function helpStyle(json: boolean) {
   return { styleTitle: (text: string) => (json ? text : colors.bold(text)) };
 }
 export function doctor(report: DoctorReport, repo: string, json: boolean) {
+  const next: Array<{ message: string; argv?: string[] }> = [];
+  if (
+    report.checks.some(
+      (item) =>
+        ["node", "npm", "git"].includes(item.name) && item.status !== "ok",
+    )
+  )
+    next.push({
+      message:
+        "Check PATH and prepare the required Node, npm and Git prerequisites.",
+    });
+  if (
+    report.profile === "coding" &&
+    (report.readiness?.ready === false ||
+      report.checks.some(
+        (item) =>
+          ["pi", "pnpm", "uv", "herdr"].includes(item.name) &&
+          item.status !== "ok",
+      ))
+  ) {
+    const argv = cliArgv(
+      "setup",
+      "--repo",
+      repo,
+      "--profile",
+      "coding",
+      "--dry-run",
+    );
+    next.push({
+      message: `Preview the current checkout: ${displayArgv(argv)}`,
+      argv,
+    });
+    next.push({
+      message:
+        "Keep external Pi and pnpm installations; if the preview reports a conflict, adjust PATH in a separate shell and retry.",
+    });
+  }
   if (json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify({ ...report, next }, null, 2));
     return;
   }
   line("Repository:");
@@ -252,7 +292,11 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
         ? "[OK] Locked coding installation and resources"
         : `[FAIL] ${clean(report.readiness.reason ?? "Coding installation is not ready")}`,
     );
-  if (report.checks.some((item) => item.status === "not_found"))
+  for (const step of next) line(`Next: ${clean(step.message)}`);
+  if (
+    report.profile !== "coding" &&
+    report.checks.some((item) => item.status === "not_found")
+  )
     line(
       "Next: Check PATH or install missing tools through their native channels.",
     );
@@ -262,11 +306,21 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
   line("Package metadata does not prove a program can run.");
   finish(`${report.scope}.`, false);
 }
-export function failure(message: string, json: boolean) {
-  if (json) console.log(JSON.stringify({ error: message }));
+export function failure(
+  message: string,
+  json: boolean,
+  details?: {
+    reason: string;
+    path?: string;
+    repo?: string;
+    profile?: string;
+    next?: { message: string; argv?: string[] };
+  },
+) {
+  if (json) console.log(JSON.stringify({ error: message, ...details }));
   else
     console.error(
-      `\n[ERROR] ${clean(message)}\n  Check the repository and arguments, then retry.`,
+      `\n[ERROR] ${clean(message)}${details?.path ? `\n  Path: ${clean(details.path)}` : ""}\n  ${clean(details?.next?.message ?? "Check the repository and arguments, then retry.")}`,
     );
 }
 
@@ -404,6 +458,11 @@ export function setup(
   line(
     `Profile: ${clean(plan.profile.id)} (${clean(plan.profile.selectedBy)})`,
   );
+  line(`Execution target: ${clean(plan.host.target)}`);
+  line(`Can apply: ${(plan.canApply ?? !plan.blockers.length) ? "yes" : "no"}`);
+  for (const item of plan.blockers)
+    line(`[${plan.canApply ? "RECOVERY" : "BLOCKED"}] ${clean(item)}`, "  ");
+  line();
   line("Lock:");
   line(clean(plan.lock.path), "  ", true);
   line(`Lock Node assumption: ${clean(plan.lock.node)}`);
@@ -451,11 +510,18 @@ export function setup(
       line("Digest source:", "    ");
       line(clean(item.lockedAsset.digestSource), "      ", true);
     }
-    line(clean(item.action), "    ");
+    if (item.disposition) {
+      line(`Disposition: ${clean(item.disposition)}`, "    ");
+      for (const reason of item.blockingReasons ?? [])
+        line(clean(reason), "      ");
+      line(`Observation: ${clean(item.action)}`, "    ");
+    } else line(clean(item.action), "    ");
   }
   if (plan.herdrInstallation) {
     line();
-    line(`Herdr action: ${clean(plan.herdrInstallation.mode)}`);
+    line(
+      `Herdr mode (after blockers are resolved): ${clean(plan.herdrInstallation.mode)}`,
+    );
     if (plan.herdrInstallation.recovery)
       line("Pending operation will be checked for recovery.", "  ");
   }
@@ -463,7 +529,7 @@ export function setup(
     (plan.npmInstallation ? [plan.npmInstallation] : [])) {
     line();
     line(
-      `${clean(npmInstallation.component)} action: ${clean(npmInstallation.mode)}`,
+      `${clean(npmInstallation.component)} mode (after blockers are resolved): ${clean(npmInstallation.mode)}`,
     );
     if (npmInstallation.recovery)
       line("Pending operation will be checked for recovery.", "  ");
@@ -478,7 +544,9 @@ export function setup(
   }
   if (plan.uvInstallation) {
     line();
-    line(`uv action: ${clean(plan.uvInstallation.mode)}`);
+    line(
+      `uv mode (after blockers are resolved): ${clean(plan.uvInstallation.mode)}`,
+    );
     if (plan.uvInstallation.recovery)
       line("Pending uv operation will be checked for recovery.", "  ");
     line(
@@ -501,6 +569,7 @@ export function setup(
   }
   line();
   line("Blockers");
-  for (const item of plan.blockers) line(`[BLOCKED] ${clean(item)}`, "  ");
+  for (const item of plan.blockers)
+    line(`[${plan.canApply ? "RECOVERY" : "BLOCKED"}] ${clean(item)}`, "  ");
   finish(clean(plan.scope), false);
 }
