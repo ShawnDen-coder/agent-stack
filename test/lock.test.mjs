@@ -2973,7 +2973,7 @@ globalThis.fetch=()=>{throw Error('network forbidden')};`,
       /Add .* to PATH|Create .* before setup/.test(message),
     ),
   );
-  assert.equal(plan.codingResources.files.length, 7);
+  assert.equal(plan.codingResources.files.length, 8);
   assert.deepEqual(plan.npmInstallations.map((item) => item.component).sort(), [
     "pi",
     "pnpm",
