@@ -4,8 +4,6 @@
 
 [Herdr 调研](herdr-research.md)记录 `v0.9.5` 的固定源码证据：配置/状态/安装目录的区别、client/server 启动、Pi 扩展及 macOS/Windows 安装边界。它是安装片的输入，不代表安装或集成已验收。
 
-[Otty 调研](otty-research.md)记录桌面 App、CLI、配置本机覆盖及 shell/Agent 集成的边界；现有 profile 未选择 Otty，本轮不扩大 setup 的必需部件或平台支持。
-
 [Pi 调研](pi-research.md)记录 `v1.5.2` 的固定源码证据：配置/认证/会话目录、启动和 trust 顺序、skills/extensions 加载，以及 macOS/Windows 的 shell 与安装验收边界。`--help` 会加载扩展，不能替代只读观察；安装和集成仍需运行证据。
 
 ## 推荐路径与成功条件
@@ -83,7 +81,7 @@
 
 迁移必须识别现有 uv v1 绑定和未完成 journal，先按现有规则恢复或阻塞，再保留 uv 资产证据与外部复用的有限证据；不能凭旧记录推断其他部件或资源已应用。新状态的原子发布、并发和恢复不得削弱现有 uv 保证；失败不得更新完整成功的默认绑定，未知归属和本地漂移保留并报告。profile 切换、资源移除和 checkout 迁移需在真实资源 adapter 中定义三方比较及恢复，不能删除未知内容。资源归属 schema 已由 coding 配置消费者使用，包含受管字段、备份、目标锚点、恢复阶段及验证记录。
 
-固定版本调研见 [Herdr](herdr-research.md)、[Pi](pi-research.md) 和 [Otty](otty-research.md)；调研版本是证据快照，安装仍以共享锁为准。Otty 仅有官方在线文档证据，Windows 发行支持尚未确认。
+固定版本调研见 [Herdr](herdr-research.md) 和 [Pi](pi-research.md)；调研版本是证据快照，安装仍以共享锁为准。
 
 当前 setup 计划会展示已校验共享锁中当前目标的 Herdr 资产名称、URL、格式、预期 SHA-256 和摘要来源；macOS 为 binary，Windows 为 zip。预览不下载资产，预期摘要不代表发行字节已验证。原生 macOS Herdr managed 安装与 external 复用均有本机回执；完整 coding 须连同 Pi/pnpm、资源和隔离 TUI 验证全部通过才提交默认绑定。
 

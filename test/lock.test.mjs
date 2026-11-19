@@ -1703,14 +1703,9 @@ test("definition digests follow selected canonical data, not format or repositor
   const second = run(b.dir, b.preload, args);
   assert.equal(second.status, 0, second.stdout);
   assert.deepEqual(JSON.parse(second.stdout).definitionDigests, initial);
-  const unrelated = join(b.dir, "stack/components/otty.yaml");
-  const text = await readFile(
-    join(repo, "test/fixtures/alternative-stack/components/otty.yaml"),
-    "utf8",
-  );
-  await writeFile(
-    unrelated,
-    text.replace("description:", "description: unrelated "),
+  await cp(
+    join(repo, "test/fixtures/alternative-stack/components/rex.yaml"),
+    join(b.dir, "stack/components/rex.yaml"),
   );
   const third = run(b.dir, b.preload, args);
   assert.equal(third.status, 0, third.stdout);

@@ -136,12 +136,11 @@ YAML/JSON 解析后统一经过 Zod 校验；同一 ID 跨格式重复时失败�
 - [Pi 调研](pi-research.md)：固定版本的目录、认证、会话、trust 与资源加载，以及启动和安装验收边界。
 - [herdr 集成](https://herdr.dev/tui/docs/integrations/)：Pi 状态报告的声明来源。
 - [Herdr 调研](herdr-research.md)：固定版本的特性、配置与状态目录、启动流程及安装验收边界。
-- [Otty 调研](otty-research.md)：官方文档中的原生配置、App/CLI 启动、shell/Agent 集成副作用与待核对项。
 - [Rex Agent 支持](https://www.superlogical.com/rex/docs/automate/agent-skill)：Pi skill 与 hook 的支持范围不同。
-- [Rex 安装](https://www.superlogical.com/rex/docs/installation)、[Otty 安装](https://docs.otty.sh/getting-started/installation)：客户端、服务端与平台范围需要分别核对。
+- [Rex 安装](https://www.superlogical.com/rex/docs/installation)：客户端、服务端与平台范围需要分别核对。
 
 ## 调研与后续状态边界
 
-[Herdr 调研](herdr-research.md)、[Pi 调研](pi-research.md)和 [Otty 调研](otty-research.md)记录固定证据及未验证范围；它们不替代共享锁。多部件状态的默认绑定、回执、资源归属与 journal 迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)。
+[Herdr 调研](herdr-research.md)和 [Pi 调研](pi-research.md)记录固定证据及未验证范围；它们不替代共享锁。多部件状态的默认绑定、回执、资源归属与 journal 迁移契约见 [setup 方案](setup-plan.md#多部件状态兼容契约)。
 
 当前 `setup-state` 严格读取 v1/v2 状态并投影默认上下文；v1 只在内存归一化，成功写入使用 v2 快照。coding 先延迟各部件的默认绑定，待受管配置、Agent、三个 skills 与真实 Pi TUI / Herdr v9 私有 socket 验证通过后才绑定；失败保留可恢复状态。npm 本机传递依赖树回执可供漂移核对，但共享锁不固定完整闭包。Windows x64 Herdr-only 的历史原生验收与当前候选的最终 CI 结果须分别报告。

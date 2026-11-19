@@ -1,6 +1,6 @@
 # Pi 调研：特性、目录与启动流程
 
-[架构](architecture.md) · [Setup 方案](setup-plan.md) · [Herdr 调研](herdr-research.md) · [Otty 调研](otty-research.md)
+[架构](architecture.md) · [Setup 方案](setup-plan.md) · [Herdr 调研](herdr-research.md)
 
 调研日期：2026-11-15。对象是本仓库 `pi` component 指向的 **`@earendil-works/pi-coding-agent`**。本次读取 npm 官方元数据，并检出上游 `v1.5.2`，固定 commit 为 `b4afdddf44e059c67ccf5097e5317d913521b470`。以下是该版本的文档与源码证据；未安装 npm 发行物、启动 Pi、读取个人认证/会话或调用模型。
 
@@ -21,7 +21,7 @@
 
 终端 stdin/stdout 均为 TTY 时默认打开 TUI；重定向任一流时通常转为 print。`--print` 表示一次性执行，`--mode text` 单独使用不保证一次性退出；`--mode json` 输出事件后退出，`--mode rpc` 持续从 stdin 接受命令。RPC 不是自动启动的本地 daemon 或 socket 服务。[CLI][cli-doc]、[集成方式][integration-doc]、[MCP][mcp-doc]
 
-Pi、Herdr、Otty 的职责分别是 Agent runtime、终端工作区、桌面终端。安装 Pi 不等于安装或验收另外两者；Pi 的 SDK 也不代表 Agent Stack 应把 Pi 当作自身 npm 依赖打包。
+Pi 提供 Agent runtime，Herdr 提供终端工作区。Agent Stack 将两者作为外部工具独立安装，CLI 的 npm 包只分发自身代码。
 
 ## 2. 配置、资源与本机状态目录
 
@@ -143,7 +143,7 @@ trust 不覆盖用户扩展、显式 `-e`、上下文文件，且不能撤销启
 
 内置 `bash` / `powershell` 工具在每次执行时注入当前 `PI_SESSION_ID`、`PI_SESSION_FILE`、`PI_PROVIDER`、`PI_MODEL`、`PI_REASONING_LEVEL`；临时会话没有 session file。它们不注入到用户输入的 `!` / `!!` 命令，不能把这些变量当成所有子进程都具备的静态启动环境。[环境变量][env-doc]
 
-会话可能包含提示词、文件内容、工具参数/输出和意外暴露的凭证；只在隔离测试创建新会话。Herdr/Otty 保存 Pi session 引用后能否正确续接，仍需对各自固定版本单独验收；恢复布局或找到 JSONL 不足以证明完整恢复。
+会话可能包含提示词、文件内容、工具参数/输出和意外暴露的凭证；只在隔离测试创建新会话。Herdr 保存 Pi session 引用后能否正确续接，仍需对固定版本单独验收；恢复布局或找到 JSONL 不足以证明完整恢复。
 
 ## 6. macOS / Windows 安装与运行边界
 
@@ -151,13 +151,13 @@ trust 不覆盖用户扩展、显式 `-e`、上下文文件，且不能撤销启
 
 | 平台         | 已有源码/文档证据                                                                | 仍需运行验证                                                        |
 | ------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| macOS        | npm + Node；内置 shell 优先配置 `shellPath`，再 `/bin/bash`，再 PATH 的 Bash/sh  | arm64/x64 安装树、资源文件、TUI/PTY、键盘和 Herdr/Otty 联动         |
+| macOS        | npm + Node；内置 shell 优先配置 `shellPath`，再 `/bin/bash`，再 PATH 的 Bash/sh  | arm64/x64 安装树、资源文件、TUI/PTY、键盘和 Herdr 联动              |
 | Windows 原生 | npm + Node；默认 Bash 来自 Git for Windows 或指定位置；可选模型工具 `powershell` | cmd/PowerShell 入口、Git Bash、带空格/中文路径、ConPTY 和终端快捷键 |
 | WSL          | Linux Node、文件系统和 Bash                                                      | 独立 Linux/WSL 安装与设备状态，不能借 Windows 原生结果代替          |
 
 Windows Bash 查找顺序为 `shellPath` → `%ProgramFiles%\Git\bin\bash.exe` → `%ProgramFiles(x86)%\Git\bin\bash.exe` → PATH `bash.exe`。仅有 `git --version` 不能证明 Bash 存在。可选 PowerShell 工具先找 PATH `pwsh.exe`，再标准 PowerShell 7 安装位置，再 PATH/系统 Windows PowerShell；即使替换模型侧 bash 工具，`!` / `!!` 仍使用 Bash。[Windows 文档][windows-doc]、[Shell 源码][src-shell]
 
-macOS 也不自动使用当前终端的交互 `$SHELL`：Otty 运行 zsh 不等于 Pi 的 `bash` 工具执行 zsh。Windows 官方建议使用带较新 console host 的终端，并列出 fullscreen/regular 与按键的兼容问题；这些证据不等于已经验证 Herdr 的 Windows 终端实现。[Shell 源码][src-shell]、[Windows 文档][windows-doc]
+在 macOS 上，即使交互终端使用 zsh，Pi 的 `bash` 工具仍按上表的顺序选择 shell。Windows 官方建议使用带较新 console host 的终端，并列出 fullscreen/regular 与按键的兼容问题；这些证据不等于已经验证 Herdr 的 Windows 终端实现。[Shell 源码][src-shell]、[Windows 文档][windows-doc]
 
 未来 Pi 安装片继续按 [Setup 方案](setup-plan.md)执行：下载并校验锁定 tarball，核对实际 manifest/Node engines，在独立 npm staging 中禁用 scripts、启用 engine 检查，检查安装树和入口后再发布；保留原生 `pi` 入口与既有安装渠道。顶层 SRI 和本机生成的 package-lock 分别证明不同范围，不把它们写成已经完成的跨设备依赖闭包锁。
 
@@ -172,7 +172,7 @@ macOS 也不自动使用当前终端的交互 `$SHELL`：Otty 运行 zsh 不等�
 1. **安装身份与发布：**按锁验证顶层资产、实际依赖 engines、入口和必需资源；安装 staging 完成前不切换入口，不允许临时退回 latest 或启用脚本掩盖失败。
 2. **配置和共享资源：**明确 `A` 与 home/cwd/环境，按字段和资源基线处理冲突；引用 checkout 的真实 skills/Agent 文件，不整体覆盖用户 settings、AGENTS 或认证。
 3. **受控启动：**检查实际加载的路径与诊断，缺必需扩展/skill 时失败；不能因为 Pi 对安装失败仅警告就判 setup 成功。显式 trust 只授权该 fixture，使用自建无密钥 provider/mock 或不发送 prompt 的 RPC 边界验证，不自动调用付费模型。
-4. **Pi ↔ Herdr/Otty：**固定终端与扩展版本，分别验证事件、IPC 不可达、进程退出、恢复引用；保留原生 Pi 使用方式。Pi 的 extension 可执行代码，部署前需记录来源、内容和受管目标。
+4. **Pi ↔ Herdr：**固定终端与扩展版本，分别验证事件、IPC 不可达、进程退出、恢复引用；保留原生 Pi 使用方式。Pi 的 extension 可执行代码，部署前需记录来源、内容和受管目标。
 
 ### GitHub Actions 与虚拟机如何分工
 
@@ -181,7 +181,7 @@ macOS 也不自动使用当前终端的交互 `$SHELL`：Otty 运行 zsh 不等�
 | Agent Stack 自身    | 现有 Actions OS/Node 矩阵                         | 构建、声明、CLI 边界；当前不安装真实 Pi                                                   |
 | Pi 固定版本安装     | 新增 macOS / Windows Actions 集成任务             | tarball 字节、实际依赖/入口、重复安装、失败恢复；需真的运行后才有证据                     |
 | Pi 资源与模式       | 隔离 home/`A`/cwd 的 Actions fixture              | settings/trust、扩展与 skills 加载、print/JSON/RPC 协议；mock provider 不证明真实服务可用 |
-| TUI、终端与桌面集成 | 干净 macOS / Windows VM 或实机；按需加 PTY 自动化 | 交互键盘、resize、Git Bash/PowerShell、Herdr/Otty、OAuth 浏览器回调和重启恢复             |
+| TUI、终端与桌面集成 | 干净 macOS / Windows VM 或实机；按需加 PTY 自动化 | 交互键盘、resize、Git Bash/PowerShell、Herdr、OAuth 浏览器回调和重启恢复                  |
 | WSL                 | 单独 WSL 环境                                     | Linux 资源/路径与 Windows 互操作；普通 Linux runner 不代表 WSL                            |
 
 **结论：**CLI 安装和大部分资源测试可以由 Actions 承担；首次支持一个 OS/架构/终端组合以及涉及 GUI、登录、会话恢复的变更，仍需要 VM/实机验收。记录具体 OS、架构、终端、Node/npm/Pi/扩展版本和证据；不能从一个 macOS runner 推断两种架构都通过，也不能把路径模拟当成 Windows 原生通过。

@@ -119,18 +119,18 @@ test("a missing selected component is reported with its profile", async (t) => {
 test("a macOS-only component cannot silently enter a cross-platform profile", async (t) => {
   const root = await fixture(t);
   await edit(root, "stack/profiles/coding.yaml", (value) => {
-    value.components.push({ component: "otty", channel: "stable" });
+    value.components.push({ component: "rex", channel: "beta" });
   });
   const result = validate(root);
   assert.equal(result.status, 1);
   assert.ok(
     result.report.issues.some(
-      (issue) => issue.message === "otty does not declare support for win32",
+      (issue) => issue.message === "rex does not declare support for win32",
     ),
   );
   assert.ok(
     result.report.issues.some(
-      (issue) => issue.message === "otty does not declare support for linux",
+      (issue) => issue.message === "rex does not declare support for linux",
     ),
   );
 });

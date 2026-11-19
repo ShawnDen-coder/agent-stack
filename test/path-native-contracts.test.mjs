@@ -100,6 +100,3 @@ test("CLI HOME selection never silently adopts the native Herdr temporary fallba
 test.todo(
   "Native Windows/WSL coding resource paths and Pi session selection require platform acceptance",
 );
-test.todo(
-  "Otty documented config paths/overrides: no production coding consumer yet",
-);
