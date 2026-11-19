@@ -6,23 +6,23 @@
 
 ## 技术选择
 
-| 部分                       | 选择                           | 原因                                                        |
-| -------------------------- | ------------------------------ | ----------------------------------------------------------- |
-| Runtime                    | Node.js 24+，ESM               | 使用受支持的 LTS 基础，跨 macOS、Windows、Linux 运行        |
-| Language                   | TypeScript 7，strict           | 对命令、数据与 adapter 边界做静态检查                       |
-| Build                      | 官方 `tsc`，NodeNext           | 当前直接编译即可，保留原生 ESM 与目录关系                   |
-| CLI                        | Commander 15                   | 处理子命令、参数、帮助、错误与退出码                        |
-| Runtime validation         | Zod 4                          | 校验 Git 中的 YAML/JSON，类型从 schema 推导                 |
-| Repository package manager | pnpm 12.15.0                   | 开发依赖使用确切版本和提交的锁文件                          |
-| Tests                      | Node.js `node:test` + `assert` | 从编译后的真实 CLI 验证行为，当前无需额外 runner            |
-| Format / lint              | Biome 2                        | 统一 TypeScript、JavaScript 与 JSON 检查                    |
-| CI                         | GitHub Actions                 | Node 24/26 × Linux、macOS、Windows 检查；Action 固定 commit |
+| 部分                       | 选择                           | 原因                                                       |
+| -------------------------- | ------------------------------ | ---------------------------------------------------------- |
+| Runtime                    | Node.js 24+，ESM               | 使用受支持的 LTS 基础，跨 macOS、Windows、Linux 运行       |
+| Language                   | TypeScript 7，strict           | 对命令、数据与 adapter 边界做静态检查                      |
+| Build                      | 官方 `tsc`，NodeNext           | 当前直接编译即可，保留原生 ESM 与目录关系                  |
+| CLI                        | Commander 15                   | 处理子命令、参数、帮助、错误与退出码                       |
+| Runtime validation         | Zod 4                          | 校验 Git 中的 YAML/JSON，类型从 schema 推导                |
+| Repository package manager | pnpm 12.15.0                   | 开发依赖使用确切版本和提交的锁文件                         |
+| Tests                      | Node.js `node:test` + `assert` | 从编译后的真实 CLI 验证行为，当前无需额外 runner           |
+| Format / lint              | Biome 2                        | 统一 TypeScript、JavaScript 与 JSON 检查                   |
+| CI                         | GitHub Actions                 | Node 24.x × Linux、macOS、Windows 检查，Action 固定 commit |
 
 所有 npm 依赖使用确切版本，传递依赖由 `pnpm-lock.yaml` 锁定。开发 pnpm 版本由 `packageManager` 固定；这与 profile 中将来安装到用户环境的 pnpm 要求分别维护。
 
 人编写的 components/profiles/integrations 已采用 YAML 1.2；读取器兼容 `.yml` 与 JSON，并拒绝同 ID 跨格式冲突。原生配置和生态锁保持原格式；首次共享锁、`validate --lock` 离线一致性检查和 setup 本机计划已实现并使用 JSON。首次锁仅记录支持目标的预期元数据与摘要，不证明下载字节、完整依赖闭包或运行兼容性；原生 macOS arm64/x64 支持完整 coding 及 uv-only/Herdr-only，Windows x64 支持 Herdr-only；Linux ABI、更新、离线解析及其他系统的完整 coding 尚未实现。
 
-运行下限由 `package.json` 的 engines 定义，CI 使用 Node 24 和 26；支持周期见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
+运行下限由 `package.json` 的 engines 定义，CI 的单元测试使用 Node 24.x 的最新稳定补丁版。支持周期见 [Node 发布计划](https://nodejs.org/en/about/previous-releases)。编译选项参考 [TypeScript Node ESM 指南](https://www.typescriptlang.org/docs/handbook/modules/guides/choosing-compiler-options.html)；校验与测试使用 [Zod](https://zod.dev/) 和 [Node test runner](https://nodejs.org/docs/latest-v24.x/api/test.html)。
 
 ## 本地命令
 
@@ -74,7 +74,7 @@ npm pack --dry-run --ignore-scripts
 
 ## 多系统验证
 
-`Check` workflow 配置 Linux/macOS/Windows × Node 24/26 六组组合，用于验证构建、定义校验和真实 CLI 边界及受控 fixture；当前候选的最终结果以实际运行记录为准。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。`Herdr Windows installation` 在 Windows x64、Node 24/26 上验证完整七文件 ZIP 安装、原生 ACL、幂等与隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 WSL、GUI、交互式 TUI 或完整 coding 集成通过。
+`Check` workflow 配置 Linux、macOS、Windows 三组作业，每组使用 Node 24.x，用于验证构建、定义校验和真实 CLI 边界及受控 fixture；当前候选的最终结果以实际运行记录为准。`Herdr macOS installation` 另用 `macos-15-intel` 与 `macos-latest` 的原生 x64/arm64、Node 24，实际打包并独立安装 CLI，再下载固定版本官方 Herdr 资产，验证 managed 安装、无下载重跑和隔离 server/IPC。`Herdr Windows installation` 在 Windows x64、Node 24.x 上验证完整七文件 ZIP 安装、原生 ACL、幂等与隔离 server/IPC。只有对应提交的实际运行结果才算证据；这些任务不证明 WSL、GUI、交互式 TUI 或完整 coding 集成通过。
 
 原生 smoke 的接口、固定 metadata 与 live 资产下载分工及验收边界见 [macOS 验收](herdr-macos-smoke.md)和 [Windows 验收](herdr-windows-smoke.md)。runner 标签与架构依据 [GitHub 官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
 
@@ -112,13 +112,13 @@ Windows 架构观察的常规回归调用实际 probe，覆盖并发重复查询
 
 版本流程：本地运行 `cog bump --auto`（首次显式版本），检查生成的版本提交、tag 和 changelog；将版本提交通过受审 PR 合入 `master`，保留该 commit 身份；确认 tag 指向已合入的确切 commit 后，再按另行授权推送 tag。不可在版本提交进入 `master` 前推送 tag。PR squash 或 rebase 会改变 commit，必须重新核对版本和 tag 身份。该 workflow 不创建或推送 tag。
 
-构建 job 运行 `pnpm check`，只打包一次 npm tarball，并在 Node 24/26 上从同一 tarball 实际独立安装验证；四个平台原生构建 SEA、归档许可材料并从解包归档运行 smoke。发布 job 下载上述产物并核对 SHA-256；npm 发布直接消费验收 tarball，GitHub Release 附带同一个包、四个二进制归档和 `SHA256SUMS`。macOS 为 ad-hoc 签名而非公证，Windows 未签名。目标平台的成功以实际 CI 运行结果为准。
+npm 构建 job 在 Node 24.x 上运行 `pnpm check`，打包一次并从该 tarball 独立安装验证。四个平台使用 Node 26 原生编译 SEA，再切换到 Node 24.x 运行产物验收并归档许可材料。发布 job 下载上述产物并核对 SHA-256；npm 发布直接消费验收 tarball，GitHub Release 附带同一个包、四个二进制归档和 `SHA256SUMS`。macOS 为 ad-hoc 签名而非公证，Windows 未签名。目标平台的成功以实际 CI 运行结果为准。
 
 发布前的外部配置，均未由本仓库自动完成：
 
 1. 确认 npm 包名和账号/组织拥有权，处理首次包注册及最终许可；当前不能假定 `agent-stack` 可注册或属于本项目。
 2. 在 GitHub 配置并保护 `release` environment，限制可信 tag、配置必要审批；保护 `master` 及 tag。限制可执行 Actions 为本 workflow 所需的固定 SHA。
-3. 在 npm 包设置添加 GitHub Actions trusted publisher：owner `ShawnDen-coder`、repository `agent-stack`、workflow 文件 `release.yml`、environment `release`，并明确允许 `npm publish`。npm 要求 Node >=22.14 和 npm >=11.5.1；发布 job 使用 Node 26 并检查 npm 版本。新 trusted publisher 配置需在 npm 规定期限内完成首次成功发布。无需在仓库保存 token；首次注册是否可直接使用 OIDC 取决于 npm 账户和包状态，先按 npm 当前流程完成配置。
+3. 在 npm 包设置添加 GitHub Actions trusted publisher：owner `ShawnDen-coder`、repository `agent-stack`、workflow 文件 `release.yml`、environment `release`，并明确允许 `npm publish`。npm 要求 Node >=22.14 和 npm >=11.5.1；发布 job 使用 Node 24.x 并检查 npm 版本。新 trusted publisher 配置需在 npm 规定期限内完成首次成功发布。无需在仓库保存 token；首次注册是否可直接使用 OIDC 取决于 npm 账户和包状态，先按 npm 当前流程完成配置。
 4. `package.json` 的 `repository.url` 必须与 GitHub 仓库精确匹配；发布门禁和 tarball 独立安装验收会核对该身份。通过 OIDC 从公开仓库发布公开包时，npm 自动生成 provenance，无需额外传 `--provenance`；其他可见性条件以 [npm 官方说明](https://docs.npmjs.com/trusted-publishers/)为准。
 5. tag 推送和正式发布须另行授权。本地 `cog bump`、构建及校验不会推送或发布。
 

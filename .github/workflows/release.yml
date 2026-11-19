@@ -25,7 +25,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 26
+          node-version: 24
+          check-latest: true
           package-manager-cache: false
       - name: Check exact tag, reviewed history and version
         id: gate
@@ -51,7 +52,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 26
+          node-version: 24
+          check-latest: true
           package-manager-cache: false
       - run: npm install --global pnpm@12.15.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
@@ -64,27 +66,6 @@ jobs:
             release/package.tgz
             release/package.tgz.sha256
           if-no-files-found: error
-
-  npm-compatibility:
-    needs: [gate, npm-artifact]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.gate.outputs.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 24
-          package-manager-cache: false
-      - run: npm install --global pnpm@12.15.0
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-        with:
-          name: npm-package
-          path: release
-      - run: node scripts/check-artifact.mjs verify release/package.tgz
-      - run: node scripts/verify-package.mjs release/package.tgz
 
   binary-artifact:
     needs: gate
@@ -108,9 +89,15 @@ jobs:
           package-manager-cache: false
       - run: npm install --global pnpm@12.15.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm check
-      - run: npm install --global npm@11.12.1
       - run: pnpm build:binary
+      - name: Use Node 24 for artifact verification
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          check-latest: true
+          package-manager-cache: false
+      - if: runner.os == 'macOS'
+        run: npm install --global npm@11.12.1
       - name: Verify standalone coding on native macOS
         if: runner.os == 'macOS'
         run: node scripts/smoke-coding-macos.mjs --cli "$(pwd)/binary/agent-stack" --target "${{ matrix.target }}" --binary
@@ -124,7 +111,7 @@ jobs:
           if-no-files-found: error
 
   publish-npm:
-    needs: [gate, npm-artifact, npm-compatibility, binary-artifact]
+    needs: [gate, npm-artifact, binary-artifact]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -138,7 +125,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 26
+          node-version: 24
+          check-latest: true
           package-manager-cache: false
           registry-url: https://registry.npmjs.org/
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
@@ -174,7 +162,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 26
+          node-version: 24
+          check-latest: true
           package-manager-cache: false
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:

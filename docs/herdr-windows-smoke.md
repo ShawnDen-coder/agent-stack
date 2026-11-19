@@ -1,6 +1,6 @@
 # Herdr Windows native smoke
 
-在 Windows x64 原生 Node 24 或 26 runner 上，先构建、`npm pack` 并在临时目录安装包及其运行时依赖，再运行：
+在 Windows x64 原生 Node 24.x runner 上，先构建、`npm pack` 并在临时目录安装包及其运行时依赖，再运行：
 
 ```powershell
 node scripts/smoke-herdr-windows.mjs --cli <独立安装目录>/node_modules/agent-stack/dist/cli.js

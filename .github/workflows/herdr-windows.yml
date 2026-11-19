@@ -10,20 +10,17 @@ permissions:
 
 jobs:
   install:
-    name: Official Herdr / win32-x64 / Node ${{ matrix.node }}
+    name: Official Herdr / win32-x64 / Node 24
     runs-on: windows-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24, 26]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
+          check-latest: true
           package-manager-cache: false
       - run: npm install --global pnpm@12.15.0
       - name: Verify pinned pnpm
