@@ -1,5 +1,67 @@
 {
-  "skills": [],
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-6.1-sol"
+  "defaultModel": "gpt-6.1-sol",
+  "subagents": {
+    "agentOverrides": {
+      "worker": {
+        "model": "openai-codex/gpt-6.1-terra",
+        "thinking": "medium"
+      },
+      "delegate": {
+        "model": "openai-codex/gpt-6.1-terra",
+        "thinking": "medium"
+      },
+      "scout": {
+        "model": "openai-codex/gpt-6-luna",
+        "thinking": "low"
+      },
+      "researcher": {
+        "model": "openai-codex/gpt-6.1-terra",
+        "thinking": "medium"
+      },
+      "reviewer": {
+        "model": "openai-codex/gpt-6.1-sol",
+        "thinking": "high"
+      },
+      "evidence-auditor": {
+        "model": "openai-codex/gpt-6.1-sol",
+        "thinking": "high"
+      },
+      "oracle": {
+        "model": "openai-codex/gpt-6.1-sol",
+        "thinking": "xhigh"
+      }
+    }
+  },
+  "packages": [
+    {
+      "source": "npm:@ff-labs/pi-fff@0.11.0",
+      "skills": []
+    },
+    {
+      "source": "npm:@juicesharp/rpiv-ask-user-question@2.15.0",
+      "skills": []
+    },
+    {
+      "source": "npm:billion-context@0.1.213",
+      "skills": []
+    },
+    {
+      "source": "npm:pi-computer-use@0.1.0",
+      "skills": []
+    },
+    {
+      "source": "npm:pi-figma-kit@0.3.8",
+      "skills": []
+    },
+    {
+      "source": "npm:pi-subagents@0.88.1",
+      "skills": []
+    },
+    {
+      "source": "npm:pi-web-access@0.47.0",
+      "skills": []
+    }
+  ],
+  "skills": []
 }

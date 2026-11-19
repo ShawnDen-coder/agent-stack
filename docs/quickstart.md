@@ -124,6 +124,8 @@ pnpm cli run --repo . coding --cwd "$PWD" -- --mode text
 
 `--dry-run --json` 不启动 Pi，但仍检查 coding 绑定和当前 Herdr pane；未就绪时报告 blockers 或错误并退出 1。实际启动要求交互 TTY 和有效 Herdr 上下文，使用 checkout 中的 Agent 与 `shape`、`implement`、`verify`，传递允许的 Pi 参数、终端和退出状态。管理子命令、非交互模式以及禁用 skills/扩展的参数会被拒绝；Pi 的原生入口仍可独立使用。`--json` 只与 `--dry-run` 组合。
 
+共享 Pi 配置包含固定版本的可选扩展及 reui MCP。正常 Pi 启动可能由 Pi 自行安装缺失包、执行其安装脚本并连接 MCP；这些动作不属于 setup 的隔离核心验证。在专用验收环境可于 `--` 后传 `--offline --no-mcp`，隔离可选网络行为；扩展的实际功能和远端服务仍需独立验收。详见 [Pi 配置导入](pi-config-import.md)。
+
 根会话在原生 macOS 实测 Pi 1.5.2、pnpm 12.15.0、uv 0.13.8 和 Herdr 0.9.5 的完整 setup、无根包重新获取的重跑，以及独立 Herdr server/pane 中的真实 Pi TUI、资源加载、session/idle、cwd、Ctrl-C 退出 0 和随后 doctor 退出 0。这些结果不证明其他系统、模型调用或后续 commit 已验证。
 
 ## macOS 的 uv-only setup

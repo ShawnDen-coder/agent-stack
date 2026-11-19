@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { codingInputHash } from "../adapters/coding-readiness.js";
 import { recoverCodingResources } from "../adapters/coding-resource-transaction.js";
 import {
@@ -477,7 +477,7 @@ export async function setupCoding(input: {
     if (resourceRecoveryOnly) {
       await recoverCodingResources(home, [
         ...resources.files.slice(0, 3).map((f) => f.target),
-        ...resources.files.slice(7, 8).map((f) => f.target),
+        join(dirname(resources.files[0]?.target ?? ""), "mcp.json"),
         join(resolve(home), ".agent-stack", "coding-resources.json"),
       ]);
       throw Error(

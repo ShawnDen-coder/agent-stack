@@ -16,6 +16,11 @@ test("Pi MCP preserves unrelated servers and protects local reui", () => {
   assert.equal(first.owned, true);
   assert.equal(JSON.parse(first.text).mcpServers.local.command, "x");
   assert.equal(mergePiMcp(first.text, url, url).text, first.text);
+  assert.equal(
+    JSON.parse(mergePiMcp(first.text, "https://new.example", url).text)
+      .mcpServers.reui.url,
+    "https://new.example",
+  );
   assert.throws(
     () =>
       mergePiMcp(
@@ -29,6 +34,197 @@ test("Pi MCP preserves unrelated servers and protects local reui", () => {
     () => mergePiMcp('{"mcpServers":{}}', url, url),
     /changed locally/,
   );
+});
+
+test("Pi role leaves and package entries preserve unrelated data and reject drift", () => {
+  const pkg = { source: "npm:pi-subagents@0.88.1", skills: [] };
+  const defaults = {
+    "subagents.agentOverrides.worker.model": "openai-codex/gpt-6.1-terra",
+    "subagents.agentOverrides.worker.thinking": "medium",
+  };
+  const raw = JSON.stringify({
+    subagents: {
+      agentOverrides: { worker: { custom: true }, other: { model: "local" } },
+    },
+    packages: ["npm:personal@1.0.0"],
+  });
+  const first = mergePiSettings(raw, [], [], defaults, {}, [pkg], []);
+  const result = JSON.parse(first.text);
+  assert.equal(result.subagents.agentOverrides.worker.custom, true);
+  assert.equal(result.subagents.agentOverrides.other.model, "local");
+  assert.deepEqual(result.packages, ["npm:personal@1.0.0", pkg]);
+  assert.equal(
+    mergePiSettings(
+      first.text,
+      [],
+      [],
+      defaults,
+      first.ownedDefaults,
+      [pkg],
+      first.ownedPackages,
+    ).text,
+    first.text,
+  );
+  result.subagents.agentOverrides.worker.model = "local";
+  assert.throws(
+    () =>
+      mergePiSettings(
+        JSON.stringify(result),
+        [],
+        [],
+        defaults,
+        first.ownedDefaults,
+        [pkg],
+        first.ownedPackages,
+      ),
+    /changed locally/,
+  );
+  assert.throws(
+    () =>
+      mergePiSettings(
+        '{"packages":["npm:pi-subagents@0.88.1"]}',
+        [],
+        [],
+        {},
+        {},
+        [pkg],
+        [],
+      ),
+    /conflicts/,
+  );
+  const next = { ...pkg, source: "npm:pi-subagents@0.89.0" };
+  assert.deepEqual(
+    JSON.parse(
+      mergePiSettings(
+        first.text,
+        [],
+        [],
+        defaults,
+        first.ownedDefaults,
+        [next],
+        first.ownedPackages,
+      ).text,
+    ).packages[1],
+    next,
+  );
+});
+
+test("legacy source without MCP or defaults leaves native values untouched", async () => {
+  const { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } =
+    await import("node:fs/promises");
+  const { join, resolve } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { planCodingResources, applyCodingResources } = await import(
+    "../dist/adapters/coding-resources.js"
+  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legacy-coding-")));
+  try {
+    const repo = join(root, "repo"),
+      home = join(root, "home"),
+      agent = join(home, ".pi", "agent");
+    await mkdir(repo);
+    await mkdir(agent, { recursive: true });
+    await mkdir(join(home, ".agent-stack"), { recursive: true });
+    await cp(resolve("stack"), join(repo, "stack"), { recursive: true });
+    await writeFile(
+      join(repo, "stack/configs/pi/settings.json"),
+      '{"skills":[]}',
+    );
+    await rm(join(repo, "stack/configs/pi/mcp.json"));
+    const personal = JSON.stringify({
+      defaultModel: "personal",
+      subagents: { foo: 1 },
+      packages: ["npm:personal@1.0.0"],
+    });
+    await writeFile(join(agent, "settings.json"), personal);
+    await writeFile(join(agent, "mcp.json"), '{"personal":true}');
+    const input = {
+      repo,
+      home,
+      profile: "coding",
+      target: "darwin-x64",
+      piVersion: "1.5.2",
+      herdrVersion: "0.9.5",
+      env: {},
+    };
+    const plan = await planCodingResources(input);
+    assert.deepEqual(plan.blockers, []);
+    assert.equal(plan.files.length, 7);
+    await applyCodingResources(plan, {
+      signal: new AbortController().signal,
+      recheck: async () => {},
+      env: {},
+    });
+    const settings = JSON.parse(
+      await readFile(join(agent, "settings.json"), "utf8"),
+    );
+    assert.equal(settings.defaultModel, "personal");
+    assert.deepEqual(settings.subagents, { foo: 1 });
+    assert.deepEqual(settings.packages, ["npm:personal@1.0.0"]);
+    assert.equal(
+      await readFile(join(agent, "mcp.json"), "utf8"),
+      '{"personal":true}',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("role and package source updates apply through receipts and protect local drift", async () => {
+  const { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } =
+    await import("node:fs/promises");
+  const { join, resolve } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { planCodingResources, applyCodingResources } = await import(
+    "../dist/adapters/coding-resources.js"
+  );
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "coding-source-update-")),
+  );
+  try {
+    const repo = join(root, "repo"),
+      home = join(root, "home"),
+      pi = join(home, ".pi/agent");
+    await mkdir(repo);
+    await mkdir(join(home, ".agent-stack"), { recursive: true });
+    await cp(resolve("stack"), join(repo, "stack"), { recursive: true });
+    const input = {
+      repo,
+      home,
+      profile: "coding",
+      target: "darwin-x64",
+      piVersion: "1.5.2",
+      herdrVersion: "0.9.5",
+      env: {},
+    };
+    const options = {
+      signal: new AbortController().signal,
+      recheck: async () => {},
+      env: {},
+    };
+    await applyCodingResources(await planCodingResources(input), options);
+    const source = join(repo, "stack/configs/pi/settings.json"),
+      target = join(pi, "settings.json");
+    const defaults = JSON.parse(await readFile(source, "utf8"));
+    defaults.subagents.agentOverrides.worker.thinking = "high";
+    defaults.packages[0].source = "npm:@ff-labs/pi-fff@0.11.1";
+    await writeFile(source, JSON.stringify(defaults));
+    const next = await planCodingResources(input);
+    assert.deepEqual(next.blockers, []);
+    await applyCodingResources(next, options);
+    const result = JSON.parse(await readFile(target, "utf8"));
+    assert.equal(result.subagents.agentOverrides.worker.thinking, "high");
+    assert.equal(result.packages[0].source, "npm:@ff-labs/pi-fff@0.11.1");
+    result.subagents.agentOverrides.worker.thinking = "local";
+    await writeFile(target, JSON.stringify(result));
+    assert(
+      (await planCodingResources(input)).blockers.some((x) =>
+        /changed locally/.test(x),
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("Pi model defaults respect owned values and protect local changes", () => {
@@ -305,6 +501,7 @@ test("resource apply preserves unknown data and is idempotent", async () => {
     const piSettings = join(pi, "settings.json");
     const withChangelog = JSON.parse(await readFile(piSettings, "utf8"));
     withChangelog.lastChangelogVersion = "1.5.2";
+    withChangelog.extensionChangelogVersions = { "npm:pi-subagents": "0.88.1" };
     await writeFile(piSettings, JSON.stringify(withChangelog));
     const afterChangelog = await inspectCodingResources(input);
     assert.equal(afterChangelog.ready, true);

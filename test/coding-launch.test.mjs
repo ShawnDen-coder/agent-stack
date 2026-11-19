@@ -308,7 +308,13 @@ test("run command validates readiness, cwd and the native argument boundary with
     );
     assert.equal(blocked.status, 1);
     assert.match(blocked.stdout, /interactive text mode/);
-    const args = ["--model", "test/model", "space value"];
+    const args = [
+      "--offline",
+      "--no-mcp",
+      "--model",
+      "test/model",
+      "space value",
+    ];
     const allowed = spawnSync(
       process.execPath,
       [harness, "coding", "--cwd", root, "--dry-run", "--json", "--", ...args],
@@ -347,7 +353,7 @@ test("run command validates readiness, cwd and the native argument boundary with
         actual.cwd,
         await import("node:fs/promises").then((fs) => fs.realpath(root)),
       );
-      assert.deepEqual(actual.args.slice(-3), args);
+      assert.deepEqual(actual.args.slice(-args.length), args);
     }
   } finally {
     await rm(root, { recursive: true, force: true });
