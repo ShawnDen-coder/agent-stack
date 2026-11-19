@@ -21,6 +21,7 @@ import {
   setup,
   start,
 } from "../adapters/presentation.js";
+import { setupPreview } from "../adapters/recovery.js";
 import {
   recheckSetupBaseline,
   setupBaseline,
@@ -62,6 +63,15 @@ type Id = (typeof ids)[number];
 type Mode = "install" | "managed" | "reuse";
 const same = (a: unknown, b: unknown) =>
   JSON.stringify(a) === JSON.stringify(b);
+
+export class CodingRecoveryCompleted extends Error {
+  constructor(
+    readonly repo: string,
+    readonly lockPath: string,
+  ) {
+    super("Previous resources recovered; rerun setup to review a fresh plan");
+  }
+}
 
 export async function setupCoding(input: {
   repo: string;
@@ -346,8 +356,8 @@ export async function setupCoding(input: {
   const resourceRecoveryOnly =
     resources.blockers.length === 1 &&
     resources.blockers[0] === "Pending resource operation requires recovery";
-  const canApply =
-    !blockers.length || (resourceRecoveryOnly && blockers.length === 1);
+  const canApply = !blockers.length;
+  const canRecover = resourceRecoveryOnly && blockers.length === 1;
   const componentReasons = new Set(Object.values(componentBlockers).flat());
   const sharedBlockers = blockers.filter(
     (reason) => !componentReasons.has(reason),
@@ -414,18 +424,21 @@ export async function setupCoding(input: {
     ],
     blockers,
     canApply,
+    canRecover,
+    ...(canRecover ? { recoveryNext: setupPreview(repo, lockPath) } : {}),
     scope:
       "Locked digest is expected metadata until downloaded and checked. Components and resources are prepared before isolated Pi TUI verification; default binding is committed last. User sessions and model calls are not tested.",
   });
   stop(signal.aborted);
   if (signal.aborted) throw Error("Cancelled");
   if (input.dryRun || !json) setup(plan, json);
-  if (!plan.canApply) {
-    if (json && !input.dryRun) setup(plan, true);
-    process.exitCode = 1;
+  if (input.dryRun) {
+    if (!plan.canApply) process.exitCode = 1;
     return;
   }
-  if (input.dryRun) {
+  if (!plan.canApply && !plan.canRecover) {
+    if (json && !input.dryRun) setup(plan, true);
+    process.exitCode = 1;
     return;
   }
   if (!input.yes) {
@@ -516,9 +529,7 @@ export async function setupCoding(input: {
         join(dirname(resources.files[0]?.target ?? ""), "mcp.json"),
         join(resolve(home), ".agent-stack", "coding-resources.json"),
       ]);
-      throw Error(
-        "Previous resources recovered; rerun setup to review a fresh plan",
-      );
+      throw new CodingRecoveryCompleted(repo, lockPath);
     }
     if (pending)
       await recoverPendingUv(home, process.env.PATH ?? "", signal, recheck);

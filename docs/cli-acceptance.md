@@ -64,7 +64,7 @@ uv 官方分页的数字仓库 ID、owner/name 形式和跨页最高版本，以
 
 `setup --dry-run` 预览已有锁的计划，不安装或写入；真实 CLI fixture 覆盖阻塞与只读边界。uv/Herdr 及 npm staging 的 fixture 覆盖安装、复用、摘要、冲突和恢复；Windows x64 Herdr-only 的官方资产验收见 [Windows 验收](herdr-windows-smoke.md)。fixture 和声明不代表其他平台的完整 coding 已支持。
 
-完整 coding 预览在计划前列出 checkout、profile、执行目标、可应用状态与阻塞；JSON 中 `canApply` 与各部件的 `disposition`、`blockingReasons` 表示当前判断。原有 `action` 是观察结果，安装 `mode` 是阻塞解除后的动作，不证明当前可执行。外部 Pi/pnpm 不会因版本相同而获得受管所有权；预览发现冲突时保留原安装。doctor 对缺失前置工具和受管部件分别给出准备或预览建议，未核实的冲突交给预览判断。空白显式 `--repo` 在解析时拒绝；缺锁、不可访问和无效锁提供路径及原因，未绑定的 `run coding` 提供指向选中 checkout 的 setup 预览 argv。机器帮助保留 `schemaVersion` 和 `output`，并补充注册命令的路径、参数及选项。相关回归见 `test/interaction.test.mjs` 与 `test/lock.test.mjs`。
+完整 coding 预览在计划前列出 checkout、profile、执行目标、可应用状态与阻塞；JSON 中 `canApply` 与各部件的 `disposition`、`blockingReasons` 表示当前判断。仅存在待恢复资源操作时，`canApply` 为 false、`canRecover` 为 true，dry-run 退出 1 且只读；确认执行仅恢复资源并退出 1，`recoveryNext` 或恢复结果的 `next.argv` 指向需重新审阅的预览。原有 `action` 是观察结果，安装 `mode` 是阻塞解除后的动作，不证明当前可执行。外部 Pi/pnpm 不会因版本相同而获得受管所有权；预览发现冲突时保留原安装。doctor 对缺失前置工具和受管部件分别给出准备或预览建议，未核实的冲突交给预览判断。空白显式 `--repo` 在解析时拒绝；缺锁、不可访问和无效锁提供路径及原因，未绑定的 `run coding` 提供指向选中 checkout 的 setup 预览 argv。文本恢复命令单独输出一行，分别标明 POSIX sh 或 PowerShell 7；无法安全单行展示控制字符时使用 JSON 的 `next.argv`。机器帮助保留 `schemaVersion` 和 `output`，并补充注册命令的路径、参数及选项。相关回归见 `test/interaction.test.mjs`、`test/lock.test.mjs`、`test/setup-resource-recovery.test.mjs` 与 `test/recovery-output.test.mjs`；Windows 命令格式在非 Windows 上仅作 formatter 测试。
 
 根会话在原生 macOS 实测 Pi 1.5.2、pnpm 12.15.0、uv 0.13.8、Herdr 0.9.5 的完整 coding setup：部件延迟绑定，配置、Agent、三个 skills 及真实 Pi TUI / Herdr v9 私有 socket 验证通过后才提交绑定；重跑不重新获取 npm 根包，绑定保持不变。本机 npm 传递依赖树回执不等于共享锁固定完整闭包。
 

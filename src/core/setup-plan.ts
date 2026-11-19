@@ -132,6 +132,10 @@ export const setupPlanSchema = z.object({
   resources: z.array(z.string()),
   blockers: z.array(z.string()),
   canApply: z.boolean().optional(),
+  canRecover: z.boolean().optional(),
+  recoveryNext: z
+    .object({ message: z.string(), argv: z.array(z.string()) })
+    .optional(),
   scope: z.string(),
 });
 export type SetupPlan = z.infer<typeof setupPlanSchema>;

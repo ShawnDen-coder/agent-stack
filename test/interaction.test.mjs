@@ -361,11 +361,15 @@ for (const [mode, columns, color] of [
       .map((row) => row.slice(2))
       .join("");
     assert.equal(repository, dir);
-    for (const row of report.split("\n"))
+    const rows = report.split("\n");
+    for (const [index, row] of rows.entries()) {
+      // Copyable recovery commands deliberately stay on one physical line.
+      if (rows[index - 1] === "  POSIX sh:") continue;
       assert.ok(
         stringWidth(row) <= columns,
         `${stringWidth(row)} > ${columns}: ${row}`,
       );
+    }
     const colorEscape = new RegExp(
       `${String.fromCharCode(27)}\\[(?:3[0-7]|9[0-7]|4[0-7]|10[0-7])m`,
     );

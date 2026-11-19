@@ -47,6 +47,24 @@ function line(value = "", indent = "", exact = false) {
   });
   for (const row of wrapped.split("\n")) console.log(indent + row);
 }
+function nextStep(
+  next: { message: string; argv?: string[] },
+  stream: "stdout" | "stderr" = "stdout",
+) {
+  if (stream === "stdout") line(`Next: ${clean(next.message)}`);
+  else console.error(`  ${clean(next.message)}`);
+  if (!next.argv) return;
+  const command = displayArgv(next.argv);
+  const write = stream === "stdout" ? console.log : console.error;
+  if (!command) {
+    write(
+      "  Command contains control characters; use next.argv in JSON output.",
+    );
+    return;
+  }
+  write(process.platform === "win32" ? "  PowerShell 7:" : "  POSIX sh:");
+  write(command);
+}
 function pair(left: string, right: string) {
   if (stringWidth(`    ${left}  |  ${right}`) <= columns())
     line(`${left}  |  ${right}`, "    ");
@@ -147,7 +165,7 @@ export function validation(
       line(`[ERROR] ${clean(issue.file)}`, "  ");
       line(clean(issue.message), "    ");
       if (issue.path) line(`Path: ${clean(issue.path)}`, "    ", true);
-      if (issue.next) line(`Next: ${clean(issue.next.message)}`, "    ");
+      if (issue.next) nextStep(issue.next);
     }
     finish(
       report.issues.some((issue) => issue.file === "lock")
@@ -209,7 +227,7 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
       "--dry-run",
     );
     next.push({
-      message: `Preview the current checkout: ${displayArgv(argv)}`,
+      message: "Preview the current checkout.",
       argv,
     });
     next.push({
@@ -292,7 +310,7 @@ export function doctor(report: DoctorReport, repo: string, json: boolean) {
         ? "[OK] Locked coding installation and resources"
         : `[FAIL] ${clean(report.readiness.reason ?? "Coding installation is not ready")}`,
     );
-  for (const step of next) line(`Next: ${clean(step.message)}`);
+  for (const step of next) nextStep(step);
   if (
     report.profile !== "coding" &&
     report.checks.some((item) => item.status === "not_found")
@@ -318,10 +336,17 @@ export function failure(
   },
 ) {
   if (json) console.log(JSON.stringify({ error: message, ...details }));
-  else
+  else {
     console.error(
-      `\n[ERROR] ${clean(message)}${details?.path ? `\n  Path: ${clean(details.path)}` : ""}\n  ${clean(details?.next?.message ?? "Check the repository and arguments, then retry.")}`,
+      `\n[ERROR] ${clean(message)}${details?.path ? `\n  Path: ${clean(details.path)}` : ""}`,
     );
+    nextStep(
+      details?.next ?? {
+        message: "Check the repository and arguments, then retry.",
+      },
+      "stderr",
+    );
+  }
 }
 
 export function resolution(report: ResolutionReport, json: boolean) {
@@ -460,8 +485,11 @@ export function setup(
   );
   line(`Execution target: ${clean(plan.host.target)}`);
   line(`Can apply: ${(plan.canApply ?? !plan.blockers.length) ? "yes" : "no"}`);
+  if (plan.canRecover)
+    line("Recovery can run now; rerun setup afterward to review a fresh plan.");
+  if (plan.recoveryNext) nextStep(plan.recoveryNext);
   for (const item of plan.blockers)
-    line(`[${plan.canApply ? "RECOVERY" : "BLOCKED"}] ${clean(item)}`, "  ");
+    line(`[${plan.canRecover ? "RECOVERY" : "BLOCKED"}] ${clean(item)}`, "  ");
   line();
   line("Lock:");
   line(clean(plan.lock.path), "  ", true);
@@ -570,6 +598,6 @@ export function setup(
   line();
   line("Blockers");
   for (const item of plan.blockers)
-    line(`[${plan.canApply ? "RECOVERY" : "BLOCKED"}] ${clean(item)}`, "  ");
+    line(`[${plan.canRecover ? "RECOVERY" : "BLOCKED"}] ${clean(item)}`, "  ");
   finish(clean(plan.scope), false);
 }

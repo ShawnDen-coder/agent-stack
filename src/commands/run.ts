@@ -13,7 +13,7 @@ import { inspectHerdrContext } from "../adapters/herdr-context.js";
 import { LockReadError } from "../adapters/lock-reader.js";
 import { shared } from "../adapters/options.js";
 import { failure, progress } from "../adapters/presentation.js";
-import { cliArgv, displayArgv, lockRecovery } from "../adapters/recovery.js";
+import { cliArgv, lockRecovery } from "../adapters/recovery.js";
 import { findExecutable } from "../adapters/toolchain.js";
 import { codingSkillNames } from "../core/coding-resources.js";
 
@@ -221,7 +221,7 @@ export function createRunCommand(
                     reason: error.reason,
                     path: error.repo,
                     next: {
-                      message: `Preview setup: ${displayArgv(argv)}`,
+                      message: "Preview setup.",
                       argv,
                     },
                   };

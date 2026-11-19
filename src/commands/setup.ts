@@ -20,7 +20,7 @@ import {
   setup,
   start,
 } from "../adapters/presentation.js";
-import { lockRecovery } from "../adapters/recovery.js";
+import { lockRecovery, setupPreview } from "../adapters/recovery.js";
 import { readRepository } from "../adapters/repository.js";
 import {
   recheckSetupBaseline,
@@ -59,7 +59,7 @@ import {
 } from "../core/setup-plan.js";
 import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
-import { setupCoding } from "./setup-coding.js";
+import { CodingRecoveryCompleted, setupCoding } from "./setup-coding.js";
 
 export function createSetupCommand(): Command {
   let lockSeen = false;
@@ -1217,6 +1217,17 @@ export function createSetupCommand(): Command {
       } catch (error) {
         if (error instanceof Error && error.name === "CommanderError")
           throw error;
+        if (error instanceof CodingRecoveryCompleted) {
+          failure(error.message, json, {
+            reason: "resource_recovered",
+            repo: error.repo,
+            profile: "coding",
+            path: error.lockPath,
+            next: setupPreview(error.repo, error.lockPath),
+          });
+          process.exitCode = 1;
+          return;
+        }
         if (error instanceof UvCommittedError) {
           failure(error.message, json);
           process.exitCode = 1;
