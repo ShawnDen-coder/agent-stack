@@ -11,7 +11,7 @@ git clone --branch p0-final-acceptance https://github.com/ShawnDen-coder/agent-s
 cd agent-stack
 node --version
 npm --version
-npm exec --yes --package=pnpm@12.15.0 -- pnpm install --frozen-lockfile
+npm exec --yes --package=pnpm@12.15.0 -- pnpm install --frozen-lockfile --ignore-scripts
 npm run build
 export AGENT_STACK_REPO="$PWD"
 node "$AGENT_STACK_REPO/dist/cli.js" validate --repo "$AGENT_STACK_REPO" --lock

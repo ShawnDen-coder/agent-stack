@@ -11,7 +11,7 @@ Agent Stack 用 Git checkout 管理个人 Agent 环境的部件、组合、原�
 ```sh
 git clone --branch p0-final-acceptance https://github.com/ShawnDen-coder/agent-stack.git
 cd agent-stack
-npm exec --yes --package=pnpm@12.15.0 -- pnpm install --frozen-lockfile
+npm exec --yes --package=pnpm@12.15.0 -- pnpm install --frozen-lockfile --ignore-scripts
 npm run build
 node dist/cli.js validate --repo . --lock
 mkdir -p "$HOME/.agent-stack/bin"
