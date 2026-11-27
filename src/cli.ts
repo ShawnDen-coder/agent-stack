@@ -38,7 +38,7 @@ const program = shared(new Command())
   .configureHelp(helpStyle(wantsJson))
   .addHelpText(
     "after",
-    "\nRun agent-stack <command> --help for command details.",
+    "\nFor an existing Pi: pi install <checkout>/stack, then run pi.\nRun agent-stack <command> --help for command details.",
   )
   .allowExcessArguments(false)
   .exitOverride()

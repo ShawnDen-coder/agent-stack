@@ -1,18 +1,10 @@
-import { resolve } from "node:path";
 import { isSea } from "node:sea";
 import { Command } from "commander";
 import { readCodingContext } from "../adapters/coding-context.js";
 import { observeInstalledNpm } from "../adapters/npm-state.js";
 import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
-import {
-  chooseProfile,
-  doctor,
-  failure,
-  progress,
-  start,
-} from "../adapters/presentation.js";
-import { readRepository } from "../adapters/repository.js";
+import { doctor, failure, progress, start } from "../adapters/presentation.js";
 import {
   localSetupHome,
   readDefaultBinding,
@@ -20,7 +12,7 @@ import {
 } from "../adapters/setup-state.js";
 import { findExecutable, observe } from "../adapters/toolchain.js";
 import { assess } from "../core/doctor.js";
-import { validateRepository } from "../core/validate.js";
+import { resolveProfileContext, selectProfile } from "./profile-context.js";
 
 export function createDoctorCommand(): Command {
   return shared(
@@ -47,28 +39,19 @@ export function createDoctorCommand(): Command {
           requestedRepo !== undefined && requestedProfile !== undefined
             ? null
             : await readDefaultBinding(localSetupHome());
-        const repo = resolve(requestedRepo ?? binding?.repo ?? ".");
-        const selectedProfile =
-          requestedProfile ??
-          (binding?.repo === repo ? binding.profile : undefined);
-        if (!selectedProfile && options.json)
-          command.error("error: --profile is required in JSON mode");
-        const repository = await readRepository(repo);
-        const validation = validateRepository(repository);
-        if (!validation.valid)
-          throw new Error(
-            "Repository definitions are invalid; run validate for details",
-          );
-        const profileId =
-          selectedProfile ?? (await chooseProfile(repository.profiles));
-        if (!profileId) {
-          if (process.exitCode === 130) return;
-          command.error("error: --profile is required in non-interactive mode");
-        }
-        const profile = repository.profiles.find(
-          (item) => item.id === profileId,
+        const { repo, selectedProfile } = resolveProfileContext(
+          requestedRepo,
+          requestedProfile,
+          binding,
         );
-        if (!profile) throw new Error(`Unknown profile: ${profileId}`);
+        const selection = await selectProfile({
+          command,
+          repo,
+          selectedProfile,
+          json: Boolean(options.json),
+        });
+        if (!selection) return;
+        const { repository, profile } = selection;
         let localState: Awaited<ReturnType<typeof readSetupState>> = null;
         try {
           localState = await readSetupState(localSetupHome());

@@ -2,7 +2,7 @@
 
 [Quickstart](quickstart.md) · [CLI 验收](cli-acceptance.md) · [架构](architecture.md) · [开发](development.md) · [路线图](roadmap.md)
 
-Agent Stack 使用 Git checkout 保存共享配置与工作方法，CLI 读取该 checkout，提供声明校验、首次共享锁、setup、doctor 和 `run coding`。原生 macOS arm64/x64 支持完整 coding；macOS uv-only/Herdr-only 和 Windows x64 Herdr-only 也支持按锁安装或复用。其他系统的完整 coding、锁更新、离线解析和工具升级尚未实现。
+Agent Stack 使用 Git checkout 保存共享配置与工作方法，CLI 读取该 checkout，提供声明校验、首次共享锁、setup、doctor 和 `run coding`。已有 Pi 可通过 `stack/package.json` 原生安装 checkout 中的共享资源，无需 CLI。原生 macOS arm64/x64 支持完整 coding；macOS uv-only/Herdr-only 和 Windows x64 Herdr-only 也支持按锁安装或复用。其他系统的完整 coding、锁更新、离线解析和工具升级尚未实现。
 
 ## 目录职责
 

@@ -1,48 +1,30 @@
-# 从源码启动 coding
+# Quickstart
 
-在原生 macOS Apple Silicon 或 Intel 上，checkout 中的共享锁已经选定 Pi 1.5.2、Herdr 0.9.5、pnpm 12.15.0 和 uv 0.13.8。首次 setup 需要 Git、Node.js 24+、npm 11.12.1 和网络。CLI 自身用 pnpm 构建。
+首次配置已有 Pi 见 [README](../README.md#配置已有-pi)。`pi install` 将 local package 路径写入 Pi 原生 settings，不复制 checkout 内容；Pi 后续启动时读取 checkout。重复安装、启停资源、移除 package 由 `pi list`、`pi config`、`pi remove` 管理。package 声明三个 skills 与 Agent hook，不安装或更新其他 packages；用户配置的 `pi-mcp-adapter`、个人 skills、模型及凭证仍由 Pi 管理。
 
-## 构建并检查共享锁
+Agent hook 把共享约定追加到 Pi 已组装的 system prompt，保留 Pi 自身及用户已有指令。同一份约定已经在 prompt 中时不会再追加，兼容现有 `run coding` 的 Agent 参数。Pi 对相同资源路径的去重依赖 Pi 本身；同名但不同路径的 skills 由 Pi 的冲突规则处理。`dependency-layers` 不自动启用。
 
-PR 合入前，从包含该功能的分支获取源码。在终端运行：
+Herdr 官方状态扩展由 Herdr 或受管 setup 安装；本 package 不安装第二份扩展。
+
+若曾运行受管 setup，原先写入 settings 的三个 checkout skill 路径仍由原回执管理；Pi 1.1.0 对同一路径去重。原有 Herdr 扩展和受管 `run coding` 继续可用，无需移除或重新安装。迁移到不同 checkout 时，旧路径和新路径是不同资源：先用原受管 setup 迁移或手动检查原生 settings，再移除不再使用的路径，避免同名 skills 冲突。更换 local package 路径时，使用 `pi remove` 移除旧路径后再安装新路径。
+
+## 受管 coding
+
+在原生 macOS Apple Silicon 或 Intel 上，checkout 自带 Pi 1.5.2、Herdr 0.9.5、pnpm 12.15.0 和 uv 0.13.8 的双架构共享锁。首次 setup 需要 Git、Node.js 24+、npm 11.12.1 和网络。构建后：
 
 ```sh
-git clone --branch p0-final-acceptance https://github.com/ShawnDen-coder/agent-stack.git
-cd agent-stack
-node --version
-npm --version
 npm exec --yes --package=pnpm@12.15.0 -- pnpm install --frozen-lockfile --ignore-scripts
 npm run build
-export AGENT_STACK_REPO="$PWD"
-node "$AGENT_STACK_REPO/dist/cli.js" validate --repo "$AGENT_STACK_REPO" --lock
-```
-
-临时的构建用 pnpm 只在该 npm exec 子进程中进入 PATH。校验应显示 4 个部件、1 个集成、1 个 profile、2 个目标和 10 个资产。首次使用直接消费仓库中的锁。
-
-## 准备设备
-
-```sh
+node dist/cli.js validate --repo . --lock
 mkdir -p "$HOME/.agent-stack/bin"
 export PATH="$HOME/.agent-stack/bin:$PATH"
-node "$AGENT_STACK_REPO/dist/cli.js" setup --repo "$AGENT_STACK_REPO" --profile coding --dry-run
-node "$AGENT_STACK_REPO/dist/cli.js" setup --repo "$AGENT_STACK_REPO" --profile coding
-node "$AGENT_STACK_REPO/dist/cli.js" doctor --repo "$AGENT_STACK_REPO" --profile coding
+node dist/cli.js setup --repo . --profile coding --dry-run
+node dist/cli.js setup --repo . --profile coding
+node dist/cli.js doctor --repo . --profile coding
 ```
 
-先检查计划显示的路径与变更，再在 setup 中确认。工具经过锁定资产校验，Pi/Herdr 状态集成通过后才绑定当前 checkout。若报告发现用户自行安装的 Pi 或 pnpm，先查看计划中的路径。可使用独立的 shell PATH，仅提供受管 bin、已验证的 Node/npm、Git 及系统命令。原有安装无需卸载。运行模型的凭证由设备上的 Pi 管理。
+检查计划后在 setup 中确认。已有外部 Pi 或 pnpm 不会被接管，会阻塞完整 setup；如需受管安装，可在独立 shell PATH 中使用受管 bin、Node/npm、Git 和系统命令。原有安装无需卸载。在业务项目的 Herdr pane 中运行 `node /path/to/agent-stack/dist/cli.js run --repo /path/to/agent-stack coding --cwd "$PWD"`。
 
-## 在业务目录启动
+更新 checkout 并重新构建后，可重新预览和运行 setup。此前由项目导入的扩展声明、角色偏好、模型默认值与 Reui 项，仅在同一目标中仍与旧回执匹配时撤回；用户新增或改动的值和扩展安装目录保留。配置修改沿用备份与中断恢复流程。
 
-在同一个 shell 中切换到要工作的业务项目目录，运行 `herdr`。在它的活动 pane 中，确认 `pwd` 是业务目录，再执行：
-
-```sh
-node "$AGENT_STACK_REPO/dist/cli.js" run coding --cwd "$PWD"
-```
-
-Pi 从配置 checkout 加载 coding Agent 和 `shape`、`implement`、`verify`，在当前业务目录工作。若 pane 使用其他登录环境，请在其中重新设置上述两个环境变量，或直接使用配置 checkout 内 `dist/cli.js` 的绝对路径。
-
-## 从之前的配置迁移
-
-更新 checkout 并重新构建后，预览并运行 setup。新默认配置只引用三个项目 skills 与 Herdr 状态集成。对于此前由本项目导入的扩展声明、角色偏好、模型默认值与 Reui 项，setup 仅撤回同一目标路径中仍与旧回执匹配的部分。用户新增或改动的值和扩展安装目录留在设备上。配置修改沿用原有备份与中断恢复流程。若 checkout 中已有本地生成的 `stack/stack.lock.json` 阻止 Git 更新，先将旧锁另存以便比较，再更新 checkout；本版本使用随仓库提供的双架构锁。
-
-[架构与分工](architecture.md) · [锁的来源与更新](../test/fixtures/coding-lock/README.md) · [开发与分发](development.md) · [Windows x64 Herdr 单工具验收](herdr-windows-smoke.md)
+[架构与分工](architecture.md) · [锁的来源与更新](../test/fixtures/coding-lock/README.md) · [开发与分发](development.md)

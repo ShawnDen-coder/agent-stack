@@ -13,14 +13,12 @@ import {
 import { profileOption, shared } from "../adapters/options.js";
 import { cliNodeRequirement } from "../adapters/package-metadata.js";
 import {
-  chooseProfile,
   confirmSetup,
   failure,
   progress,
   setup,
   start,
 } from "../adapters/presentation.js";
-import { readRepository } from "../adapters/repository.js";
 import {
   recheckSetupBaseline,
   setupBaseline,
@@ -56,8 +54,8 @@ import {
   type SetupPlan,
   setupPlanSchema,
 } from "../core/setup-plan.js";
-import { validateRepository } from "../core/validate.js";
 import { validateLock } from "../core/validate-lock.js";
+import { resolveProfileContext, selectProfile } from "./profile-context.js";
 import { setupCoding } from "./setup-coding.js";
 
 export function createSetupCommand(): Command {
@@ -111,36 +109,26 @@ export function createSetupCommand(): Command {
       }
       const context = state?.defaultBinding ?? null;
       const binding = state?.installations.uv ?? null;
-      const repo = resolve(
-        options.repo ?? process.env.AGENT_STACK_REPO ?? context?.repo ?? ".",
+      const { repo, bound, selectedProfile } = resolveProfileContext(
+        options.repo ?? process.env.AGENT_STACK_REPO,
+        options.profile ?? process.env.AGENT_STACK_PROFILE,
+        context,
       );
-      const bound = context?.repo === repo ? context : null;
-      const selectedProfile =
-        options.profile ?? process.env.AGENT_STACK_PROFILE ?? bound?.profile;
       if (!selectedProfile && json)
         command.error("error: --profile is required in JSON mode");
       const controller = new AbortController();
       const interrupt = () => controller.abort();
       process.once("SIGINT", interrupt);
       try {
-        const repository = await readRepository(repo);
-        if (!validateRepository(repository).valid)
-          throw new Error(
-            "Repository definitions are invalid; run validate for details",
-          );
-        const profileId =
-          selectedProfile ?? (await chooseProfile(repository.profiles));
-        if (!profileId) {
-          if (process.exitCode === 130 || controller.signal.aborted) {
-            process.exitCode = 130;
-            return;
-          }
-          command.error("error: --profile is required in non-interactive mode");
-        }
-        const profile = repository.profiles.find(
-          (item) => item.id === profileId,
-        );
-        if (!profile) throw new Error(`Unknown profile: ${profileId}`);
+        const selection = await selectProfile({
+          command,
+          repo,
+          selectedProfile,
+          json,
+          signal: controller.signal,
+        });
+        if (!selection) return;
+        const { repository, profile, profileId } = selection;
         const boundLock = bound?.profile === profileId ? bound.lock : undefined;
         const path =
           options.lock !== undefined
