@@ -110,6 +110,47 @@ test("doctor help and profile errors are explicit", () => {
   assert.equal(result.status, 1);
   assert.match(JSON.parse(result.stdout).error, /Unknown profile/);
 });
+test("CLI help identifies the native Pi package entry", () => {
+  for (const args of [["--help"], ["--json", "--help"]]) {
+    const result = spawnSync(process.execPath, [cli, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0);
+    const help = args.includes("--json")
+      ? JSON.parse(result.stdout).output
+      : result.stdout;
+    assert.match(help, /pi install <checkout>\/stack, then run pi/);
+  }
+});
+test("setup rejects damaged state even with an explicit profile and repository", async (t) => {
+  const { root, bin } = await fixture(t);
+  const home = join(root, "home");
+  await mkdir(join(home, ".agent-stack"), { recursive: true });
+  const binding = join(home, ".agent-stack", "binding.json");
+  await writeFile(binding, "invalid JSON");
+  const result = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "setup",
+      "--repo",
+      root,
+      "--profile",
+      "coding",
+      "--dry-run",
+      "--json",
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: isolatedEnv(home, bin),
+      timeout: 15000,
+    },
+  );
+  assert.equal(result.status, 1);
+  assert.match(JSON.parse(result.stdout).error, /Invalid local setup state/);
+  assert.equal(await readFile(binding, "utf8"), "invalid JSON");
+});
 test("doctor rejects blank explicit context before reading state or running tools", async (t) => {
   const { root, bin } = await fixture(t);
   const home = join(root, "home");

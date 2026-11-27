@@ -1,0 +1,15 @@
+{
+  "name": "agent-stack-pi-resources",
+  "private": true,
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./configs/pi/extensions/coding-agent.ts"
+    ],
+    "skills": [
+      "./skills/shape",
+      "./skills/implement",
+      "./skills/verify"
+    ]
+  }
+}
