@@ -50,6 +50,7 @@ export async function verifyCodingRuntime(input: {
     socketPath = join(root, "s.sock");
   const probePath = join(root, "probe.json"),
     probeExtension = join(root, "probe.ts"),
+    probeTemporary = join(root, "probe.json.tmp"),
     shutdownPath = join(root, "shutdown.request");
   const sockets = new Set<Socket>();
   let session = false,
@@ -140,7 +141,7 @@ export async function verifyCodingRuntime(input: {
     // prompt, model credentials, sessions or user configuration leave the TUI.
     await writeFile(
       probeExtension,
-      `import {existsSync,writeFileSync} from "node:fs";
+      `import {existsSync,renameSync,writeFileSync} from "node:fs";
 export default function(pi) {
  let timer, reported=false, stopping=false;
  pi.on("session_start",(_event,ctx) => {
@@ -152,7 +153,7 @@ export default function(pi) {
    const required=${JSON.stringify(input.skills.map((path) => join(path, "SKILL.md")))};
    const skills=required.filter(path => commands.some(c => c.source === "skill" && c.sourceInfo?.path === path));
    const agent=ctx.getSystemPrompt().includes(${JSON.stringify(agentText.trim())});
-   if(skills.length === 3 && agent) {writeFileSync(${JSON.stringify(probePath)},JSON.stringify({tui:ctx.mode === "tui",agent,skills}));reported=true;}
+   if(skills.length === 3 && agent) {writeFileSync(${JSON.stringify(probeTemporary)},JSON.stringify({tui:ctx.mode === "tui",agent,skills}),{mode:0o600,flag:"wx"});renameSync(${JSON.stringify(probeTemporary)},${JSON.stringify(probePath)});reported=true;}
   },100);
  });
  pi.on("session_shutdown",()=>clearInterval(timer));
