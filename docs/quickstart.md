@@ -8,6 +8,26 @@ Herdr 官方状态扩展由 Herdr 或受管 setup 安装；本 package 不安装
 
 若曾运行受管 setup，原先写入 settings 的三个 checkout skill 路径仍由原回执管理；Pi 1.1.0 对同一路径去重。原有 Herdr 扩展和受管 `run coding` 继续可用，无需移除或重新安装。迁移到不同 checkout 时，旧路径和新路径是不同资源：先用原受管 setup 迁移或手动检查原生 settings，再移除不再使用的路径，避免同名 skills 冲突。更换 local package 路径时，使用 `pi remove` 移除旧路径后再安装新路径。
 
+## 可选：个人 skills 与 MCP
+
+以下是设备个人选择，不属于共享 package。在 Pi 全局 settings（默认 `~/.pi/agent/settings.json`）中，将以下成员**追加到各自已有数组**；没有数组时再创建。保留原有 settings、其他 skills、extensions 和 packages：
+
+```json
+{
+  "skills": ["~/.codex/skills"],
+  "extensions": ["-builtin:mcp"]
+}
+```
+
+`~/.agents/skills` 由 Pi 自动发现，无需重复添加；上述 `-builtin:mcp` 关闭 Pi 内建 MCP，以免与下述 adapter 竞争。只在新设备选择使用该 adapter、且尚未安装时执行：
+
+```sh
+pi install npm:pi-mcp-adapter@5.1.0
+pi list
+```
+
+模型尚未登录时，运行 `pi`，在 Pi 内输入 `/login` 并按提示认证。已有登录和插件无需重复配置。
+
 ## 受管 coding
 
 在原生 macOS Apple Silicon 或 Intel 上，checkout 自带 Pi 1.5.2、Herdr 0.9.5、pnpm 12.15.0 和 uv 0.13.8 的双架构共享锁。首次 setup 需要 Git、Node.js 24+、npm 11.12.1 和网络。构建后：
