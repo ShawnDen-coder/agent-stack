@@ -55,8 +55,8 @@ jobs:
           console.log(JSON.stringify({ packedFiles: files.length }));
           NODE
           npm install --prefix "$herdr_cli_dir" --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false "$herdr_pack_dir/"*.tgz
-          node --check "$herdr_cli_dir/node_modules/agent-stack/dist/cli.js"
-          printf 'HERDR_SMOKE_CLI=%s\n' "$herdr_cli_dir/node_modules/agent-stack/dist/cli.js" >> "$GITHUB_ENV"
+          node --check "$herdr_cli_dir/node_modules/.bin/agent-stack"
+          printf 'HERDR_SMOKE_CLI=%s\n' "$herdr_cli_dir/node_modules/.bin/agent-stack" >> "$GITHUB_ENV"
       - name: Install and exercise official Herdr
         shell: bash
         run: node scripts/smoke-herdr-macos.mjs --cli "$HERDR_SMOKE_CLI" --target "${{ matrix.target }}"

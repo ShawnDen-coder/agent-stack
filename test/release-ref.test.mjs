@@ -22,12 +22,15 @@ test("release gate binds tag, manifest, checkout and reviewed master history", (
       type: "git",
       url: "git+https://github.com/ShawnDen-coder/agent-stack.git",
     };
-    const manifest = (version, repository = validRepository) =>
+    const manifest = (version, repository = validRepository, overrides = {}) =>
       writeFileSync(
         join(cwd, "package.json"),
         `${JSON.stringify({
           version,
+          name: "@shawnden-coder/agent-stack",
+          publishConfig: { registry: "https://npm.pkg.github.com" },
           ...(repository === null ? {} : { repository }),
+          ...overrides,
         })}\n`,
       );
     manifest("1.2.3");
@@ -46,6 +49,15 @@ test("release gate binds tag, manifest, checkout and reviewed master history", (
     for (const tag of ["v1.2.3", "01.2.3", "1.2.3-01", "1.2.4", "1.2.3+build"])
       assert.notEqual(check(tag).status, 0);
     assert.notEqual(check("1.2.3", "0".repeat(40)).status, 0);
+    for (const overrides of [
+      { name: "agent-stack" },
+      { publishConfig: { registry: "https://registry.npmjs.org" } },
+    ]) {
+      manifest("1.2.3", validRepository, overrides);
+      const rejected = check("1.2.3");
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /GitHub Packages target/);
+    }
     for (const repository of [
       null,
       { type: "git", url: "git+https://github.com/other/agent-stack.git" },

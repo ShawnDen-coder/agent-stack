@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { registry } from "./lib/npm-release.mjs";
 
 const tag = process.env.RELEASE_TAG;
 const expected = process.env.EXPECTED_SHA;
@@ -36,11 +37,18 @@ const manifest = JSON.parse(readFileSync("package.json", "utf8"));
 if (manifest.version !== tag)
   throw new Error("Tag differs from package version");
 if (
+  manifest.name !== "@shawnden-coder/agent-stack" ||
+  manifest.publishConfig?.registry !== registry
+)
+  throw new Error(
+    "Package name and registry must match the GitHub Packages target",
+  );
+if (
   manifest.repository?.type !== "git" ||
   manifest.repository?.url !==
     "git+https://github.com/ShawnDen-coder/agent-stack.git"
 )
   throw new Error(
-    "Package repository must match the trusted publishing repository",
+    "Package repository must match the GitHub Packages repository",
   );
 console.log(expected);
