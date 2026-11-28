@@ -23,6 +23,11 @@ try {
   copyFileSync(source, destination);
   execFileSync(
     process.execPath,
+    ["scripts/publish-npm.mjs", "release/package.tgz", "--dry-run"],
+    { stdio: "inherit" },
+  );
+  execFileSync(
+    process.execPath,
     ["scripts/check-artifact.mjs", "write", destination],
     { stdio: "inherit" },
   );

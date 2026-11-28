@@ -37,7 +37,7 @@ jobs:
         run: node --check dist/cli.js
       - name: Verify npm package in isolation
         if: runner.os != 'Windows'
-        run: pnpm verify:package
+        run: node scripts/package-npm.mjs
       - name: Inspect npm package on Windows
         if: runner.os == 'Windows'
         run: npm pack --dry-run --ignore-scripts
