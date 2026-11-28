@@ -22,7 +22,7 @@ CLI 可校验 checkout 中的声明、创建共享锁和按锁准备受管工具
 
 ```sh
 npm login --scope=@shawnden-coder --auth-type=legacy --registry=https://npm.pkg.github.com
-npm install --global @shawnden-coder/agent-stack@0.1.0
+npm install --global @shawnden-coder/agent-stack@0.1.1
 agent-stack --version
 agent-stack validate --repo . --lock
 ```
