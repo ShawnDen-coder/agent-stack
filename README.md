@@ -1,6 +1,6 @@
 # Agent Stack
 
-Agent Stack 用 Git checkout 管理个人 Agent 的配置与工作方法。项目尚未发布，`UNLICENSED`；请使用源码 checkout，不要安装同名公开 npm 包。
+Agent Stack 用 Git checkout 管理个人 Agent 的配置与工作方法。可执行命令为 `agent-stack`，CLI 包使用 GitHub Packages 分发。项目许可为 `UNLICENSED`。
 
 ## 配置已有 Pi
 
@@ -18,7 +18,16 @@ Herdr 集成继续由 Herdr 原生安装或受管 setup 提供。迁移及重复
 
 ## CLI 与受管安装
 
-CLI 可校验声明、创建共享锁和按锁准备受管工具；使用已有 Pi 不需要构建 CLI。开发时运行 `pnpm install --frozen-lockfile`、`pnpm build` 和 `pnpm check`。
+CLI 可校验 checkout 中的声明、创建共享锁和按锁准备受管工具。使用 Node.js 24+ 和有包读取权限的 GitHub 账号安装首版。在登录提示中输入 GitHub 用户名，并用含 `read:packages` 权限的 personal access token (classic) 作为密码。[GitHub Packages 认证说明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#authenticating-to-github-packages)
+
+```sh
+npm login --scope=@shawnden-coder --auth-type=legacy --registry=https://npm.pkg.github.com
+npm install --global @shawnden-coder/agent-stack@0.1.0
+agent-stack --version
+agent-stack validate --repo . --lock
+```
+
+在上面克隆的仓库中运行 `validate`，也可以用 `--repo` 指向其他 checkout。
 
 完整 `setup --profile coding` 目前仅支持原生 macOS arm64/x64；已有外部 Pi 或 pnpm 会阻塞受管安装。`run coding` 要求受管环境和 Herdr pane。静态校验不等于工具运行验收。
 

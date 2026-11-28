@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { registryDecision } from "../scripts/lib/npm-release.mjs";
 
-test("registry release decisions fail closed except explicit 404", async () => {
+test("authenticated GitHub Packages lookup publishes missing versions and verifies retries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "registry-release-"));
   try {
     const tarball = join(dir, "package.tgz");
@@ -14,34 +14,45 @@ test("registry release decisions fail closed except explicit 404", async () => {
     await writeFile(tarball, contents);
     const integrity = `sha512-${createHash("sha512").update(contents).digest("base64")}`;
     const args = {
-      registry: "https://registry.npmjs.org/",
       name: "@scope/example",
       version: "1.2.3",
       tarball,
+      token: "test-token",
     };
     const query = (response) =>
-      registryDecision({ ...args, fetcher: async () => response });
+      registryDecision({
+        ...args,
+        fetcher: async (url, options) => {
+          assert.equal(url.href, "https://npm.pkg.github.com/@scope%2fexample");
+          assert.equal(options.headers.authorization, "Bearer test-token");
+          assert.equal(options.redirect, "error");
+          return response;
+        },
+      });
+    const published = (dist) =>
+      Response.json({
+        name: args.name,
+        versions: {
+          [args.version]: { name: args.name, version: args.version, dist },
+        },
+      });
+    await assert.rejects(
+      registryDecision({ ...args, token: undefined }),
+      /NODE_AUTH_TOKEN/,
+    );
     assert.equal(await query(new Response(null, { status: 404 })), "publish");
     assert.equal(
       await query(
-        Response.json({
-          name: args.name,
-          version: args.version,
-          dist: { integrity },
-        }),
+        Response.json({ name: args.name, versions: { "1.2.2": {} } }),
       ),
-      "skip",
+      "publish",
     );
+    assert.equal(await query(published({ integrity })), "skip");
     await assert.rejects(
-      query(
-        Response.json({
-          name: args.name,
-          version: args.version,
-          dist: { integrity: "sha512-different" },
-        }),
-      ),
+      query(published({ integrity: "sha512-different" })),
       /integrity differs/,
     );
+    await assert.rejects(query(published({})), /invalid/);
     await assert.rejects(
       query(Response.json({ name: args.name, version: args.version })),
       /invalid/,

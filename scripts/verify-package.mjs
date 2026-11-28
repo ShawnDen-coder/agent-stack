@@ -69,6 +69,8 @@ try {
       "utf8",
     ),
   );
+  assert.equal(installedManifest.name, manifest.name);
+  assert.deepEqual(installedManifest.publishConfig, manifest.publishConfig);
   assert.deepEqual(installedManifest.repository, manifest.repository);
   assert.equal(
     installedManifest.repository?.url,

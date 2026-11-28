@@ -1,8 +1,11 @@
 {
-  "name": "agent-stack",
+  "name": "@shawnden-coder/agent-stack",
   "version": "0.1.0",
   "description": "My personal agent stack for one-command setup, reusable skills, and custom agents.",
   "license": "UNLICENSED",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShawnDen-coder/agent-stack.git"
