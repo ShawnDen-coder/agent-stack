@@ -89,7 +89,8 @@ foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIde
             TEMP: temporary,
             TMP: temporary,
           },
-          timeout: 5000,
+          // Allow for cold Windows PowerShell startup, as in the host probe.
+          timeout: 30000,
           maxBuffer: 4096,
           killSignal: "SIGKILL",
           windowsHide: true,
